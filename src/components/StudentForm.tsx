@@ -8,6 +8,7 @@ const SUBJECT_ON: Record<string, string> = {
   국어: "bg-rose-50 text-rose-700 ring-rose-300",
   영어: "bg-sky-50 text-sky-700 ring-sky-300",
   수학: "bg-emerald-50 text-emerald-700 ring-emerald-300",
+  스포츠: "bg-amber-50 text-amber-700 ring-amber-300",
 };
 
 type Props = {

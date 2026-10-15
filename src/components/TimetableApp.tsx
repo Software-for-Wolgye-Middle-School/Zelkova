@@ -18,7 +18,7 @@ import {
 } from "@/lib/timetable";
 import { LockIcon } from "./icons";
 import { DEFAULT_TEMPLATE_URL, type SlotState } from "./steps";
-import { loadRows, saveRows, SUBJECTS, validateRows, type StudentRow } from "./students";
+import { DEFAULT_SUBJECTS, loadRows, saveRows, validateRows, type StudentRow } from "./students";
 import { cleanSettings, loadSettings, saveSettings, validateSettings } from "./settings";
 import UploadWizard from "./UploadWizard";
 import GeneratingScreen from "./GeneratingScreen";
@@ -61,7 +61,7 @@ const MIN_STAGE_MS = 600;
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** 서버에서 미리 그린 화면과 맞도록 첫 줄은 고정된 id 로 시작 */
-const INITIAL_ROWS: StudentRow[] = [{ id: "initial", grade: "1", cls: "", name: "", subjects: [...SUBJECTS] }];
+const INITIAL_ROWS: StudentRow[] = [{ id: "initial", grade: "1", cls: "", name: "", subjects: [...DEFAULT_SUBJECTS] }];
 
 let templateRequest: Promise<ArrayBuffer> | null = null;
 

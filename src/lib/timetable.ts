@@ -12,7 +12,7 @@ import JSZip from "jszip";
 import * as XLSX from "xlsx";
 
 export const DAYS = ["월", "화", "수", "목", "금"] as const;
-const SUBJECT_ORDER = ["국어", "영어", "수학"];
+const SUBJECT_ORDER = ["국어", "영어", "수학", "스포츠"];
 const FONT = "맑은 고딕";
 const FONT_SIZE_HALF_PT = 18; // 9pt
 const PERSONAL_FONT_SIZE_HALF_PT = 26; // 학생별 시간표의 과목명 13pt

@@ -11,6 +11,7 @@ const SUBJECT_STYLES: Record<string, string> = {
   국어: "bg-rose-50 text-rose-700 ring-rose-200",
   영어: "bg-sky-50 text-sky-700 ring-sky-200",
   수학: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+  스포츠: "bg-amber-50 text-amber-700 ring-amber-200",
 };
 const subjectStyle = (s: string) => SUBJECT_STYLES[s] ?? "bg-slate-50 text-slate-700 ring-slate-200";
 
