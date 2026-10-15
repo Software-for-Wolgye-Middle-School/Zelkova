@@ -16,7 +16,6 @@ import {
   type Student,
   type TemplateSettings,
 } from "@/lib/timetable";
-import { LockIcon } from "./icons";
 import { DEFAULT_TEMPLATE_URL, type SlotState } from "./steps";
 import { DEFAULT_SUBJECTS, loadRows, saveRows, validateRows, type StudentRow } from "./students";
 import { cleanSettings, loadSettings, saveSettings, validateSettings } from "./settings";
@@ -24,6 +23,7 @@ import UploadWizard from "./UploadWizard";
 import GeneratingScreen from "./GeneratingScreen";
 import ResultView from "./ResultView";
 import Landing from "./Landing";
+import PromiseBoardApp from "./PromiseBoardApp";
 
 export type StudentDoc = { key: string; student: Student; blob: Blob; fileName: string; hours: number };
 
@@ -54,7 +54,7 @@ function studentFileNames(students: Student[], term: string) {
   });
 }
 
-type Phase = "home" | "upload" | "generating" | "result";
+type Phase = "home" | "upload" | "generating" | "result" | "promise";
 
 /** 각 단계가 너무 빨리 지나가 깜빡이지 않도록 최소 표시 시간 */
 const MIN_STAGE_MS = 600;
@@ -229,6 +229,10 @@ export default function TimetableApp() {
     }
   }, [classSlot, students, studentErrors, settings, settingsErrors]);
 
+  const isTimetable = phase === "upload" || phase === "generating" || phase === "result";
+  /** 시간표 메뉴: 만든 결과가 있으면 결과 화면으로, 없으면 입력 단계로 */
+  const openTimetable = useCallback(() => setPhase(result ? "result" : "upload"), [result]);
+
   /** 기본 정보와 학생 목록은 저장해 두고, 학급 시간표만 비운 채 처음 단계로 */
   const restart = useCallback(() => {
     uploadToken.current++;
@@ -254,17 +258,34 @@ export default function TimetableApp() {
               <span className="rounded-[2px] bg-white/50" />
               <span className="rounded-[2px] bg-white/90" />
             </span>
-            <span className="text-[15px] font-semibold tracking-tight text-slate-900">특수학급 시간표 생성기</span>
+            <span className="hidden text-[15px] font-semibold tracking-tight text-slate-900 sm:inline">느티나무 교실 도우미</span>
           </button>
-          <span className="hidden items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600 sm:inline-flex">
-            <LockIcon className="h-3.5 w-3.5" />
-            입력한 정보는 이 컴퓨터 밖으로 전송되지 않아요
-          </span>
+          <nav aria-label="메뉴" className="flex items-center gap-1">
+            {(
+              [
+                ["timetable", "시간표 만들기", isTimetable],
+                ["promise", "약속판 만들기", phase === "promise"],
+              ] as const
+            ).map(([key, label, active]) => (
+              <button
+                key={key}
+                type="button"
+                disabled={phase === "generating"}
+                aria-current={active ? "page" : undefined}
+                onClick={() => (key === "promise" ? setPhase("promise") : openTimetable())}
+                className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                  active ? "bg-indigo-50 text-indigo-700" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </nav>
         </div>
       </header>
 
       {phase === "home" ? (
-        <Landing onStart={() => setPhase("upload")} />
+        <Landing onStartTimetable={openTimetable} onStartPromise={() => setPhase("promise")} />
       ) : (
         <>
           <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8 sm:px-6 sm:py-12">
@@ -291,9 +312,14 @@ export default function TimetableApp() {
             )}
             {phase === "generating" && <GeneratingScreen stage={stage} />}
             {phase === "result" && result && <ResultView result={result} onRestart={restart} />}
+            {phase === "promise" && <PromiseBoardApp />}
           </main>
 
-          <footer className="px-4 pb-6 text-center text-xs text-slate-400">모든 처리는 브라우저 안에서 이루어집니다.</footer>
+          <footer className="px-4 pb-6 text-center text-xs text-slate-400">
+            {phase === "promise"
+              ? "약속판을 그릴 때 이름과 날짜만 Gemini로 보내요."
+              : "시간표는 이 컴퓨터의 브라우저 안에서만 만들어져요. 입력한 정보는 밖으로 전송되지 않아요."}
+          </footer>
         </>
       )}
     </div>
