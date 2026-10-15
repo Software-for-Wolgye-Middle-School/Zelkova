@@ -1,0 +1,96 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f6f7fb;
+  --foreground: #1e2333;
+  color-scheme: light;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Malgun Gothic", "맑은 고딕",
+    system-ui, sans-serif;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  word-break: keep-all;
+}
+
+/* ---------- 생성 중 화면: 시간표 칸이 차례로 채워지는 애니메이션 ---------- */
+@keyframes cell-fill {
+  0%,
+  8% {
+    opacity: 0.15;
+    transform: scale(0.85);
+  }
+  22%,
+  70% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  88%,
+  100% {
+    opacity: 0.15;
+    transform: scale(0.85);
+  }
+}
+.cell-fill {
+  animation: cell-fill 2.8s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+.shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+  animation: shimmer 1.6s infinite;
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.fade-up {
+  animation: fade-up 0.35s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cell-fill,
+  .shimmer::after,
+  .fade-up {
+    animation: none;
+  }
+  .cell-fill {
+    opacity: 1;
+  }
+}
+
+/* ---------- docx-preview 결과 정리 ---------- */
+.docx-host .docx-wrapper {
+  background: transparent;
+  padding: 0;
+  align-items: center;
+}
+.docx-host .docx-wrapper > section.docx {
+  margin-bottom: 0;
+  box-shadow:
+    0 1px 2px rgba(30, 35, 51, 0.06),
+    0 8px 24px rgba(30, 35, 51, 0.08);
+  border-radius: 4px;
+}
