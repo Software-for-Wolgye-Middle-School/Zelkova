@@ -14,6 +14,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           rel="stylesheet"
           href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css"
         />
+        {/* 나와의 약속판에 쓰는 둥근 글꼴 (SVG 안에서 'Jua' 이름 그대로 써야 해서 next/font 대신 링크 사용) */}
+        {/* eslint-disable-next-line @next/next/no-page-custom-font -- 루트 레이아웃이라 모든 화면에 적용됨 */}
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap" />
       </head>
       <body className="min-h-full flex flex-col">{children}</body>
     </html>

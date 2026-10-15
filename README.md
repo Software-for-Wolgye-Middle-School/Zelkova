@@ -39,14 +39,15 @@ npm run dev      # http://localhost:3000
 
 ## 나와의 약속판
 
-상단 메뉴 또는 메인 화면의 `나와의 약속판 만들기` → 이름과 연 · 월 선택 → `약속판 생성하기`.
-서버(`src/app/api/promise-board/route.ts`)가 Gemini 이미지 모델에 참고 이미지와 이름 · 날짜를 보내
-같은 형식의 약속판 그림(JPG)을 받아옵니다. 시간표와 달리 이름과 날짜는 Gemini 로 전송됩니다.
+메인 화면의 `나와의 약속판 만들기` → 이름과 연 · 월 선택 → 미리보기 확인 → `그림 파일로 저장 (PNG)` 또는 `인쇄 · PDF로 저장`.
 
-설정
+- 앱이 약속판을 SVG로 직접 그립니다 (`src/lib/promiseBoardSvg.ts`). 무료이고, 날짜와 이름이 항상 정확합니다.
+- 글꼴은 Google Fonts 의 Jua 를 쓰며, 저장할 때 약속판에 쓰인 글자만 담은 글꼴을 그림 안에 넣습니다.
 
-1. `.env.example` 을 `.env.local` 로 복사하고 `GEMINI_API_KEY` 를 넣은 뒤 서버를 다시 시작합니다.
+### (선택) Gemini AI 그림
+
+미리보기 아래 `Gemini AI 그림으로 만들기` 는 서버(`src/app/api/promise-board/route.ts`)가 Gemini 이미지 모델로 그림을 받아옵니다.
+Gemini 이미지 모델은 무료 등급에서 쓸 수 없으므로 결제(유료 등급)를 연결한 API 키가 필요합니다. 이름과 날짜가 Gemini 로 전송됩니다.
+
+1. `.env.example` 을 `.env.local` 로 복사하고 `GEMINI_API_KEY` 를 넣은 뒤 서버를 다시 시작합니다. (`.env.example` 에는 키를 넣지 마세요)
 2. 형식을 맞출 참고 이미지를 `public/templates/promise-board-reference.png` (또는 .jpg/.webp) 로 저장합니다.
-   이 파일이 없으면 프롬프트의 디자인 설명만으로 그립니다.
-
-AI 가 그린 그림이므로 날짜나 글자가 틀릴 수 있습니다. 화면의 달력과 비교하고, 틀리면 `다시 생성` 하세요.
