@@ -229,7 +229,6 @@ export default function TimetableApp() {
     }
   }, [classSlot, students, studentErrors, settings, settingsErrors]);
 
-  const isTimetable = phase === "upload" || phase === "generating" || phase === "result";
   /** 시간표 메뉴: 만든 결과가 있으면 결과 화면으로, 없으면 입력 단계로 */
   const openTimetable = useCallback(() => setPhase(result ? "result" : "upload"), [result]);
 
@@ -258,29 +257,8 @@ export default function TimetableApp() {
               <span className="rounded-[2px] bg-white/50" />
               <span className="rounded-[2px] bg-white/90" />
             </span>
-            <span className="hidden text-[15px] font-semibold tracking-tight text-slate-900 sm:inline">느티나무 교실 도우미</span>
+            <span className="text-[15px] font-semibold tracking-tight text-slate-900">느티나무 교실 도우미</span>
           </button>
-          <nav aria-label="메뉴" className="flex items-center gap-1">
-            {(
-              [
-                ["timetable", "시간표 만들기", isTimetable],
-                ["promise", "약속판 만들기", phase === "promise"],
-              ] as const
-            ).map(([key, label, active]) => (
-              <button
-                key={key}
-                type="button"
-                disabled={phase === "generating"}
-                aria-current={active ? "page" : undefined}
-                onClick={() => (key === "promise" ? setPhase("promise") : openTimetable())}
-                className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
-                  active ? "bg-indigo-50 text-indigo-700" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </nav>
         </div>
       </header>
 
