@@ -23,6 +23,7 @@ import { cleanSettings, loadSettings, saveSettings, validateSettings } from "./s
 import UploadWizard from "./UploadWizard";
 import GeneratingScreen from "./GeneratingScreen";
 import ResultView from "./ResultView";
+import Landing from "./Landing";
 
 export type StudentDoc = { key: string; student: Student; blob: Blob; fileName: string; hours: number };
 
@@ -53,7 +54,7 @@ function studentFileNames(students: Student[], term: string) {
   });
 }
 
-type Phase = "upload" | "generating" | "result";
+type Phase = "home" | "upload" | "generating" | "result";
 
 /** 각 단계가 너무 빨리 지나가 깜빡이지 않도록 최소 표시 시간 */
 const MIN_STAGE_MS = 600;
@@ -83,7 +84,7 @@ function loadDefaultTemplate() {
 }
 
 export default function TimetableApp() {
-  const [phase, setPhase] = useState<Phase>("upload");
+  const [phase, setPhase] = useState<Phase>("home");
   const [step, setStep] = useState(0);
   const [rows, setRows] = useState<StudentRow[]>(INITIAL_ROWS);
   const [settings, setSettings] = useState<TemplateSettings | null>(null);
@@ -243,7 +244,8 @@ export default function TimetableApp() {
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-3.5 sm:px-6">
           <button
             type="button"
-            onClick={phase === "generating" ? undefined : restart}
+            onClick={phase === "generating" ? undefined : () => setPhase("home")}
+            aria-label="메인 화면으로"
             className="flex items-center gap-2.5 rounded-lg text-left focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-indigo-500"
           >
             <span className="grid h-8 w-8 grid-cols-2 gap-0.5 rounded-lg bg-indigo-600 p-1.5" aria-hidden="true">
@@ -261,33 +263,39 @@ export default function TimetableApp() {
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8 sm:px-6 sm:py-12">
-        {phase === "upload" && (
-          <UploadWizard
-            step={step}
-            onStepChange={setStep}
-            settings={settings}
-            defaults={defaults}
-            settingsLoadError={settingsLoadError}
-            onSettingsChange={changeSettings}
-            settingsErrors={settingsErrors}
-            rows={rows}
-            onRowsChange={changeRows}
-            studentErrors={studentErrors}
-            studentCount={students.length}
-            classSlot={classSlot}
-            onFile={handleFile}
-            onClear={clearFile}
-            onGenerate={generate}
-            error={genError}
-            onDismissError={() => setGenError(null)}
-          />
-        )}
-        {phase === "generating" && <GeneratingScreen stage={stage} />}
-        {phase === "result" && result && <ResultView result={result} onRestart={restart} />}
-      </main>
+      {phase === "home" ? (
+        <Landing onStart={() => setPhase("upload")} />
+      ) : (
+        <>
+          <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8 sm:px-6 sm:py-12">
+            {phase === "upload" && (
+              <UploadWizard
+                step={step}
+                onStepChange={setStep}
+                settings={settings}
+                defaults={defaults}
+                settingsLoadError={settingsLoadError}
+                onSettingsChange={changeSettings}
+                settingsErrors={settingsErrors}
+                rows={rows}
+                onRowsChange={changeRows}
+                studentErrors={studentErrors}
+                studentCount={students.length}
+                classSlot={classSlot}
+                onFile={handleFile}
+                onClear={clearFile}
+                onGenerate={generate}
+                error={genError}
+                onDismissError={() => setGenError(null)}
+              />
+            )}
+            {phase === "generating" && <GeneratingScreen stage={stage} />}
+            {phase === "result" && result && <ResultView result={result} onRestart={restart} />}
+          </main>
 
-      <footer className="px-4 pb-6 text-center text-xs text-slate-400">모든 처리는 브라우저 안에서 이루어집니다.</footer>
+          <footer className="px-4 pb-6 text-center text-xs text-slate-400">모든 처리는 브라우저 안에서 이루어집니다.</footer>
+        </>
+      )}
     </div>
   );
 }

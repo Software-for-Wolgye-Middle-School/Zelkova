@@ -81,6 +81,131 @@ body {
   }
 }
 
+/* ---------- 메인 화면: 햇빛과 바람, 흔들리는 느티나무 ---------- */
+.scene-sway {
+  transform-box: view-box;
+  transform-origin: 722px 790px;
+  animation: scene-sway 9s ease-in-out infinite;
+}
+.scene-sway-branches {
+  animation-name: scene-sway-soft;
+}
+.scene-sway-mid {
+  animation-delay: -0.35s;
+}
+.scene-sway-front {
+  animation-name: scene-sway-front;
+  animation-delay: -0.7s;
+}
+@keyframes scene-sway {
+  0%, 100% { transform: rotate(-0.7deg); }
+  25% { transform: rotate(0.8deg); }
+  45% { transform: rotate(0.15deg); }
+  70% { transform: rotate(1.25deg); }
+  85% { transform: rotate(0.35deg); }
+}
+@keyframes scene-sway-soft {
+  0%, 100% { transform: rotate(-0.35deg); }
+  25% { transform: rotate(0.4deg); }
+  45% { transform: rotate(0.1deg); }
+  70% { transform: rotate(0.6deg); }
+  85% { transform: rotate(0.2deg); }
+}
+@keyframes scene-sway-front {
+  0%, 100% { transform: rotate(-0.8deg) translateX(0); }
+  25% { transform: rotate(0.9deg) translateX(3px); }
+  45% { transform: rotate(0.2deg) translateX(1px); }
+  70% { transform: rotate(1.45deg) translateX(5px); }
+  85% { transform: rotate(0.45deg) translateX(2px); }
+}
+.scene-shimmer {
+  animation: scene-shimmer 4s ease-in-out infinite alternate;
+}
+@keyframes scene-shimmer {
+  from { opacity: 0.35; }
+  to { opacity: 0.95; }
+}
+.scene-sun-glow {
+  transform-box: view-box;
+  transform-origin: 230px 170px;
+  animation: scene-glow 7s ease-in-out infinite;
+}
+@keyframes scene-glow {
+  0%, 100% { opacity: 0.8; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.07); }
+}
+.scene-sun-rays {
+  transform-box: view-box;
+  transform-origin: 230px 170px;
+  animation: scene-spin 120s linear infinite;
+}
+@keyframes scene-spin {
+  to { transform: rotate(360deg); }
+}
+.scene-beams {
+  animation: scene-beams 10s ease-in-out infinite;
+}
+@keyframes scene-beams {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+.scene-cloud {
+  animation: scene-cloud linear infinite;
+}
+@keyframes scene-cloud {
+  from { transform: translateX(-250px); }
+  to { transform: translateX(1700px); }
+}
+.scene-wind {
+  stroke-dasharray: 180 2400;
+  stroke-dashoffset: 180;
+  opacity: 0;
+  animation: scene-wind 9s ease-in-out infinite;
+}
+@keyframes scene-wind {
+  0% { stroke-dashoffset: 180; opacity: 0; }
+  15% { opacity: 0.65; }
+  70% { opacity: 0.45; }
+  100% { stroke-dashoffset: -1700; opacity: 0; }
+}
+.scene-leaf {
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+  animation: scene-leaf linear infinite;
+}
+@keyframes scene-leaf {
+  0% { transform: translate(0, 0) rotate(0deg); opacity: 0; }
+  8% { opacity: 1; }
+  50% { transform: translate(260px, 150px) rotate(260deg); }
+  90% { opacity: 0.85; }
+  100% { transform: translate(560px, 340px) rotate(560deg); opacity: 0; }
+}
+.scene-grass {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  animation: scene-grass 3.6s ease-in-out infinite alternate;
+}
+@keyframes scene-grass {
+  from { transform: skewX(-7deg); }
+  to { transform: skewX(5deg); }
+}
+.scene-flecks > * {
+  animation: scene-fleck 5s ease-in-out infinite alternate;
+}
+.scene-flecks > :nth-child(2) { animation-delay: -1.7s; }
+.scene-flecks > :nth-child(3) { animation-delay: -3.1s; }
+@keyframes scene-fleck {
+  from { opacity: 0.1; }
+  to { opacity: 0.35; }
+}
+@media (prefers-reduced-motion: reduce) {
+  [class*="scene-"],
+  .scene-flecks > * {
+    animation: none !important;
+  }
+}
+
 /* ---------- docx-preview 결과 정리 ---------- */
 .docx-host .docx-wrapper {
   background: transparent;
