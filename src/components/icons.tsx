@@ -101,6 +101,29 @@ export const XIcon = (p: P) => (
   </Base>
 );
 
+export const PlusIcon = (p: P) => (
+  <Base {...p}>
+    <path d="M12 5v14" />
+    <path d="M5 12h14" />
+  </Base>
+);
+
+export const TrashIcon = (p: P) => (
+  <Base {...p}>
+    <path d="M4 7h16" />
+    <path d="M10 11v6M14 11v6" />
+    <path d="M6 7l1 13h10l1-13" />
+    <path d="M9 7V4h6v3" />
+  </Base>
+);
+
+export const PencilIcon = (p: P) => (
+  <Base {...p}>
+    <path d="M4 20h4L19 9l-4-4L4 16v4Z" />
+    <path d="m13.5 6.5 4 4" />
+  </Base>
+);
+
 export const Spinner = ({ className = "", ...p }: P) => (
   <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className={`animate-spin ${className}`} {...p}>
     <circle cx="12" cy="12" r="9" stroke="currentColor" strokeOpacity="0.2" strokeWidth="3" />

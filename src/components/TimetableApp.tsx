@@ -1,17 +1,19 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   buildSchedule,
   fillTemplate,
+  inspectClassTimetables,
+  inspectTemplate,
   readClassTimetables,
-  readStudents,
   TimetableError,
   type Schedule,
   type Student,
 } from "@/lib/timetable";
 import { LockIcon } from "./icons";
-import { UPLOAD_STEPS, type SlotState } from "./steps";
+import { DEFAULT_TEMPLATE_URL, type SlotState } from "./steps";
+import { loadRows, saveRows, SUBJECTS, validateRows, type StudentRow } from "./students";
 import UploadWizard from "./UploadWizard";
 import GeneratingScreen, { GENERATING_STAGES } from "./GeneratingScreen";
 import ResultView from "./ResultView";
@@ -32,43 +34,70 @@ type Phase = "upload" | "generating" | "result";
 const MIN_STAGE_MS = 600;
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** 서버에서 미리 그린 화면과 맞도록 첫 줄은 고정된 id 로 시작 */
+const INITIAL_ROWS: StudentRow[] = [{ id: "initial", grade: "1", cls: "", name: "", subjects: [...SUBJECTS] }];
+
+async function loadDefaultTemplate() {
+  let res: Response;
+  try {
+    res = await fetch(DEFAULT_TEMPLATE_URL);
+  } catch {
+    throw new TimetableError("기본 시간표 양식을 불러오지 못했습니다. 인터넷 연결을 확인한 뒤 다시 시도해 주세요.");
+  }
+  if (!res.ok) throw new TimetableError("기본 시간표 양식 파일을 찾을 수 없습니다.");
+  return res.arrayBuffer();
+}
+
 export default function TimetableApp() {
   const [phase, setPhase] = useState<Phase>("upload");
   const [step, setStep] = useState(0);
-  const [slots, setSlots] = useState<SlotState[]>(() => UPLOAD_STEPS.map(() => ({ status: "empty" })));
+  const [rows, setRows] = useState<StudentRow[]>(INITIAL_ROWS);
+  const [classSlot, setClassSlot] = useState<SlotState>({ status: "empty" });
   const [stage, setStage] = useState(0);
   const [genError, setGenError] = useState<string | null>(null);
   const [result, setResult] = useState<GenerationResult | null>(null);
-  const uploadTokens = useRef<number[]>(UPLOAD_STEPS.map(() => 0));
+  const uploadToken = useRef(0);
 
-  const handleFile = useCallback(async (index: number, file: File) => {
-    const token = ++uploadTokens.current[index];
+  // 지난번에 입력한 학생 목록 불러오기
+  useEffect(() => {
+    const saved = loadRows();
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage 는 브라우저에서만 읽을 수 있음
+    if (saved) setRows(saved);
+  }, []);
+
+  const changeRows = useCallback((next: StudentRow[]) => {
+    setRows(next);
+    saveRows(next);
+  }, []);
+
+  const { students, errors: studentErrors } = useMemo(() => validateRows(rows), [rows]);
+
+  const handleFile = useCallback(async (file: File) => {
+    const token = ++uploadToken.current;
     setGenError(null);
-    setSlots((s) => s.map((x, i) => (i === index ? { status: "checking", file } : x)));
+    setClassSlot({ status: "checking", file });
     let next: SlotState;
     try {
       const [buf] = await Promise.all([file.arrayBuffer(), delay(350)]);
-      const check = await UPLOAD_STEPS[index].inspect(buf);
-      next = { status: "ready", file, buf, check };
+      next = { status: "ready", file, buf, ...inspectClassTimetables(buf) };
     } catch (e) {
       const message =
         e instanceof TimetableError ? e.message : "파일을 확인하는 중 문제가 생겼습니다. 다른 파일로 다시 시도해 주세요.";
       if (!(e instanceof TimetableError)) console.error(e);
       next = { status: "error", file, message };
     }
-    if (token !== uploadTokens.current[index]) return; // 그 사이 다른 파일을 올린 경우
-    setSlots((s) => s.map((x, i) => (i === index ? next : x)));
+    if (token !== uploadToken.current) return; // 그 사이 다른 파일을 올린 경우
+    setClassSlot(next);
   }, []);
 
-  const clearFile = useCallback((index: number) => {
-    uploadTokens.current[index]++;
-    setSlots((s) => s.map((x, i) => (i === index ? { status: "empty" } : x)));
+  const clearFile = useCallback(() => {
+    uploadToken.current++;
+    setClassSlot({ status: "empty" });
   }, []);
 
   const generate = useCallback(async () => {
-    const ready = slots.filter((s) => s.status === "ready");
-    if (ready.length !== UPLOAD_STEPS.length) return;
-    const [template, studentsFile, classesFile] = ready;
+    if (classSlot.status !== "ready" || students.length === 0 || studentErrors.size > 0) return;
+    const classBuf = classSlot.buf;
 
     const runStage = async <T,>(i: number, fn: () => T | Promise<T>): Promise<T> => {
       setStage(i);
@@ -80,16 +109,19 @@ export default function TimetableApp() {
     setStage(0);
     setPhase("generating");
     try {
-      const { students, classTt } = await runStage(0, () => ({
-        students: readStudents(studentsFile.buf),
-        classTt: readClassTimetables(classesFile.buf),
+      const { classTt, template } = await runStage(0, async () => ({
+        classTt: readClassTimetables(classBuf),
+        template: await loadDefaultTemplate(),
       }));
       const { schedule, warnings } = await runStage(1, () => buildSchedule(classTt, students));
-      const { blob, notes } = await runStage(2, () => fillTemplate(template.buf, schedule));
+      const { blob, notes, title } = await runStage(2, async () => ({
+        ...(await fillTemplate(template, schedule)),
+        title: (await inspectTemplate(template)).title,
+      }));
       await runStage(GENERATING_STAGES.length - 1, () => undefined);
       setResult({
         blob,
-        title: template.check.title || "특수학급 시간표",
+        title: title || "특수학급 시간표",
         schedule,
         students,
         classCount: classTt.size,
@@ -100,15 +132,16 @@ export default function TimetableApp() {
     } catch (e) {
       if (!(e instanceof TimetableError)) console.error(e);
       setGenError(
-        e instanceof TimetableError ? e.message : "시간표를 만드는 중 예상하지 못한 문제가 생겼습니다. 파일을 확인한 뒤 다시 시도해 주세요.",
+        e instanceof TimetableError ? e.message : "시간표를 만드는 중 예상하지 못한 문제가 생겼습니다. 입력 내용을 확인한 뒤 다시 시도해 주세요.",
       );
       setPhase("upload");
     }
-  }, [slots]);
+  }, [classSlot, students, studentErrors]);
 
+  /** 학생 목록은 저장해 두고, 학급 시간표만 비운 채 처음 단계로 */
   const restart = useCallback(() => {
-    uploadTokens.current = uploadTokens.current.map((t) => t + 1);
-    setSlots(UPLOAD_STEPS.map(() => ({ status: "empty" })));
+    uploadToken.current++;
+    setClassSlot({ status: "empty" });
     setResult(null);
     setStep(0);
     setPhase("upload");
@@ -133,7 +166,7 @@ export default function TimetableApp() {
           </button>
           <span className="hidden items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600 sm:inline-flex">
             <LockIcon className="h-3.5 w-3.5" />
-            파일은 이 컴퓨터 밖으로 전송되지 않아요
+            입력한 정보는 이 컴퓨터 밖으로 전송되지 않아요
           </span>
         </div>
       </header>
@@ -143,7 +176,11 @@ export default function TimetableApp() {
           <UploadWizard
             step={step}
             onStepChange={setStep}
-            slots={slots}
+            rows={rows}
+            onRowsChange={changeRows}
+            studentErrors={studentErrors}
+            studentCount={students.length}
+            classSlot={classSlot}
             onFile={handleFile}
             onClear={clearFile}
             onGenerate={generate}
@@ -155,9 +192,7 @@ export default function TimetableApp() {
         {phase === "result" && result && <ResultView result={result} onRestart={restart} />}
       </main>
 
-      <footer className="px-4 pb-6 text-center text-xs text-slate-400">
-        모든 처리는 브라우저 안에서 이루어집니다.
-      </footer>
+      <footer className="px-4 pb-6 text-center text-xs text-slate-400">모든 처리는 브라우저 안에서 이루어집니다.</footer>
     </div>
   );
 }

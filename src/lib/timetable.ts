@@ -2,9 +2,9 @@
  * 특수학급 시간표 자동 생성 로직 (timetable.py 의 브라우저용 TypeScript 포팅)
  *
  * 입력
- *  1) 특수학급 시간표 템플릿 워드(.docx) — '월 화 수 목 금' 머리행이 있는 표
- *  2) 특수학생 정보 엑셀 — 헤더: 학년 | 반 | 이름 | 수강 과목
- *  3) 학급 시간표 엑셀 — A열 "1 - 1" 제목, 그 아래 1교시~7교시 행, B~F열 = 월~금 ("과목\n선생님")
+ *  1) 특수학생 정보 — 화면에서 직접 입력 (학년 · 반 · 이름 · 수강 과목)
+ *  2) 학급 시간표 엑셀 — A열 "1 - 1" 제목, 그 아래 1교시~7교시 행, B~F열 = 월~금 ("과목\n선생님")
+ *  3) 특수학급 시간표 템플릿 워드(.docx) — 앱에 들어 있는 기본 양식
  *
  * 모든 처리는 브라우저 안에서만 이루어지며 파일이 서버로 전송되지 않습니다.
  */
@@ -91,35 +91,6 @@ export function readClassTimetables(buf: ArrayBuffer): ClassTimetables {
     );
   }
   return result;
-}
-
-export function readStudents(buf: ArrayBuffer): Student[] {
-  const rows = readRows(buf, "특수학생 정보");
-  const header = (rows[0] ?? []).map(str);
-  const find = (k: string) => header.findIndex((h) => h.includes(k));
-  const idx = { grade: find("학년"), cls: find("반"), name: find("이름"), subj: find("과목") };
-  if (Object.values(idx).some((i) => i < 0)) {
-    throw new TimetableError(
-      "특수학생 정보 파일의 첫 행에 '학년 · 반 · 이름 · 수강 과목' 머리글이 필요합니다. 특수학생 정보 파일이 맞는지 확인해 주세요.",
-    );
-  }
-  const students: Student[] = [];
-  for (const r of rows.slice(1)) {
-    const name = str(r[idx.name]);
-    if (!name) continue;
-    const grade = parseInt(str(r[idx.grade]), 10);
-    const cls = parseInt(str(r[idx.cls]), 10);
-    if (Number.isNaN(grade) || Number.isNaN(cls)) {
-      throw new TimetableError(`특수학생 '${name}'의 학년 또는 반이 숫자가 아닙니다.`);
-    }
-    const subjects = str(r[idx.subj])
-      .split(/[,/·\s]+/)
-      .filter((s) => s.trim())
-      .map(baseSubject);
-    students.push({ grade, cls, name, subjects });
-  }
-  if (students.length === 0) throw new TimetableError("특수학생 정보 파일에 학생이 한 명도 없습니다.");
-  return students;
 }
 
 export function buildSchedule(classTt: ClassTimetables, students: Student[]) {
@@ -357,17 +328,6 @@ export async function inspectTemplate(buf: ArrayBuffer): Promise<FileCheck & { t
     summary: `시간표 표 확인 · ${periods}개 교시`,
     details: title ? [title] : [],
   };
-}
-
-export function inspectStudents(buf: ArrayBuffer): FileCheck {
-  const students = readStudents(buf);
-  const byGrade = new Map<number, number>();
-  for (const s of students) byGrade.set(s.grade, (byGrade.get(s.grade) ?? 0) + 1);
-  const gradeText = [...byGrade.entries()]
-    .sort((a, b) => a[0] - b[0])
-    .map(([g, n]) => `${g}학년 ${n}명`)
-    .join(" · ");
-  return { summary: `특수학생 ${students.length}명`, details: [gradeText] };
 }
 
 export function inspectClassTimetables(buf: ArrayBuffer): FileCheck {

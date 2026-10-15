@@ -1,7 +1,7 @@
 import { CheckIcon, Spinner } from "./icons";
 
 export const GENERATING_STAGES = [
-  { label: "엑셀 파일 읽는 중", detail: "특수학생 정보와 학급 시간표를 불러오고 있어요" },
+  { label: "파일 읽는 중", detail: "학급 시간표와 기본 특수학급 시간표 양식을 불러오고 있어요" },
   { label: "수업 시간 맞추는 중", detail: "학생마다 수강 과목이 있는 교시를 찾고 있어요" },
   { label: "시간표 채우는 중", detail: "템플릿의 칸과 색상은 그대로 두고 이름을 채우고 있어요" },
   { label: "미리보기 준비 중", detail: "거의 다 됐어요" },
