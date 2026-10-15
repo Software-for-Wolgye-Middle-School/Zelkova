@@ -76,7 +76,8 @@ export async function POST(request: Request) {
       body: JSON.stringify({
         model: process.env.GEMINI_IMAGE_MODEL || DEFAULT_MODEL,
         input,
-        response_format: { type: "image", mime_type: "image/png", aspect_ratio: "3:4", image_size: "2K" },
+        // Interactions API 의 이미지 출력은 JPEG 만 지원
+        response_format: { type: "image", mime_type: "image/jpeg", aspect_ratio: "3:4", image_size: "2K" },
       }),
       signal: AbortSignal.timeout(110_000),
     });
@@ -92,6 +93,12 @@ export async function POST(request: Request) {
       return fail(502, "Gemini API 키가 올바르지 않아요. .env.local 의 GEMINI_API_KEY 를 확인해 주세요.");
     }
     if (res.status === 401 || res.status === 403) return fail(502, "Gemini API 키에 이 모델을 쓸 권한이 없어요.");
+    if (res.status === 429 && /limit: 0\b.*free tier/i.test(body?.error?.message ?? "")) {
+      return fail(
+        402,
+        "이 Gemini API 키는 무료 등급이라 이미지 생성 모델을 쓸 수 없어요. Google AI Studio에서 결제(유료 등급)를 연결한 뒤 다시 시도해 주세요.",
+      );
+    }
     if (res.status === 429) return fail(429, "Gemini 사용량 한도에 도달했어요. 잠시 후 다시 시도해 주세요.");
     return fail(502, "Gemini가 약속판을 만들지 못했어요. 잠시 후 다시 시도해 주세요.");
   }

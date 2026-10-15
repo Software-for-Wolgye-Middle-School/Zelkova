@@ -5,7 +5,7 @@ import { monthWeeks, promiseBoardFileName, WEEKDAYS, type PromiseBoardRequest } 
 import { AlertIcon, DownloadIcon, InfoIcon, RefreshIcon, SparkleIcon, Spinner, XIcon } from "./icons";
 import { loadRows } from "./students";
 
-type Board = PromiseBoardRequest & { id: string; url: string; usedReference: boolean };
+type Board = PromiseBoardRequest & { id: string; url: string; ext: string; usedReference: boolean };
 
 const WEEKDAY_TEXT = ["text-red-500", "", "", "", "", "", "text-blue-600"];
 const DAY_DOT = [
@@ -89,9 +89,11 @@ export default function PromiseBoardApp() {
       };
       if (!res.ok || !data.image) throw new Error(data.error || "약속판을 만들지 못했어요. 다시 시도해 주세요.");
       const bytes = Uint8Array.from(atob(data.image), (c) => c.charCodeAt(0));
-      const url = URL.createObjectURL(new Blob([bytes], { type: data.mimeType || "image/png" }));
+      const mimeType = data.mimeType || "image/jpeg";
+      const url = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
       urlsRef.current.push(url);
-      const board: Board = { ...req, id: `${Date.now()}`, url, usedReference: !!data.usedReference };
+      const ext = mimeType.includes("png") ? "png" : mimeType.includes("webp") ? "webp" : "jpg";
+      const board: Board = { ...req, id: `${Date.now()}`, url, ext, usedReference: !!data.usedReference };
       setBoards((b) => [board, ...b]);
       setSelectedId(board.id);
       setStatus("idle");
@@ -111,7 +113,7 @@ export default function PromiseBoardApp() {
     const w = window.open("", "_blank");
     if (!w) return;
     w.document.write(
-      `<!doctype html><title>${promiseBoardFileName(b, "png").replace(/</g, "")}</title>` +
+      `<!doctype html><title>${promiseBoardFileName(b, b.ext).replace(/</g, "")}</title>` +
         `<style>@page{size:A4;margin:8mm}html,body{margin:0;height:100%}img{display:block;width:100%;height:100%;object-fit:contain}</style>` +
         `<img src="${b.url}" onload="setTimeout(()=>{print()},200)">`,
     );
@@ -395,7 +397,7 @@ function Result({ board, onRegenerate, onPrint }: { board: Board; onRegenerate: 
           </button>
           <a
             href={board.url}
-            download={promiseBoardFileName(board)}
+            download={promiseBoardFileName(board, board.ext)}
             className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700"
           >
             <DownloadIcon className="h-4 w-4" />

@@ -30,7 +30,7 @@ export function parseRequest(body: unknown): PromiseBoardRequest | string {
   return { name, year, month };
 }
 
-export function promiseBoardFileName({ name, year, month }: PromiseBoardRequest, ext = "png") {
+export function promiseBoardFileName({ name, year, month }: PromiseBoardRequest, ext = "jpg") {
   const safe = name.replace(/[\\/:*?"<>|]/g, "");
   return `${safe} 나와의 약속판 (${year}년 ${month}월).${ext}`;
 }
