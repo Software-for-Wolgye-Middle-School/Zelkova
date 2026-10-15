@@ -13,6 +13,9 @@ import {
   UploadIcon,
   XIcon,
 } from "./icons";
+import { titleFor, type TemplateSettings } from "@/lib/timetable";
+import SettingsForm from "./SettingsForm";
+import type { SettingsErrors } from "./settings";
 import StudentForm from "./StudentForm";
 import type { RowErrors, StudentRow } from "./students";
 import { CLASS_FILE, formatBytes, WIZARD_STEPS, type SlotState } from "./steps";
@@ -20,6 +23,11 @@ import { CLASS_FILE, formatBytes, WIZARD_STEPS, type SlotState } from "./steps";
 type Props = {
   step: number;
   onStepChange: (step: number) => void;
+  settings: TemplateSettings | null;
+  defaults: TemplateSettings | null;
+  settingsLoadError: string | null;
+  onSettingsChange: (s: TemplateSettings) => void;
+  settingsErrors: SettingsErrors;
   rows: StudentRow[];
   onRowsChange: (rows: StudentRow[]) => void;
   studentErrors: Map<string, RowErrors>;
@@ -37,6 +45,11 @@ type StepStatus = "todo" | "done" | "error" | "checking";
 export default function UploadWizard({
   step,
   onStepChange,
+  settings,
+  defaults,
+  settingsLoadError,
+  onSettingsChange,
+  settingsErrors,
   rows,
   onRowsChange,
   studentErrors,
@@ -49,12 +62,17 @@ export default function UploadWizard({
   onDismissError,
 }: Props) {
   const [showErrors, setShowErrors] = useState(false);
+  const settingsDone = !!settings && settingsErrors.size === 0;
   const studentsDone = studentCount > 0 && studentErrors.size === 0;
   const classDone = classSlot.status === "ready";
   const def = WIZARD_STEPS[step];
   const isLast = step === WIZARD_STEPS.length - 1;
 
   const statuses: { status: StepStatus; sub: string }[] = [
+    {
+      status: settingsDone ? "done" : settingsLoadError || (settings && !settingsDone) ? "error" : "todo",
+      sub: settings ? `${settings.year}학년도 ${settings.term}학기` : "불러오는 중…",
+    },
     {
       status: studentsDone ? "done" : showErrors ? "error" : "todo",
       sub: studentCount ? `${studentCount}명 입력` : "입력 전",
@@ -72,18 +90,23 @@ export default function UploadWizard({
   ];
 
   const goNext = () => {
+    if (step === 0) {
+      if (settingsDone) onStepChange(1);
+      return;
+    }
     if (!studentsDone) {
       setShowErrors(true);
       return;
     }
-    onStepChange(1);
+    onStepChange(2);
   };
 
+  /** 앞 단계가 끝나지 않았으면 그 단계로 보냄 */
   const selectStep = (i: number) => {
-    if (i === 1 && !studentsDone) {
+    if (i >= 1 && !settingsDone) return onStepChange(0);
+    if (i >= 2 && !studentsDone) {
       setShowErrors(true);
-      onStepChange(0);
-      return;
+      return onStepChange(1);
     }
     onStepChange(i);
   };
@@ -91,9 +114,9 @@ export default function UploadWizard({
   return (
     <div className="mx-auto max-w-3xl">
       <div className="mb-8 text-center">
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-[28px]">두 단계면 시간표가 완성돼요</h1>
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-[28px]">세 단계면 시간표가 완성돼요</h1>
         <p className="mt-2 text-[15px] text-slate-500">
-          특수학생을 입력하고 학급 시간표를 올리면, 기본 특수학급 시간표 양식에 자동으로 채워 드려요.
+          특수학생을 입력하고 학급 시간표를 올리면, 전체 시간표와 학생별 시간표를 자동으로 만들어 드려요.
         </p>
       </div>
 
@@ -135,6 +158,14 @@ export default function UploadWizard({
 
         <div className="mt-6">
           {step === 0 ? (
+            <SettingsForm
+              settings={settings}
+              defaults={defaults}
+              loadError={settingsLoadError}
+              onChange={onSettingsChange}
+              errors={settingsErrors}
+            />
+          ) : step === 1 ? (
             <StudentForm
               rows={rows}
               onChange={onRowsChange}
@@ -157,7 +188,12 @@ export default function UploadWizard({
                 </ul>
               </div>
               {classSlot.status === "ready" && (
-                <ReviewList studentCount={studentCount} classSlot={classSlot} onEdit={onStepChange} />
+                <ReviewList
+                  settings={settings}
+                  studentCount={studentCount}
+                  classSlot={classSlot}
+                  onEdit={onStepChange}
+                />
               )}
             </>
           )}
@@ -178,7 +214,7 @@ export default function UploadWizard({
             <button
               type="button"
               onClick={onGenerate}
-              disabled={!(studentsDone && classDone)}
+              disabled={!(settingsDone && studentsDone && classDone)}
               className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-6 py-3 text-[15px] font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
             >
               <SparkleIcon className="h-5 w-5" />
@@ -188,14 +224,15 @@ export default function UploadWizard({
             <button
               type="button"
               onClick={goNext}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
+              disabled={step === 0 && !settingsDone}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
             >
               다음
               <ArrowRightIcon className="h-4 w-4" />
             </button>
           )}
         </div>
-        {step === 0 && showErrors && !studentsDone && (
+        {step === 1 && showErrors && !studentsDone && (
           <p role="alert" className="mt-3 text-right text-sm font-medium text-red-600">
             {studentErrors.size === 0 ? "학생을 한 명 이상 입력해 주세요" : "빨간색으로 표시된 칸을 확인해 주세요"}
           </p>
@@ -419,10 +456,12 @@ function DropArea({ slot, onFile, onClear }: { slot: SlotState; onFile: (f: File
 
 // ---------------------------------------------------------------- 최종 확인 목록
 function ReviewList({
+  settings,
   studentCount,
   classSlot,
   onEdit,
 }: {
+  settings: TemplateSettings | null;
   studentCount: number;
   classSlot: Extract<SlotState, { status: "ready" }>;
   onEdit: (i: number) => void;
@@ -431,17 +470,40 @@ function ReviewList({
     <div className="fade-up mt-6">
       <p className="text-sm font-semibold text-slate-700">준비된 내용</p>
       <ul className="mt-2 divide-y divide-slate-100 rounded-xl border border-slate-200">
+        {settings && (
+          <li className="flex items-center gap-3 px-4 py-3">
+            <span
+              className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-slate-700 text-xs font-bold text-white"
+              aria-hidden="true"
+            >
+              {settings.term}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs text-slate-400">1. 기본 정보</p>
+              <p className="truncate text-sm font-medium text-slate-800">
+                {titleFor(settings)} · 선생님 {settings.teachers.map((t) => t.name.trim()).join(", ")}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => onEdit(0)}
+              className="rounded-md px-2 py-1 text-xs font-semibold text-indigo-600 hover:bg-indigo-50"
+            >
+              변경
+            </button>
+          </li>
+        )}
         <li className="flex items-center gap-3 px-4 py-3">
           <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-indigo-600 text-white" aria-hidden="true">
             <PencilIcon className="h-4 w-4" />
           </span>
           <div className="min-w-0 flex-1">
-            <p className="text-xs text-slate-400">1. 특수학생 정보</p>
+            <p className="text-xs text-slate-400">2. 특수학생 정보</p>
             <p className="truncate text-sm font-medium text-slate-800">직접 입력 · {studentCount}명</p>
           </div>
           <button
             type="button"
-            onClick={() => onEdit(0)}
+            onClick={() => onEdit(1)}
             className="rounded-md px-2 py-1 text-xs font-semibold text-indigo-600 hover:bg-indigo-50"
           >
             변경
@@ -450,7 +512,7 @@ function ReviewList({
         <li className="flex items-center gap-3 px-4 py-3">
           <FileBadge kind="excel" className="h-8 w-8 text-sm" />
           <div className="min-w-0 flex-1">
-            <p className="text-xs text-slate-400">2. 학급 시간표</p>
+            <p className="text-xs text-slate-400">3. 학급 시간표</p>
             <p className="truncate text-sm font-medium text-slate-800">{classSlot.file.name}</p>
           </div>
           <span className="hidden text-xs text-emerald-700 sm:block">{classSlot.summary}</span>

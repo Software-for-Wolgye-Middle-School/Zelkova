@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DAYS, slotKey } from "@/lib/timetable";
-import type { GenerationResult } from "./TimetableApp";
+import type { GenerationResult, StudentDoc } from "./TimetableApp";
 import { AlertIcon, CheckIcon, DownloadIcon, InfoIcon, RefreshIcon, Spinner } from "./icons";
 
-type Tab = "document" | "summary";
+type Tab = "document" | "students" | "summary";
 
 const SUBJECT_STYLES: Record<string, string> = {
   국어: "bg-rose-50 text-rose-700 ring-rose-200",
@@ -14,53 +14,81 @@ const SUBJECT_STYLES: Record<string, string> = {
 };
 const subjectStyle = (s: string) => SUBJECT_STYLES[s] ?? "bg-slate-50 text-slate-700 ring-slate-200";
 
+/** Blob 을 다운로드 링크용 주소로 바꾸고, 쓰지 않게 되면 정리 */
+function useObjectUrl(blob: Blob) {
+  const url = useMemo(() => URL.createObjectURL(blob), [blob]);
+  useEffect(() => () => URL.revokeObjectURL(url), [url]);
+  return url;
+}
+
 export default function ResultView({ result, onRestart }: { result: GenerationResult; onRestart: () => void }) {
   const [tab, setTab] = useState<Tab>("document");
-  const fileName = `${result.title.replace(/[\\/:*?"<>|]/g, "").trim() || "특수학급 시간표"}.docx`;
-  const url = useMemo(() => URL.createObjectURL(result.blob), [result.blob]);
-  useEffect(() => () => URL.revokeObjectURL(url), [url]);
+  const [selectedKey, setSelectedKey] = useState(result.studentDocs[0]?.key ?? "");
+  const masterUrl = useObjectUrl(result.blob);
+  const zipUrl = useObjectUrl(result.zipBlob);
 
-  const filledSlots = result.schedule.size;
   const messages = [
     ...result.warnings.map((text) => ({ text, level: "warn" as const })),
     ...result.notes.map((text) => ({ text, level: "info" as const })),
   ];
 
+  const openStudent = (key: string) => {
+    setSelectedKey(key);
+    setTab("students");
+  };
+
+  const tabs: [Tab, string][] = [
+    ["document", "전체 시간표"],
+    ["students", `학생별 시간표 (${result.studentDocs.length})`],
+    ["summary", "요일별 요약"],
+  ];
+
   return (
     <div className="fade-up">
-      <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
             <CheckIcon className="h-3.5 w-3.5" strokeWidth={3} />
             생성 완료
           </span>
           <h1 className="mt-3 text-2xl font-bold tracking-tight text-slate-900 sm:text-[28px]">{result.title}</h1>
-          <p className="mt-1 text-[15px] text-slate-500">미리보기를 확인한 뒤 워드 파일로 내려받으세요.</p>
+          <p className="mt-1 text-[15px] text-slate-500">
+            전체 시간표 1장과 학생별 시간표 {result.studentDocs.length}장을 만들었어요.
+          </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row">
           <button
             type="button"
             onClick={onRestart}
-            className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 sm:flex-none"
+            className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
           >
             <RefreshIcon className="h-4 w-4" />
             처음부터 다시
           </button>
           <a
-            href={url}
-            download={fileName}
-            className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 sm:flex-none"
+            href={masterUrl}
+            download={result.fileName}
+            className="inline-flex items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-100"
           >
             <DownloadIcon className="h-4 w-4" />
-            워드 파일 다운로드
+            전체 시간표만
+          </a>
+          <a
+            href={zipUrl}
+            download={result.zipFileName}
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
+          >
+            <DownloadIcon className="h-4 w-4" />
+            모두 다운로드 (ZIP)
           </a>
         </div>
       </div>
 
-      <dl className="mt-6 grid grid-cols-3 gap-3">
+      <dl className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="특수학생" value={`${result.students.length}명`} />
+        <Stat label="학생별 시간표" value={`${result.studentDocs.length}장`} />
         <Stat label="학급 시간표" value={`${result.classCount}개`} />
-        <Stat label="채워진 교시" value={`${filledSlots}칸`} />
+        <Stat label="채워진 교시" value={`${result.schedule.size}칸`} />
       </dl>
 
       {messages.length > 0 && (
@@ -86,38 +114,40 @@ export default function ResultView({ result, onRestart }: { result: GenerationRe
       )}
 
       <div className="mt-8">
-        <div role="tablist" aria-label="미리보기 방식" className="inline-flex rounded-xl bg-slate-200/70 p-1">
-          {(
-            [
-              ["document", "문서 미리보기"],
-              ["summary", "요일별 요약"],
-            ] as const
-          ).map(([key, label]) => (
-            <button
-              key={key}
-              type="button"
-              role="tab"
-              id={`tab-${key}`}
-              aria-selected={tab === key}
-              aria-controls={`panel-${key}`}
-              onClick={() => setTab(key)}
-              className={`rounded-lg px-4 py-1.5 text-sm font-semibold transition ${
-                tab === key ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
+        <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+          <div role="tablist" aria-label="미리보기 방식" className="inline-flex rounded-xl bg-slate-200/70 p-1">
+            {tabs.map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                id={`tab-${key}`}
+                aria-selected={tab === key}
+                aria-controls={`panel-${key}`}
+                onClick={() => setTab(key)}
+                className={`whitespace-nowrap rounded-lg px-4 py-1.5 text-sm font-semibold transition ${
+                  tab === key ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="mt-4">
-          {/* 문서 미리보기는 탭을 바꿔도 다시 그리지 않도록 숨기기만 합니다 */}
+          {/* 전체 시간표 미리보기는 탭을 바꿔도 다시 그리지 않도록 숨기기만 합니다 */}
           <div role="tabpanel" id="panel-document" aria-labelledby="tab-document" hidden={tab !== "document"}>
             <DocxPreview blob={result.blob} />
           </div>
+          {tab === "students" && (
+            <div role="tabpanel" id="panel-students" aria-labelledby="tab-students">
+              <StudentDocs docs={result.studentDocs} selectedKey={selectedKey} onSelect={setSelectedKey} />
+            </div>
+          )}
           {tab === "summary" && (
             <div role="tabpanel" id="panel-summary" aria-labelledby="tab-summary">
-              <SummaryTable result={result} />
+              <SummaryTable result={result} onOpenStudent={openStudent} />
             </div>
           )}
         </div>
@@ -135,6 +165,98 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
+// ---------------------------------------------------------------- 학생별 시간표
+function StudentDocs({
+  docs,
+  selectedKey,
+  onSelect,
+}: {
+  docs: StudentDoc[];
+  selectedKey: string;
+  onSelect: (key: string) => void;
+}) {
+  const selected = docs.find((d) => d.key === selectedKey) ?? docs[0];
+  if (!selected) {
+    return (
+      <p className="rounded-2xl border border-slate-200 bg-white py-16 text-center text-sm text-slate-500">
+        만들어진 학생별 시간표가 없어요.
+      </p>
+    );
+  }
+  return (
+    <div className="grid gap-4 lg:grid-cols-[15rem_minmax(0,1fr)]">
+      <ul
+        aria-label="학생 목록"
+        className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:px-0 lg:flex-col lg:overflow-visible lg:pb-0"
+      >
+        {docs.map((d) => {
+          const active = d.key === selected.key;
+          return (
+            <li key={d.key} className="shrink-0">
+              <button
+                type="button"
+                onClick={() => onSelect(d.key)}
+                aria-current={active ? "true" : undefined}
+                className={`flex w-full items-center justify-between gap-3 rounded-xl border px-3.5 py-2.5 text-left transition ${
+                  active
+                    ? "border-indigo-300 bg-white shadow-sm ring-4 ring-indigo-100"
+                    : "border-slate-200 bg-white hover:border-slate-300"
+                }`}
+              >
+                <span className="min-w-0">
+                  <span className="block font-semibold text-slate-900">{d.student.name}</span>
+                  <span className="block text-xs text-slate-500">
+                    {d.student.grade}학년 {d.student.cls}반
+                  </span>
+                </span>
+                <span
+                  className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${
+                    d.hours ? "bg-indigo-50 text-indigo-700" : "bg-amber-50 text-amber-700"
+                  }`}
+                >
+                  주 {d.hours}시간
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+
+      <div className="min-w-0">
+        <StudentDocHeader doc={selected} />
+        <DocxPreview key={selected.key} blob={selected.blob} />
+      </div>
+    </div>
+  );
+}
+
+function StudentDocHeader({ doc }: { doc: StudentDoc }) {
+  const url = useObjectUrl(doc.blob);
+  return (
+    <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <p className="font-semibold text-slate-900">
+          {doc.student.name}
+          <span className="ml-2 text-sm font-normal text-slate-500">
+            {doc.student.grade}학년 {doc.student.cls}반 · {doc.student.subjects.join(", ")}
+          </span>
+        </p>
+        {doc.hours === 0 && (
+          <p className="mt-0.5 text-xs text-amber-700">학급 시간표에 이 학생의 수강 과목이 없어 빈 시간표예요.</p>
+        )}
+      </div>
+      <a
+        href={url}
+        download={doc.fileName}
+        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+      >
+        <DownloadIcon className="h-4 w-4" />
+        {doc.student.name} 시간표 다운로드
+      </a>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------- 워드 미리보기
 const A4_WIDTH_PX = 794;
 
@@ -148,7 +270,6 @@ function DocxPreview({ blob }: { blob: Blob }) {
     const host = hostRef.current;
     if (!host) return;
     let cancelled = false;
-    setState("loading");
     (async () => {
       const { renderAsync } = await import("docx-preview");
       host.innerHTML = "";
@@ -186,7 +307,7 @@ function DocxPreview({ blob }: { blob: Blob }) {
     <div ref={frameRef} className="relative overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 p-3 sm:p-8">
       {state === "loading" && (
         <div className="mx-auto max-w-[794px]" aria-live="polite">
-          <div className="relative aspect-[210/297] overflow-hidden rounded bg-white p-[8%] shadow-sm shimmer">
+          <div className="shimmer relative aspect-[210/297] overflow-hidden rounded bg-white p-[8%] shadow-sm">
             <div className="mx-auto h-4 w-1/2 rounded bg-slate-200" />
             <div className="mt-10 grid grid-cols-6 gap-1.5">
               {Array.from({ length: 42 }, (_, i) => (
@@ -217,19 +338,17 @@ function DocxPreview({ blob }: { blob: Blob }) {
 }
 
 // ---------------------------------------------------------------- 요일별 요약 표
-function SummaryTable({ result }: { result: GenerationResult }) {
+function SummaryTable({
+  result,
+  onOpenStudent,
+}: {
+  result: GenerationResult;
+  onOpenStudent: (key: string) => void;
+}) {
   const periods = useMemo(() => {
     const max = Math.max(0, ...[...result.schedule.keys()].map((k) => +k.split("-")[1]));
     return Array.from({ length: Math.max(max, 1) }, (_, i) => i + 1);
   }, [result.schedule]);
-
-  const perStudent = useMemo(() => {
-    const count = new Map<string, number>();
-    for (const groups of result.schedule.values()) {
-      for (const g of groups) for (const n of g.names) count.set(n, (count.get(n) ?? 0) + 1);
-    }
-    return result.students.map((s) => ({ ...s, count: count.get(s.name) ?? 0 }));
-  }, [result]);
 
   return (
     <div className="space-y-6">
@@ -285,24 +404,27 @@ function SummaryTable({ result }: { result: GenerationResult }) {
       <div>
         <h3 className="text-sm font-semibold text-slate-700">학생별 특수학급 수업</h3>
         <ul className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {perStudent.map((s) => (
-            <li
-              key={`${s.grade}-${s.cls}-${s.name}`}
-              className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3"
-            >
-              <div className="min-w-0">
-                <p className="font-semibold text-slate-900">{s.name}</p>
-                <p className="truncate text-xs text-slate-500">
-                  {s.grade}학년 {s.cls}반 · {s.subjects.join(", ")}
-                </p>
-              </div>
-              <span
-                className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${
-                  s.count ? "bg-indigo-50 text-indigo-700" : "bg-amber-50 text-amber-700"
-                }`}
+          {result.studentDocs.map((d) => (
+            <li key={d.key}>
+              <button
+                type="button"
+                onClick={() => onOpenStudent(d.key)}
+                className="flex w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-left transition hover:border-indigo-300 hover:shadow-sm"
               >
-                주 {s.count}시간
-              </span>
+                <span className="min-w-0">
+                  <span className="block font-semibold text-slate-900">{d.student.name}</span>
+                  <span className="block truncate text-xs text-slate-500">
+                    {d.student.grade}학년 {d.student.cls}반 · {d.student.subjects.join(", ")}
+                  </span>
+                </span>
+                <span
+                  className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${
+                    d.hours ? "bg-indigo-50 text-indigo-700" : "bg-amber-50 text-amber-700"
+                  }`}
+                >
+                  주 {d.hours}시간
+                </span>
+              </button>
             </li>
           ))}
         </ul>

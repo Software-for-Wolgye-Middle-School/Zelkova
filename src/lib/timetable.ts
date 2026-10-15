@@ -15,6 +15,7 @@ export const DAYS = ["월", "화", "수", "목", "금"] as const;
 const SUBJECT_ORDER = ["국어", "영어", "수학"];
 const FONT = "맑은 고딕";
 const FONT_SIZE_HALF_PT = 18; // 9pt
+const PERSONAL_FONT_SIZE_HALF_PT = 26; // 학생별 시간표의 과목명 13pt
 
 const LINE_TW = 240; // 9pt 한 줄 높이(twip)
 const GAP_TW = 80; // 과목 묶음 사이 간격
@@ -232,8 +233,16 @@ const PPR_AFTER_SPACING = [
   "textboxTightWrap", "outlineLvl", "divId", "cnfStyle", "rPr", "sectPr", "pPrChange",
 ];
 const TCPR_AFTER_VALIGN = ["hideMark", "headers", "cellIns", "cellDel", "cellMerge", "tcPrChange"];
+const TCPR_AFTER_GRIDSPAN = [
+  "hMerge", "vMerge", "tcBorders", "shd", "noWrap", "tcMar", "textDirection", "tcFitText", "vAlign",
+  ...TCPR_AFTER_VALIGN,
+];
+const TCPR_AFTER_TCW = ["gridSpan", ...TCPR_AFTER_GRIDSPAN];
 
-function fillCell(tc: Element, groups: SubjectGroup[], perLine: number) {
+type CellLine = { text: string; beforeTw?: number };
+
+/** 칸의 기존 문단을 지우고 가운데 정렬된 굵은 글씨 줄들로 채우기 */
+function writeCell(tc: Element, lines: CellLine[], sizeHalfPt: number) {
   const doc = tc.ownerDocument;
   // 기존 문단 지우고 첫 문단의 서식(가운데 정렬 등)만 유지
   const paras = kids(tc, "p");
@@ -256,7 +265,7 @@ function fillCell(tc: Element, groups: SubjectGroup[], perLine: number) {
     const fonts = mk(doc, "rFonts");
     for (const k of ["ascii", "hAnsi", "eastAsia"]) setW(fonts, k, FONT);
     const size = mk(doc, "sz");
-    setW(size, "val", String(FONT_SIZE_HALF_PT));
+    setW(size, "val", String(sizeHalfPt));
     rPr.appendChild(fonts);
     rPr.appendChild(mk(doc, "b"));
     rPr.appendChild(size);
@@ -272,10 +281,29 @@ function fillCell(tc: Element, groups: SubjectGroup[], perLine: number) {
   const tcPr = kid(tc, "tcPr") ?? tc.insertBefore(mk(doc, "tcPr"), tc.firstChild);
   setW(ensureChild(tcPr, "vAlign", TCPR_AFTER_VALIGN), "val", "center");
 
-  groups.forEach((g, i) => {
-    newPara(`[${g.subject}]`, i ? GAP_TW : 0); // 과목 묶음 사이 작은 간격
-    for (const line of nameLines(g.names, perLine)) newPara(line);
-  });
+  for (const line of lines) newPara(line.text, line.beforeTw);
+}
+
+function fillCell(tc: Element, groups: SubjectGroup[], perLine: number) {
+  const lines = groups.flatMap((g, i) => [
+    { text: `[${g.subject}]`, beforeTw: i ? GAP_TW : 0 }, // 과목 묶음 사이 작은 간격
+    ...nameLines(g.names, perLine).map((text) => ({ text })),
+  ]);
+  writeCell(tc, lines, FONT_SIZE_HALF_PT);
+}
+
+/** 나뉜 칸들을 하나로 합치고 `target` 칸의 서식(색상)을 남김 */
+function mergeCells(target: Element, cells: Element[]) {
+  if (cells.length < 2) return;
+  const doc = target.ownerDocument;
+  const span = cells.reduce((n, tc) => n + gridSpan(tc), 0);
+  const width = cells.reduce((n, tc) => n + cellWidth(tc), 0);
+  const tr = cells[0].parentNode as Element;
+  if (target !== cells[0]) tr.insertBefore(target, cells[0]);
+  for (const tc of cells) if (tc !== target) tr.removeChild(tc);
+  const tcPr = kid(target, "tcPr") ?? target.insertBefore(mk(doc, "tcPr"), target.firstChild);
+  setW(ensureChild(tcPr, "tcW", TCPR_AFTER_TCW), "w", String(width));
+  setW(ensureChild(tcPr, "gridSpan", TCPR_AFTER_GRIDSPAN), "val", String(span));
 }
 
 async function openDocx(buf: ArrayBuffer) {
@@ -304,31 +332,8 @@ async function openDocx(buf: ArrayBuffer) {
   return { zip, xml, body };
 }
 
-function firstParagraphText(body: Element) {
-  for (const p of kids(body, "p")) {
-    const t = cellText(p);
-    if (t) return t;
-  }
-  return "";
-}
-
 // ---------------------------------------------------------------- 업로드 단계별 확인
 export type FileCheck = { summary: string; details: string[] };
-
-export async function inspectTemplate(buf: ArrayBuffer): Promise<FileCheck & { title: string }> {
-  const { body } = await openDocx(buf);
-  const { tbl } = findTimetable(body);
-  const periods = kids(tbl, "tr").filter((tr) => {
-    const cells = kids(tr, "tc");
-    return cells.length && /^\d+\s*교시/.test(cellText(cells[0]));
-  }).length;
-  const title = firstParagraphText(body);
-  return {
-    title,
-    summary: `시간표 표 확인 · ${periods}개 교시`,
-    details: title ? [title] : [],
-  };
-}
 
 export function inspectClassTimetables(buf: ArrayBuffer): FileCheck {
   const tt = readClassTimetables(buf);
@@ -336,11 +341,87 @@ export function inspectClassTimetables(buf: ArrayBuffer): FileCheck {
   return { summary: `학급 ${tt.size}개`, details: [`${[...grades].sort().join(", ")}학년 시간표`] };
 }
 
+// ---------------------------------------------------------------- 학년도 · 학기 · 선생님
+export type Teacher = { name: string; room: string; color: string };
+export type TemplateSettings = { year: string; term: string; teachers: Teacher[] };
+
+const TITLE_YEAR = /\d{4}\s*학년도/;
+const TITLE_TERM = /\d\s*학기/;
+const TEACHER_TEXT = /^(.*?)\s*선생님\s*(?:\((.*?)\))?\s*$/;
+
+function titleParagraph(body: Element) {
+  return kids(body, "p").find((p) => TITLE_YEAR.test(cellText(p))) ?? null;
+}
+
+/** 시간표 표가 아닌 표에서 '○○○ 선생님(교실)' 칸과 그 왼쪽 색상 칸 찾기 */
+function teacherCells(body: Element, timetable: Element) {
+  const out: { tc: Element; color: string }[] = [];
+  for (const tbl of kids(body, "tbl")) {
+    if (tbl === timetable) continue;
+    for (const tr of kids(tbl, "tr")) {
+      const tcs = kids(tr, "tc");
+      tcs.forEach((tc, i) => {
+        if (!cellText(tc).includes("선생님")) return;
+        const swatch = i > 0 ? tcs[i - 1] : null;
+        const fill = wAttr(kid(kid(swatch, "tcPr"), "shd"), "fill");
+        out.push({ tc, color: fill && /^[0-9A-Fa-f]{6}$/.test(fill) ? `#${fill}` : "" });
+      });
+    }
+  }
+  return out;
+}
+
+/** 문단의 첫 글자 서식은 그대로 두고 글자만 바꾸기 */
+function setParagraphText(p: Element, text: string) {
+  const runs = kids(p, "r").filter((r) => kid(r, "t"));
+  if (!runs.length) return;
+  const t = kid(runs[0], "t")!;
+  t.setAttributeNS(XML_NS, "xml:space", "preserve");
+  t.textContent = text;
+  for (const r of runs.slice(1)) p.removeChild(r);
+}
+
+export async function readTemplateSettings(buf: ArrayBuffer): Promise<TemplateSettings> {
+  const { body } = await openDocx(buf);
+  const { tbl } = findTimetable(body);
+  const titleP = titleParagraph(body);
+  const title = titleP ? cellText(titleP) : "";
+  const teachers = teacherCells(body, tbl).map(({ tc, color }) => {
+    const m = cellText(tc).match(TEACHER_TEXT);
+    return { name: m?.[1].trim() ?? "", room: m?.[2]?.trim() ?? "", color };
+  });
+  return {
+    year: title.match(TITLE_YEAR)?.[0].replace(/\D/g, "") ?? String(new Date().getFullYear()),
+    term: title.match(TITLE_TERM)?.[0].replace(/\D/g, "") ?? "1",
+    teachers,
+  };
+}
+
+export const titleFor = (s: Pick<TemplateSettings, "year" | "term">) => `${s.year}학년도 ${s.term}학기 특수학급 시간표`;
+export const teacherLabel = (t: Teacher) => `${t.name} 선생님${t.room ? `(${t.room})` : ""}`;
+
+function applySettings(body: Element, timetable: Element, settings: TemplateSettings) {
+  const title = titleParagraph(body);
+  if (title) {
+    const text = cellText(title)
+      .replace(TITLE_YEAR, `${settings.year}학년도`)
+      .replace(TITLE_TERM, `${settings.term}학기`);
+    setParagraphText(title, text);
+  }
+  teacherCells(body, timetable).forEach(({ tc }, i) => {
+    const t = settings.teachers[i];
+    const p = kids(tc, "p").find((x) => cellText(x).includes("선생님"));
+    if (t && p) setParagraphText(p, teacherLabel(t));
+  });
+}
+
 // ---------------------------------------------------------------- 템플릿 채우기
-export async function fillTemplate(templateBuf: ArrayBuffer, schedule: Schedule) {
+/** 템플릿을 열고 교시 행마다 요일별 칸 목록을 준비 */
+async function openTimetable(templateBuf: ArrayBuffer, settings?: TemplateSettings) {
   const { zip, xml, body } = await openDocx(templateBuf);
   fixFonts(body);
   const { tbl, header } = findTimetable(body);
+  if (settings) applySettings(body, tbl, settings);
 
   // 머리행에서 요일별 grid 범위 계산
   const dayRanges = new Map<number, [number, number]>();
@@ -349,18 +430,38 @@ export async function fillTemplate(templateBuf: ArrayBuffer, schedule: Schedule)
     if (d >= 0) dayRanges.set(d, [g0, g1]);
   }
 
-  // 1) 배치 계획: 행마다 [(칸, 과목묶음)]
-  const notes: string[] = [];
-  const plan: { tr: Element; items: { tc: Element; groups: SubjectGroup[] }[] }[] = [];
+  const rows: { tr: Element; period: number; dayCells: Map<number, Element[]> }[] = [];
   for (const tr of kids(tbl, "tr")) {
     const cells = rowCellsWithGrid(tr);
     if (!cells.length) continue;
     const m = cellText(cells[0].tc).match(/^(\d+)\s*교시/);
     if (!m) continue;
-    const period = +m[1];
-    const items: { tc: Element; groups: SubjectGroup[] }[] = [];
+    const dayCells = new Map<number, Element[]>();
     for (const [d, [d0, d1]] of dayRanges) {
-      const dayCells = cells.filter((c) => c.g0 >= d0 && c.g1 <= d1).map((c) => c.tc);
+      dayCells.set(d, cells.filter((c) => c.g0 >= d0 && c.g1 <= d1).map((c) => c.tc));
+    }
+    rows.push({ tr, period: +m[1], dayCells });
+  }
+  return { zip, xml, rows };
+}
+
+async function saveDocx(zip: JSZip, xml: Document) {
+  let out = new XMLSerializer().serializeToString(xml);
+  if (!out.startsWith("<?xml")) out = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n${out}`;
+  zip.file("word/document.xml", out);
+  return zip.generateAsync({ type: "blob", mimeType: DOCX_MIME, compression: "DEFLATE" });
+}
+
+/** 전체 특수학급 시간표: 각 칸에 [과목] / 학생 이름 */
+export async function fillTemplate(templateBuf: ArrayBuffer, schedule: Schedule, settings?: TemplateSettings) {
+  const { zip, xml, rows } = await openTimetable(templateBuf, settings);
+
+  // 1) 배치 계획: 행마다 [(칸, 과목묶음)]
+  const notes: string[] = [];
+  const plan: { tr: Element; items: { tc: Element; groups: SubjectGroup[] }[] }[] = [];
+  for (const { tr, period, dayCells: byDay } of rows) {
+    const items: { tc: Element; groups: SubjectGroup[] }[] = [];
+    for (const [d, dayCells] of byDay) {
       const groups = schedule.get(slotKey(d, period)) ?? [];
       if (!dayCells.length || !groups.length) continue;
       if (dayCells.length === 1) {
@@ -404,9 +505,42 @@ export async function fillTemplate(templateBuf: ArrayBuffer, schedule: Schedule)
   }
   if (compact) notes.push("한 페이지에 맞추기 위해 넓은 칸은 이름을 한 줄에 2명씩 배치했습니다.");
 
-  let out = new XMLSerializer().serializeToString(xml);
-  if (!out.startsWith("<?xml")) out = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n${out}`;
-  zip.file("word/document.xml", out);
-  const blob = await zip.generateAsync({ type: "blob", mimeType: DOCX_MIME, compression: "DEFLATE" });
-  return { blob, notes };
+  return { blob: await saveDocx(zip, xml), notes };
+}
+
+/** 한 학생이 특수학급에서 수업하는 교시 → 과목 (`${요일idx}-${교시}` 기준). 학급 시간표가 없으면 null */
+export function studentSlots(classTt: ClassTimetables, st: Student): Map<string, string> | null {
+  const tt = classTt.get(classKey(st.grade, st.cls));
+  if (!tt) return null;
+  const slots = new Map<string, string>();
+  for (const [key, subj] of tt) if (st.subjects.includes(subj)) slots.set(key, subj);
+  return slots;
+}
+
+/**
+ * 학생 개인 시간표: 템플릿의 칸 색상(선생님 구분)과 행 높이는 그대로 두고, 수업하는 칸에 과목명만 채움.
+ * 나뉜 칸은 하나로 합치되, 전체 시간표에서 그 학생의 과목이 놓인 칸의 색상을 따름.
+ */
+export async function fillStudentTemplate(
+  templateBuf: ArrayBuffer,
+  schedule: Schedule,
+  slots: Map<string, string>,
+  settings?: TemplateSettings,
+) {
+  const { zip, xml, rows } = await openTimetable(templateBuf, settings);
+  for (const { period, dayCells: byDay } of rows) {
+    for (const [d, dayCells] of byDay) {
+      if (!dayCells.length) continue;
+      const key = slotKey(d, period);
+      const subject = slots.get(key);
+      let target = dayCells[0];
+      if (dayCells.length > 1) {
+        const idx = subject ? (schedule.get(key) ?? []).findIndex((g) => g.subject === subject) : 0;
+        target = dayCells[Math.min(Math.max(idx, 0), dayCells.length - 1)];
+        mergeCells(target, dayCells);
+      }
+      if (subject) writeCell(target, [{ text: subject }], PERSONAL_FONT_SIZE_HALF_PT);
+    }
+  }
+  return saveDocx(zip, xml);
 }

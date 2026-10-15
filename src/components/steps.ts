@@ -1,8 +1,13 @@
 /** 앱에 들어 있는 기본 특수학급 시간표 템플릿 (public/templates) */
 export const DEFAULT_TEMPLATE_URL = "/templates/special-class-template.docx";
 
-/** 입력 순서: 1) 특수학생 정보 직접 입력  2) 학급 시간표 업로드 (파일 이름은 상관없음) */
+/** 입력 순서: 1) 기본 정보  2) 특수학생 정보 직접 입력  3) 학급 시간표 업로드 (파일 이름은 상관없음) */
 export const WIZARD_STEPS = [
+  {
+    title: "기본 정보",
+    heading: "학년도와 선생님을 확인해 주세요",
+    description: "시간표 제목과 선생님 칸에 들어갈 내용이에요. 바뀐 것이 없으면 그대로 다음으로 넘어가세요.",
+  },
   {
     title: "특수학생 정보",
     heading: "특수학생 정보를 입력해 주세요",

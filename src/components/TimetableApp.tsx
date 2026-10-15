@@ -1,32 +1,57 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import JSZip from "jszip";
 import {
   buildSchedule,
+  fillStudentTemplate,
   fillTemplate,
   inspectClassTimetables,
-  inspectTemplate,
   readClassTimetables,
+  readTemplateSettings,
+  studentSlots,
   TimetableError,
+  titleFor,
   type Schedule,
   type Student,
+  type TemplateSettings,
 } from "@/lib/timetable";
 import { LockIcon } from "./icons";
 import { DEFAULT_TEMPLATE_URL, type SlotState } from "./steps";
 import { loadRows, saveRows, SUBJECTS, validateRows, type StudentRow } from "./students";
+import { cleanSettings, loadSettings, saveSettings, validateSettings } from "./settings";
 import UploadWizard from "./UploadWizard";
-import GeneratingScreen, { GENERATING_STAGES } from "./GeneratingScreen";
+import GeneratingScreen from "./GeneratingScreen";
 import ResultView from "./ResultView";
+
+export type StudentDoc = { key: string; student: Student; blob: Blob; fileName: string; hours: number };
 
 export type GenerationResult = {
   blob: Blob;
+  fileName: string;
   title: string;
   schedule: Schedule;
   students: Student[];
+  studentDocs: StudentDoc[];
+  zipBlob: Blob;
+  zipFileName: string;
   classCount: number;
   warnings: string[];
   notes: string[];
 };
+
+const safeName = (s: string) => s.replace(/[\\/:*?"<>|]/g, "").trim();
+
+
+/** 학생별 시간표 파일 이름. 이름이 같은 학생이 있으면 학년-반을 붙여 구분 */
+function studentFileNames(students: Student[], term: string) {
+  const count = new Map<string, number>();
+  for (const s of students) count.set(s.name, (count.get(s.name) ?? 0) + 1);
+  return students.map((s) => {
+    const name = safeName(count.get(s.name)! > 1 ? `${s.name}(${s.grade}-${s.cls})` : s.name);
+    return `${name} 특수학급 시간표${term ? ` (${term})` : ""}.docx`;
+  });
+}
 
 type Phase = "upload" | "generating" | "result";
 
@@ -37,21 +62,33 @@ const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** 서버에서 미리 그린 화면과 맞도록 첫 줄은 고정된 id 로 시작 */
 const INITIAL_ROWS: StudentRow[] = [{ id: "initial", grade: "1", cls: "", name: "", subjects: [...SUBJECTS] }];
 
-async function loadDefaultTemplate() {
-  let res: Response;
-  try {
-    res = await fetch(DEFAULT_TEMPLATE_URL);
-  } catch {
-    throw new TimetableError("기본 시간표 양식을 불러오지 못했습니다. 인터넷 연결을 확인한 뒤 다시 시도해 주세요.");
-  }
-  if (!res.ok) throw new TimetableError("기본 시간표 양식 파일을 찾을 수 없습니다.");
-  return res.arrayBuffer();
+let templateRequest: Promise<ArrayBuffer> | null = null;
+
+/** 기본 양식은 한 번만 내려받아 계속 사용 (실패하면 다음에 다시 시도) */
+function loadDefaultTemplate() {
+  templateRequest ??= (async () => {
+    let res: Response;
+    try {
+      res = await fetch(DEFAULT_TEMPLATE_URL);
+    } catch {
+      throw new TimetableError("기본 시간표 양식을 불러오지 못했습니다. 인터넷 연결을 확인한 뒤 다시 시도해 주세요.");
+    }
+    if (!res.ok) throw new TimetableError("기본 시간표 양식 파일을 찾을 수 없습니다.");
+    return res.arrayBuffer();
+  })().catch((e) => {
+    templateRequest = null;
+    throw e;
+  });
+  return templateRequest;
 }
 
 export default function TimetableApp() {
   const [phase, setPhase] = useState<Phase>("upload");
   const [step, setStep] = useState(0);
   const [rows, setRows] = useState<StudentRow[]>(INITIAL_ROWS);
+  const [settings, setSettings] = useState<TemplateSettings | null>(null);
+  const [defaults, setDefaults] = useState<TemplateSettings | null>(null);
+  const [settingsLoadError, setSettingsLoadError] = useState<string | null>(null);
   const [classSlot, setClassSlot] = useState<SlotState>({ status: "empty" });
   const [stage, setStage] = useState(0);
   const [genError, setGenError] = useState<string | null>(null);
@@ -64,6 +101,27 @@ export default function TimetableApp() {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage 는 브라우저에서만 읽을 수 있음
     if (saved) setRows(saved);
   }, []);
+
+  // 양식에서 학년도 · 학기 · 선생님 기본값을 읽고, 지난번 바꾼 값을 덮어씀
+  useEffect(() => {
+    loadDefaultTemplate()
+      .then(readTemplateSettings)
+      .then((def) => {
+        setDefaults(def);
+        setSettings(loadSettings(def));
+      })
+      .catch((e) => {
+        if (!(e instanceof TimetableError)) console.error(e);
+        setSettingsLoadError(e instanceof TimetableError ? e.message : "기본 시간표 양식을 읽지 못했습니다.");
+      });
+  }, []);
+
+  const changeSettings = useCallback((next: TemplateSettings) => {
+    setSettings(next);
+    saveSettings(next);
+  }, []);
+
+  const settingsErrors = useMemo(() => (settings ? validateSettings(settings) : new Map<string, string>()), [settings]);
 
   const changeRows = useCallback((next: StudentRow[]) => {
     setRows(next);
@@ -97,7 +155,9 @@ export default function TimetableApp() {
 
   const generate = useCallback(async () => {
     if (classSlot.status !== "ready" || students.length === 0 || studentErrors.size > 0) return;
+    if (!settings || settingsErrors.size > 0) return;
     const classBuf = classSlot.buf;
+    const info = cleanSettings(settings);
 
     const runStage = async <T,>(i: number, fn: () => T | Promise<T>): Promise<T> => {
       setStage(i);
@@ -114,16 +174,46 @@ export default function TimetableApp() {
         template: await loadDefaultTemplate(),
       }));
       const { schedule, warnings } = await runStage(1, () => buildSchedule(classTt, students));
-      const { blob, notes, title } = await runStage(2, async () => ({
-        ...(await fillTemplate(template, schedule)),
-        title: (await inspectTemplate(template)).title,
-      }));
-      await runStage(GENERATING_STAGES.length - 1, () => undefined);
+      const { blob, notes } = await runStage(2, () => fillTemplate(template, schedule, info));
+      const title = titleFor(info);
+      const term = `${info.year}년 ${info.term}학기`;
+      const fileName = `${safeName(title)}.docx`;
+
+      const studentDocs = await runStage(3, async () => {
+        const names = studentFileNames(students, term);
+        const docs: StudentDoc[] = [];
+        for (const [i, student] of students.entries()) {
+          const slots = studentSlots(classTt, student);
+          if (!slots) continue; // 학급 시간표가 없는 학생은 warnings 로 안내됨
+          docs.push({
+            key: `${student.grade}-${student.cls}-${student.name}-${i}`,
+            student,
+            blob: await fillStudentTemplate(template, schedule, slots, info),
+            fileName: names[i],
+            hours: slots.size,
+          });
+        }
+        return docs;
+      });
+
+      const zipFileName = `특수학급 시간표 (${term}).zip`;
+      const zipBlob = await runStage(4, () => {
+        const zip = new JSZip();
+        zip.file(fileName, blob);
+        const folder = zip.folder("학생별 시간표")!;
+        for (const d of studentDocs) folder.file(d.fileName, d.blob);
+        return zip.generateAsync({ type: "blob" });
+      });
+
       setResult({
         blob,
-        title: title || "특수학급 시간표",
+        fileName,
+        title,
         schedule,
         students,
+        studentDocs,
+        zipBlob,
+        zipFileName,
         classCount: classTt.size,
         warnings,
         notes,
@@ -136,9 +226,9 @@ export default function TimetableApp() {
       );
       setPhase("upload");
     }
-  }, [classSlot, students, studentErrors]);
+  }, [classSlot, students, studentErrors, settings, settingsErrors]);
 
-  /** 학생 목록은 저장해 두고, 학급 시간표만 비운 채 처음 단계로 */
+  /** 기본 정보와 학생 목록은 저장해 두고, 학급 시간표만 비운 채 처음 단계로 */
   const restart = useCallback(() => {
     uploadToken.current++;
     setClassSlot({ status: "empty" });
@@ -176,6 +266,11 @@ export default function TimetableApp() {
           <UploadWizard
             step={step}
             onStepChange={setStep}
+            settings={settings}
+            defaults={defaults}
+            settingsLoadError={settingsLoadError}
+            onSettingsChange={changeSettings}
+            settingsErrors={settingsErrors}
             rows={rows}
             onRowsChange={changeRows}
             studentErrors={studentErrors}
