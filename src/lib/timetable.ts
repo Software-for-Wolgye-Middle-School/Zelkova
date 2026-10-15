@@ -438,7 +438,10 @@ async function openTimetable(templateBuf: ArrayBuffer, settings?: TemplateSettin
     if (!m) continue;
     const dayCells = new Map<number, Element[]>();
     for (const [d, [d0, d1]] of dayRanges) {
-      dayCells.set(d, cells.filter((c) => c.g0 >= d0 && c.g1 <= d1).map((c) => c.tc));
+      const tcs = cells.filter((c) => c.g0 >= d0 && c.g1 <= d1).map((c) => c.tc);
+      // 한 요일 칸이 여러 개로 나뉜 템플릿이어도 항상 한 칸으로 합쳐서 사용 (왼쪽 칸 색상 유지)
+      if (tcs.length > 1) mergeCells(tcs[0], tcs);
+      dayCells.set(d, tcs.slice(0, 1));
     }
     rows.push({ tr, period: +m[1], dayCells });
   }

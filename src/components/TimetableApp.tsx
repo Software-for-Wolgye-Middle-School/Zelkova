@@ -70,7 +70,7 @@ function loadDefaultTemplate() {
   templateRequest ??= (async () => {
     let res: Response;
     try {
-      res = await fetch(DEFAULT_TEMPLATE_URL);
+      res = await fetch(DEFAULT_TEMPLATE_URL, { cache: "no-cache" }); // 템플릿을 바꾸면 바로 반영되도록
     } catch {
       throw new TimetableError("기본 시간표 양식을 불러오지 못했습니다. 인터넷 연결을 확인한 뒤 다시 시도해 주세요.");
     }
