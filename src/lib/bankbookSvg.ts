@@ -2,7 +2,7 @@
  * 칭찬통장: 올려 준 실물 통장과 같은 구성으로 코드로 그립니다.
  *  1) 표지 — AI 그림(없으면 기본 보름달 그림) 위에 '칭찬 통장' 제목, 이름표, 은행 이름
  *  2) 속지 — 말풍선 칸(이름 · 지점 · 계좌번호 · 구분 · 통장 발행일), 은행 이름과 도장, 서명 칸
- *  3) 거래 내역 — 날짜 | 내용 | 적립P | 사용P | 계 표
+ *  3) 거래 내역 — 날짜 | 내용 | 적립P | 차감P | 계 표
  * 크기는 A6 가로(148 × 105mm). A4 가로 한 장에 4쪽씩 인쇄합니다.
  */
 import { esc, FONT } from "./svgExport";
@@ -159,7 +159,7 @@ function ledgerSvg() {
     ["날짜", 0.16],
     ["내용", 0.42],
     ["적립P", 0.14],
-    ["사용P", 0.14],
+    ["차감P", 0.14],
     ["계", 0.14],
   ];
   const w = x1 - x0;
@@ -191,6 +191,10 @@ function ledgerSvg() {
 
 export type BookPage = { key: string; label: string; svg: string };
 
+/** A4 한 장에 4쪽. 첫 장은 표지 · 속지 · 거래 내역 2쪽, 둘째 장부터는 거래 내역 4쪽 */
+export const PAGES_PER_SHEET = 4;
+export const ledgersForSheets = (sheets: number) => sheets * PAGES_PER_SHEET - 2;
+
 /** 표지 · 속지 · 거래 내역(ledgers 쪽) 순서의 모든 쪽 */
 export function bankbookPages(b: Bankbook, ledgers: number): BookPage[] {
   const ledger = ledgerSvg();
@@ -203,5 +207,5 @@ export function bankbookPages(b: Bankbook, ledgers: number): BookPage[] {
 
 /** 글꼴을 내려받을 때 필요한 글자 */
 export const bankbookText = (b: Bankbook) =>
-  [TITLE, "이름.", b.name, b.bank, b.branch, b.account, b.issued, "지점계좌번호구분신규재발급통장발행일서명담임확인날짜내용적립P사용P계",
+  [TITLE, "이름.", b.name, b.bank, b.branch, b.account, b.issued, "지점계좌번호구분신규재발급통장발행일서명담임확인날짜내용적립P차감P계",
     "본인임을 증명하는 서명을 적으세요.통장이 본인 소유임을 증명합니다."].join("");

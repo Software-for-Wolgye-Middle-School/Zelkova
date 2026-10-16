@@ -8,6 +8,7 @@ import {
   BOOK_W,
   bankbookPages,
   bankbookText,
+  ledgersForSheets,
   PAPER_COLORS,
   type Bankbook,
   type PaperColor,
@@ -45,7 +46,8 @@ export default function BankbookApp() {
   const [account, setAccount] = useState(() => `${today()}-01`);
   const [kind, setKind] = useState<Bankbook["kind"]>("신규");
   const [paper, setPaper] = useState<PaperColor>("노랑");
-  const [ledgers, setLedgers] = useState(4);
+  const [sheets, setSheets] = useState(2);
+  const ledgers = ledgersForSheets(sheets);
   const [cover, setCover] = useState<string | undefined>();
   const [savedNames, setSavedNames] = useState<string[]>([]);
   const [busy, setBusy] = useState<"png" | "print" | null>(null);
@@ -195,16 +197,19 @@ export default function BankbookApp() {
                     ))}
                   </select>
                 </Field>
-                <Field label="거래 내역 쪽수">
-                  <select value={ledgers} onChange={(e) => setLedgers(Number(e.target.value))} className={field}>
-                    {Array.from({ length: 12 }, (_, i) => i + 1).map((n) => (
+                <Field label="A4 장수">
+                  <select value={sheets} onChange={(e) => setSheets(Number(e.target.value))} className={field}>
+                    {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
                       <option key={n} value={n}>
-                        {n}쪽
+                        {n}장
                       </option>
                     ))}
                   </select>
                 </Field>
               </div>
+              <p className="text-xs text-slate-500">
+                첫 장은 표지 · 속지 · 거래 내역 2쪽, 둘째 장부터는 거래 내역 4쪽씩 들어가요. (거래 내역 모두 {ledgers}쪽)
+              </p>
             </div>
           </details>
 
@@ -241,7 +246,7 @@ export default function BankbookApp() {
           {pages.slice(0, 3).map((p) => (
             <figure key={p.key} className="rounded-2xl border border-slate-200 bg-slate-100 p-3 sm:p-5">
               <figcaption className="mb-2 text-xs font-semibold text-slate-500">
-                {p.key.startsWith("ledger") ? `거래 내역 (${ledgers}쪽)` : p.label}
+                {p.key.startsWith("ledger") ? `거래 내역 (${ledgers}쪽 · A4 ${sheets}장)` : p.label}
               </figcaption>
               <div
                 className="mx-auto max-w-[640px] overflow-hidden rounded-md bg-white shadow-md [&>svg]:block [&>svg]:h-auto [&>svg]:w-full"
