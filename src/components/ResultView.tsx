@@ -6,9 +6,6 @@ import { AlertIcon, CheckIcon, DownloadIcon, InfoIcon, RefreshIcon, Spinner } fr
 
 type Tab = "document" | "students";
 
-/** 예: "영어 3시간 수학 3시간" */
-const formatHours = (d: StudentDoc) =>
-  d.subjectHours.length ? d.subjectHours.map(([s, n]) => `${s} ${n}시간`).join(" ") : "수업 없음";
 
 /** Blob 을 다운로드 링크용 주소로 바꾸고, 쓰지 않게 되면 정리 */
 function useObjectUrl(blob: Blob) {
@@ -179,24 +176,33 @@ function StudentDocs({
                 type="button"
                 onClick={() => onSelect(d.key)}
                 aria-current={active ? "true" : undefined}
-                className={`flex w-full items-center justify-between gap-3 rounded-xl border px-3.5 py-2.5 text-left transition ${
+                className={`group relative flex w-full items-center justify-between gap-3 rounded-xl border px-3.5 py-2.5 text-left transition ${
                   active
                     ? "border-indigo-300 bg-white shadow-sm ring-4 ring-indigo-100"
                     : "border-slate-200 bg-white hover:border-slate-300"
                 }`}
               >
-                <span className="shrink-0">
+                <span className="min-w-0">
                   <span className="block font-semibold text-slate-900">{d.student.name}</span>
                   <span className="block text-xs text-slate-500">
                     {d.student.grade}학년 {d.student.cls}반
                   </span>
                 </span>
+                {/* 과목별 시간은 마우스를 올리거나 키보드로 고르면 말풍선으로 보여 줌 */}
                 <span
-                  className={`min-w-0 rounded-lg px-2 py-0.5 text-right text-xs font-semibold leading-snug ${
-                    d.hours ? "bg-indigo-50 text-indigo-700" : "bg-amber-50 text-amber-700"
-                  }`}
+                  role="tooltip"
+                  className="pointer-events-none absolute left-full top-1/2 z-20 ml-3 hidden -translate-y-1/2 whitespace-nowrap rounded-lg bg-slate-900 px-3 py-2 text-xs font-medium text-white shadow-lg lg:group-hover:block lg:group-focus-visible:block"
                 >
-                  {formatHours(d)}
+                  {d.subjectHours.length ? (
+                    d.subjectHours.map(([subject, n]) => (
+                      <span key={subject} className="flex justify-between gap-4 leading-relaxed">
+                        <span>{subject}</span>
+                        <span className="tabular-nums">{n}시간</span>
+                      </span>
+                    ))
+                  ) : (
+                    <span>특수학급 수업 없음</span>
+                  )}
                 </span>
               </button>
             </li>
