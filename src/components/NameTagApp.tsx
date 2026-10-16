@@ -6,17 +6,18 @@ import {
   BORDER_OPTIONS,
   CHAR_OPTIONS,
   characterIconSvg,
+  nameTagSheetSvgs,
   nameTagSvg,
   nameTagText,
   RAINBOW_CSS,
-  TAG_H,
+  SHEET_H,
+  SHEET_W,
   TAG_MM,
-  TAG_W,
   type CharId,
   type NameTag,
   type TagBorder,
 } from "@/lib/nameTagSvg";
-import { downloadBlob, embeddedFontCss, printSheets, safeFileName, svgToPng, withFont } from "@/lib/svgExport";
+import { downloadBlob, embeddedFontCss, printSheets, svgToPng, withFont } from "@/lib/svgExport";
 import AiArtPanel, { type ArtExample } from "./AiArtPanel";
 import { DownloadIcon, SparkleIcon, Spinner } from "./icons";
 import { loadRows } from "./students";
@@ -98,13 +99,20 @@ export default function NameTagApp() {
     return svgs.map((svg) => withFont(svg, css));
   };
 
-  const downloadZip = async () => {
+  /** 인쇄와 같은 A4 배치로 저장. 한 장이면 PNG 하나, 여러 장이면 장마다 PNG 를 ZIP 으로 묶음 */
+  const downloadImages = async () => {
     setBusy("png");
     setExportError(null);
     try {
+      const css = await embeddedFontCss(nameTagText(tags));
+      const sheets = nameTagSheetSvgs(svgs).map((svg) => withFont(svg, css));
+      if (sheets.length === 1) {
+        downloadBlob(await svgToPng(sheets[0], SHEET_W, SHEET_H, 1.5), "이름표.png");
+        return;
+      }
       const zip = new JSZip();
-      for (const [i, svg] of (await withFonts()).entries()) {
-        zip.file(`${safeFileName(names[i])} 이름표.png`, await svgToPng(svg, TAG_W, TAG_H, 1.5));
+      for (const [i, svg] of sheets.entries()) {
+        zip.file(`이름표 ${i + 1}장.png`, await svgToPng(svg, SHEET_W, SHEET_H, 1.5));
       }
       downloadBlob(await zip.generateAsync({ type: "blob" }), "이름표.zip");
     } catch (e) {
@@ -288,12 +296,12 @@ export default function NameTagApp() {
             </button>
             <button
               type="button"
-              onClick={downloadZip}
+              onClick={downloadImages}
               disabled={names.length === 0 || busy !== null}
               className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-3 text-[15px] font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
             >
               {busy === "png" ? <Spinner className="h-5 w-5" /> : <DownloadIcon className="h-5 w-5" />}
-              한 명씩 그림 파일로 저장 (ZIP)
+              전체 그림 파일로 저장 (PNG)
             </button>
             {names.length === 0 && <p className="text-center text-xs text-slate-400">이름을 입력하면 저장할 수 있어요</p>}
             {exportError && (

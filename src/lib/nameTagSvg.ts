@@ -128,6 +128,30 @@ export function nameTagSvg(t: NameTag) {
 </svg>`;
 }
 
+/** A4 세로 한 장 (1mm = 10, 이름표 한 개와 같은 비율) */
+export const SHEET_W = 2100;
+export const SHEET_H = 2970;
+export const SHEET_COLS = 2;
+export const SHEET_ROWS = 7;
+
+/** 이름표 SVG 들을 A4 장마다 2 × 7 격자로 모아 한 장짜리 SVG 로 만듦 (인쇄와 같은 배치) */
+export function nameTagSheetSvgs(tagSvgs: string[]) {
+  const per = SHEET_COLS * SHEET_ROWS;
+  const left = (SHEET_W - TAG_W * SHEET_COLS) / 2;
+  const top = (SHEET_H - TAG_H * SHEET_ROWS) / 2;
+  return Array.from({ length: Math.ceil(tagSvgs.length / per) }, (_, p) => {
+    const cells = tagSvgs
+      .slice(p * per, p * per + per)
+      .map((svg, i) =>
+        svg.replace("<svg ", `<svg x="${left + (i % SHEET_COLS) * TAG_W}" y="${top + Math.floor(i / SHEET_COLS) * TAG_H}" `),
+      );
+    return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${SHEET_W} ${SHEET_H}" width="${SHEET_W}" height="${SHEET_H}">
+  <rect width="${SHEET_W}" height="${SHEET_H}" fill="#fff"/>
+  ${cells.join("\n")}
+</svg>`;
+  });
+}
+
 /** 미리보기 칩에 쓰는 작은 캐릭터 그림 */
 export function characterIconSvg(id: Exclude<CharId, "ai">) {
   const [kind, color] = id.split("-") as ["girl" | "boy", CharColor];
