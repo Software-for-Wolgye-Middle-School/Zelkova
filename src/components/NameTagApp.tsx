@@ -43,7 +43,7 @@ const parseNames = (text: string) =>
 
 export default function NameTagApp() {
   const [namesText, setNamesText] = useState("");
-  const [label, setLabel] = useState("느티나무반");
+  const [label, setLabel] = useState("");
   const [defaultChar, setDefaultChar] = useState<CharId>(DEFAULT_CHAR);
   /** 학생마다 따로 고른 캐릭터 (이름 → 캐릭터) */
   const [charFor, setCharFor] = useState<Record<string, CharId>>({});
