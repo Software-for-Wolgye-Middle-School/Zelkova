@@ -8,6 +8,9 @@ import { loadRows } from "./students";
 
 type AiBoard = PromiseBoardRequest & { id: string; url: string; ext: string; usedReference: boolean };
 
+/** 고를 수 있는 연도: 2026년 ~ 2036년 */
+const BOARD_YEARS = Array.from({ length: 11 }, (_, i) => 2026 + i);
+
 function defaultMonth() {
   const now = new Date();
   // 달의 후반이면 다음 달 약속판을 만드는 경우가 많음
@@ -35,7 +38,6 @@ export default function PromiseBoardApp() {
   const trimmed = name.trim().replace(/\s+/g, " ").slice(0, 12);
   const req: PromiseBoardRequest = { name: trimmed || "○○○", year, month };
   const svg = useMemo(() => boardSvg({ name: trimmed || "○○○", year, month }), [trimmed, year, month]);
-  const thisYear = new Date().getFullYear();
 
   const downloadPng = async () => {
     setBusy("png");
@@ -117,7 +119,7 @@ export default function PromiseBoardApp() {
             <p className="text-sm font-semibold text-slate-800">날짜</p>
             <div className="mt-2 grid grid-cols-2 gap-2">
               <select aria-label="연도" value={year} onChange={(e) => setYm({ year: Number(e.target.value), month })} className={field}>
-                {[thisYear - 1, thisYear, thisYear + 1].map((y) => (
+                {BOARD_YEARS.map((y) => (
                   <option key={y} value={y}>
                     {y}년
                   </option>

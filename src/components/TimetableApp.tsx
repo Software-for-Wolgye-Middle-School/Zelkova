@@ -25,7 +25,7 @@ import ResultView from "./ResultView";
 import Landing from "./Landing";
 import PromiseBoardApp from "./PromiseBoardApp";
 
-export type StudentDoc = { key: string; student: Student; blob: Blob; fileName: string; hours: number };
+export type StudentDoc = { key: string; student: Student; blob: Blob; fileName: string; hours: number; subjectHours: [string, number][] };
 
 export type GenerationResult = {
   blob: Blob;
@@ -43,6 +43,14 @@ export type GenerationResult = {
 
 const safeName = (s: string) => s.replace(/[\\/:*?"<>|]/g, "").trim();
 
+
+/** 과목별 주간 수업 시간 (수강 과목 순서, 수업이 없는 과목은 제외) */
+function subjectHours(subjects: string[], slots: Map<string, string>): [string, number][] {
+  const values = [...slots.values()];
+  return subjects
+    .map((s): [string, number] => [s, values.filter((v) => v === s).length])
+    .filter(([, n]) => n > 0);
+}
 
 /** 학생별 시간표 파일 이름. 이름이 같은 학생이 있으면 학년-반을 붙여 구분 */
 function studentFileNames(students: Student[], term: string) {
@@ -192,6 +200,7 @@ export default function TimetableApp() {
             blob: await fillStudentTemplate(template, schedule, slots, info),
             fileName: names[i],
             hours: slots.size,
+            subjectHours: subjectHours(student.subjects, slots),
           });
         }
         return docs;

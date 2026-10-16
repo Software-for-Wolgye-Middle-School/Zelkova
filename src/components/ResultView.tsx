@@ -1,19 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { DAYS, slotKey } from "@/lib/timetable";
 import type { GenerationResult, StudentDoc } from "./TimetableApp";
 import { AlertIcon, CheckIcon, DownloadIcon, InfoIcon, RefreshIcon, Spinner } from "./icons";
 
-type Tab = "document" | "students" | "summary";
+type Tab = "document" | "students";
 
-const SUBJECT_STYLES: Record<string, string> = {
-  국어: "bg-rose-50 text-rose-700 ring-rose-200",
-  영어: "bg-sky-50 text-sky-700 ring-sky-200",
-  수학: "bg-emerald-50 text-emerald-700 ring-emerald-200",
-  스포츠: "bg-amber-50 text-amber-700 ring-amber-200",
-};
-const subjectStyle = (s: string) => SUBJECT_STYLES[s] ?? "bg-slate-50 text-slate-700 ring-slate-200";
+/** 예: "영어 3시간 수학 3시간" */
+const formatHours = (d: StudentDoc) =>
+  d.subjectHours.length ? d.subjectHours.map(([s, n]) => `${s} ${n}시간`).join(" ") : "수업 없음";
 
 /** Blob 을 다운로드 링크용 주소로 바꾸고, 쓰지 않게 되면 정리 */
 function useObjectUrl(blob: Blob) {
@@ -33,15 +28,9 @@ export default function ResultView({ result, onRestart }: { result: GenerationRe
     ...result.notes.map((text) => ({ text, level: "info" as const })),
   ];
 
-  const openStudent = (key: string) => {
-    setSelectedKey(key);
-    setTab("students");
-  };
-
   const tabs: [Tab, string][] = [
     ["document", "전체 시간표"],
     ["students", `학생별 시간표 (${result.studentDocs.length})`],
-    ["summary", "요일별 요약"],
   ];
 
   return (
@@ -87,9 +76,6 @@ export default function ResultView({ result, onRestart }: { result: GenerationRe
 
       <dl className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="특수학생" value={`${result.students.length}명`} />
-        <Stat label="학생별 시간표" value={`${result.studentDocs.length}장`} />
-        <Stat label="학급 시간표" value={`${result.classCount}개`} />
-        <Stat label="채워진 교시" value={`${result.schedule.size}칸`} />
       </dl>
 
       {messages.length > 0 && (
@@ -146,11 +132,6 @@ export default function ResultView({ result, onRestart }: { result: GenerationRe
               <StudentDocs docs={result.studentDocs} selectedKey={selectedKey} onSelect={setSelectedKey} />
             </div>
           )}
-          {tab === "summary" && (
-            <div role="tabpanel" id="panel-summary" aria-labelledby="tab-summary">
-              <SummaryTable result={result} onOpenStudent={openStudent} />
-            </div>
-          )}
         </div>
       </div>
     </div>
@@ -204,18 +185,18 @@ function StudentDocs({
                     : "border-slate-200 bg-white hover:border-slate-300"
                 }`}
               >
-                <span className="min-w-0">
+                <span className="shrink-0">
                   <span className="block font-semibold text-slate-900">{d.student.name}</span>
                   <span className="block text-xs text-slate-500">
                     {d.student.grade}학년 {d.student.cls}반
                   </span>
                 </span>
                 <span
-                  className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${
+                  className={`min-w-0 rounded-lg px-2 py-0.5 text-right text-xs font-semibold leading-snug ${
                     d.hours ? "bg-indigo-50 text-indigo-700" : "bg-amber-50 text-amber-700"
                   }`}
                 >
-                  주 {d.hours}시간
+                  {formatHours(d)}
                 </span>
               </button>
             </li>
@@ -334,102 +315,6 @@ function DocxPreview({ blob }: { blob: Blob }) {
         style={{ zoom, display: state === "ready" ? undefined : "none" }}
         aria-label="생성된 시간표 문서 미리보기"
       />
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------- 요일별 요약 표
-function SummaryTable({
-  result,
-  onOpenStudent,
-}: {
-  result: GenerationResult;
-  onOpenStudent: (key: string) => void;
-}) {
-  const periods = useMemo(() => {
-    const max = Math.max(0, ...[...result.schedule.keys()].map((k) => +k.split("-")[1]));
-    return Array.from({ length: Math.max(max, 1) }, (_, i) => i + 1);
-  }, [result.schedule]);
-
-  return (
-    <div className="space-y-6">
-      <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
-        <table className="w-full min-w-[640px] border-collapse text-sm">
-          <thead>
-            <tr className="bg-slate-50 text-slate-500">
-              <th scope="col" className="w-16 border-b border-slate-200 px-3 py-2.5 text-xs font-semibold">
-                <span className="sr-only">교시</span>
-              </th>
-              {DAYS.map((d) => (
-                <th key={d} scope="col" className="border-b border-l border-slate-200 px-3 py-2.5 font-semibold">
-                  {d}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {periods.map((p) => (
-              <tr key={p} className="align-top">
-                <th scope="row" className="border-b border-slate-100 px-3 py-3 text-xs font-semibold text-slate-500">
-                  {p}교시
-                </th>
-                {DAYS.map((_, d) => {
-                  const groups = result.schedule.get(slotKey(d, p)) ?? [];
-                  return (
-                    <td key={d} className="border-b border-l border-slate-100 px-2.5 py-2.5">
-                      {groups.length === 0 ? (
-                        <span className="text-slate-300">–</span>
-                      ) : (
-                        <div className="space-y-1.5">
-                          {groups.map((g) => (
-                            <div key={g.subject}>
-                              <span
-                                className={`inline-block rounded-md px-1.5 py-0.5 text-[11px] font-bold ring-1 ring-inset ${subjectStyle(g.subject)}`}
-                              >
-                                {g.subject}
-                              </span>
-                              <p className="mt-0.5 leading-snug text-slate-700">{g.names.join(", ")}</p>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <div>
-        <h3 className="text-sm font-semibold text-slate-700">학생별 특수학급 수업</h3>
-        <ul className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {result.studentDocs.map((d) => (
-            <li key={d.key}>
-              <button
-                type="button"
-                onClick={() => onOpenStudent(d.key)}
-                className="flex w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-left transition hover:border-indigo-300 hover:shadow-sm"
-              >
-                <span className="min-w-0">
-                  <span className="block font-semibold text-slate-900">{d.student.name}</span>
-                  <span className="block truncate text-xs text-slate-500">
-                    {d.student.grade}학년 {d.student.cls}반 · {d.student.subjects.join(", ")}
-                  </span>
-                </span>
-                <span
-                  className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${
-                    d.hours ? "bg-indigo-50 text-indigo-700" : "bg-amber-50 text-amber-700"
-                  }`}
-                >
-                  주 {d.hours}시간
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      </div>
     </div>
   );
 }
