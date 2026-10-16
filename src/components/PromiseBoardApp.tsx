@@ -1,12 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { promiseBoardFileName, type PromiseBoardRequest } from "@/lib/promiseBoard";
 import { boardPng, boardSvg, printBoard } from "@/lib/promiseBoardSvg";
-import { AlertIcon, DownloadIcon, InfoIcon, RefreshIcon, SparkleIcon, Spinner, XIcon } from "./icons";
+import { DownloadIcon, Spinner } from "./icons";
 import { loadRows } from "./students";
-
-type AiBoard = PromiseBoardRequest & { id: string; url: string; ext: string; usedReference: boolean };
 
 /** 고를 수 있는 연도: 2026년 ~ 2036년 */
 const BOARD_YEARS = Array.from({ length: 11 }, (_, i) => 2026 + i);
@@ -173,119 +171,8 @@ export default function PromiseBoardApp() {
               dangerouslySetInnerHTML={{ __html: svg }}
             />
           </div>
-          <AiSection req={req} disabled={!trimmed} />
         </section>
       </div>
     </div>
-  );
-}
-
-// ---------------------------------------------------------------- Gemini AI 그림 (선택, 결제한 API 키 필요)
-const WAIT_MESSAGES = ["그림을 그리고 있어요", "달력에 날짜를 적고 있어요", "귀여운 친구들을 그리고 있어요", "색을 칠하고 있어요"];
-
-function AiSection({ req, disabled }: { req: PromiseBoardRequest; disabled: boolean }) {
-  const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
-  const [error, setError] = useState<string | null>(null);
-  const [board, setBoard] = useState<AiBoard | null>(null);
-  const [elapsed, setElapsed] = useState(0);
-  const urlRef = useRef<string | null>(null);
-
-  useEffect(() => () => void (urlRef.current && URL.revokeObjectURL(urlRef.current)), []);
-  useEffect(() => {
-    if (status !== "loading") return;
-    const started = Date.now();
-    const t = setInterval(() => setElapsed(Math.floor((Date.now() - started) / 1000)), 1000);
-    return () => clearInterval(t);
-  }, [status]);
-
-  const generate = async () => {
-    setStatus("loading");
-    setElapsed(0);
-    setError(null);
-    try {
-      const res = await fetch("/api/promise-board", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(req),
-      });
-      const data = (await res.json().catch(() => ({}))) as { image?: string; mimeType?: string; usedReference?: boolean; error?: string };
-      if (!res.ok || !data.image) throw new Error(data.error || "AI 약속판을 만들지 못했어요.");
-      const mimeType = data.mimeType || "image/jpeg";
-      const bytes = Uint8Array.from(atob(data.image), (c) => c.charCodeAt(0));
-      if (urlRef.current) URL.revokeObjectURL(urlRef.current);
-      const url = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
-      urlRef.current = url;
-      const ext = mimeType.includes("png") ? "png" : mimeType.includes("webp") ? "webp" : "jpg";
-      setBoard({ ...req, id: `${Date.now()}`, url, ext, usedReference: !!data.usedReference });
-      setStatus("idle");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "AI 약속판을 만들지 못했어요.");
-      setStatus("error");
-    }
-  };
-
-  return (
-    <details className="group mt-6 rounded-2xl border border-slate-200 bg-white">
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4">
-        <span>
-          <span className="flex items-center gap-1.5 font-semibold text-slate-800">
-            <SparkleIcon className="h-4 w-4 text-indigo-500" />
-            Gemini AI 그림으로 만들기
-          </span>
-          <span className="mt-0.5 block text-xs text-slate-500">결제(유료 등급)를 연결한 Gemini API 키가 있을 때만 쓸 수 있어요.</span>
-        </span>
-        <span className="text-slate-400 transition group-open:rotate-180" aria-hidden="true">
-          ▾
-        </span>
-      </summary>
-      <div className="border-t border-slate-100 px-5 py-4">
-        <button
-          type="button"
-          onClick={generate}
-          disabled={disabled || status === "loading"}
-          className="inline-flex items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {status === "loading" ? <Spinner className="h-4 w-4" /> : <SparkleIcon className="h-4 w-4" />}
-          {status === "loading" ? `${WAIT_MESSAGES[Math.floor(elapsed / 6) % WAIT_MESSAGES.length]}… ${elapsed}초` : "AI로 그리기"}
-        </button>
-        {status === "error" && (
-          <div role="alert" className="mt-3 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-            <AlertIcon className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
-            <span className="flex-1">{error}</span>
-            <button type="button" onClick={() => setStatus("idle")} aria-label="닫기" className="text-red-400 hover:text-red-600">
-              <XIcon className="h-4 w-4" />
-            </button>
-          </div>
-        )}
-        {board && status !== "loading" && (
-          <div className="mt-4">
-            {/* eslint-disable-next-line @next/next/no-img-element -- 브라우저에서 만든 blob 주소 */}
-            <img src={board.url} alt={`${board.name}의 AI 약속판`} className="mx-auto max-h-[70vh] rounded-md shadow-md" />
-            <div className="mt-3 flex flex-wrap justify-center gap-2">
-              <button
-                type="button"
-                onClick={generate}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-              >
-                <RefreshIcon className="h-4 w-4" />
-                다시 그리기
-              </button>
-              <a
-                href={board.url}
-                download={promiseBoardFileName(board, board.ext)}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
-              >
-                <DownloadIcon className="h-4 w-4" />
-                AI 그림 저장
-              </a>
-            </div>
-            <p className="mt-2 flex items-start justify-center gap-1.5 text-xs text-slate-500">
-              <InfoIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              AI 그림은 날짜나 글자가 틀릴 수 있어요. 위 미리보기와 비교해 확인해 주세요.
-            </p>
-          </div>
-        )}
-      </div>
-    </details>
   );
 }
