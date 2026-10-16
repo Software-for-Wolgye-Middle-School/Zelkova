@@ -2,20 +2,34 @@
 
 import { useEffect, useMemo, useState } from "react";
 import JSZip from "jszip";
-import { nameTagSvg, nameTagText, TAG_COLORS, TAG_H, TAG_MM, TAG_W, type NameTag, type TagColor } from "@/lib/nameTagSvg";
+import {
+  CHAR_OPTIONS,
+  characterIconSvg,
+  nameTagSvg,
+  nameTagText,
+  TAG_H,
+  TAG_MM,
+  TAG_W,
+  type CharId,
+  type NameTag,
+} from "@/lib/nameTagSvg";
 import { downloadBlob, embeddedFontCss, printSheets, safeFileName, svgToPng, withFont } from "@/lib/svgExport";
 import AiArtPanel, { type ArtExample } from "./AiArtPanel";
-import { DownloadIcon, Spinner } from "./icons";
+import { DownloadIcon, SparkleIcon, Spinner } from "./icons";
 import { loadRows } from "./students";
 
-const TAG_EXAMPLES: ArtExample[] = [
-  { label: "느티나무 언덕", prompt: "커다란 느티나무와 작은 새들이 있는 맑은 봄 언덕" },
-  { label: "무지개", prompt: "파란 하늘의 무지개와 몽글몽글한 구름" },
-  { label: "꽃밭", prompt: "알록달록한 꽃밭과 나비들" },
-  { label: "공룡", prompt: "초록 들판에서 노는 귀여운 아기 공룡들" },
-  { label: "우주", prompt: "반짝이는 별과 행성, 작은 로켓이 있는 우주" },
+const CHAR_EXAMPLES: ArtExample[] = [
+  { label: "곰돌이", prompt: "동그란 귀를 가진 귀여운 갈색 곰돌이 얼굴" },
+  { label: "토끼", prompt: "분홍 볼을 가진 귀여운 하얀 토끼 얼굴" },
+  { label: "고양이", prompt: "웃고 있는 귀여운 노란 고양이 얼굴" },
+  { label: "공룡", prompt: "웃고 있는 귀여운 초록 아기 공룡 얼굴" },
+  { label: "한복 아이", prompt: "댕기 머리를 한 귀여운 한복 입은 아이 얼굴" },
 ];
-const TAG_LAYOUT = "wide landscape scene, soft light colors, simple background";
+/** 이름표 카드 안 왼쪽에 들어갈 캐릭터 하나만, 흰 바탕으로 그리게 함 */
+const CHAR_LAYOUT =
+  "a single cute character head icon only, front view, centered, isolated on a plain pure white background, sticker style, nothing else in the picture";
+
+const DEFAULT_CHAR: CharId = "girl-보라";
 
 const field =
   "h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-[15px] outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100";
@@ -27,7 +41,9 @@ const parseNames = (text: string) =>
 export default function NameTagApp() {
   const [namesText, setNamesText] = useState("");
   const [label, setLabel] = useState("느티나무반");
-  const [color, setColor] = useState<TagColor>("초록");
+  const [defaultChar, setDefaultChar] = useState<CharId>(DEFAULT_CHAR);
+  /** 학생마다 따로 고른 캐릭터 (이름 → 캐릭터) */
+  const [charFor, setCharFor] = useState<Record<string, CharId>>({});
   const [art, setArt] = useState<string | undefined>();
   const [savedNames, setSavedNames] = useState<string[]>([]);
   const [busy, setBusy] = useState<"png" | "print" | null>(null);
@@ -44,10 +60,33 @@ export default function NameTagApp() {
 
   const names = useMemo(() => parseNames(namesText), [namesText]);
   const tags = useMemo<NameTag[]>(
-    () => (names.length ? names : [""]).map((name) => ({ name, label: label.trim(), color, art })),
-    [names, label, color, art],
+    () =>
+      (names.length ? names : [""]).map((name) => ({
+        name,
+        label: label.trim(),
+        char: charFor[name] ?? defaultChar,
+        art,
+      })),
+    [names, label, charFor, defaultChar, art],
   );
   const svgs = useMemo(() => tags.map(nameTagSvg), [tags]);
+
+  const changeArt = (next: string | undefined) => {
+    setArt(next);
+    if (next) {
+      setDefaultChar("ai");
+    } else {
+      // AI 그림을 지우면 AI 캐릭터를 고른 곳은 기본 캐릭터로 되돌림
+      setDefaultChar((c) => (c === "ai" ? DEFAULT_CHAR : c));
+      setCharFor((m) => Object.fromEntries(Object.entries(m).filter(([, c]) => c !== "ai")));
+    }
+  };
+
+  /** 전체 캐릭터를 바꾸면 학생마다 따로 고른 것은 초기화 */
+  const chooseDefault = (id: CharId) => {
+    setDefaultChar(id);
+    setCharFor({});
+  };
 
   const withFonts = async () => {
     const css = await embeddedFontCss(nameTagText(tags));
@@ -83,7 +122,8 @@ export default function NameTagApp() {
         items: await withFonts(),
         itemMm: TAG_MM,
         cols: 2,
-        rows: 5,
+        rows: 7,
+        cutLines: false, // 오색 테두리를 따라 자르면 됨
       });
     } finally {
       setBusy(null);
@@ -93,12 +133,14 @@ export default function NameTagApp() {
   const toggleName = (n: string) =>
     setNamesText(names.includes(n) ? names.filter((x) => x !== n).join("\n") : [...names, n].join("\n"));
 
+  const charChoices = art ? [...CHAR_OPTIONS, { id: "ai" as const, label: "AI 캐릭터" }] : CHAR_OPTIONS;
+
   return (
     <div className="fade-up mx-auto max-w-5xl">
       <div className="mb-8 text-center">
         <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-[28px]">이름표 만들기</h1>
         <p className="mt-2 text-[15px] text-slate-500">
-          여러 학생의 이름표를 한꺼번에 만들어요. 배경 그림은 원하는 대로 AI가 무료로 그려 줘요.
+          오색 테두리 이름표를 여러 명 한꺼번에 만들어요. 캐릭터를 고르거나 AI로 새로 그릴 수 있어요.
         </p>
       </div>
 
@@ -138,29 +180,53 @@ export default function NameTagApp() {
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
-            <label className="block">
-              <span className="mb-1 block text-xs font-semibold text-slate-600">위쪽 문구</span>
-              <input value={label} maxLength={12} placeholder="비워도 돼요" onChange={(e) => setLabel(e.target.value)} className={field} />
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-xs font-semibold text-slate-600">테두리 색</span>
-              <select value={color} onChange={(e) => setColor(e.target.value as TagColor)} className={field}>
-                {Object.keys(TAG_COLORS).map((c) => (
-                  <option key={c}>{c}</option>
-                ))}
-              </select>
-            </label>
+          <label className="block">
+            <span className="mb-1 block text-sm font-semibold text-slate-800">반 이름</span>
+            <input value={label} maxLength={12} placeholder="비워도 돼요" onChange={(e) => setLabel(e.target.value)} className={field} />
+          </label>
+
+          <div>
+            <p className="text-sm font-semibold text-slate-800">캐릭터</p>
+            <p className="mt-0.5 text-xs text-slate-500">모든 이름표에 적용돼요. 학생마다 바꾸려면 미리보기 아래에서 고르세요.</p>
+            <div className="mt-2 grid grid-cols-6 gap-1.5" role="radiogroup" aria-label="캐릭터">
+              {charChoices.map((o) => (
+                <button
+                  key={o.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={defaultChar === o.id}
+                  aria-label={o.label}
+                  title={o.label}
+                  onClick={() => chooseDefault(o.id)}
+                  className={`aspect-square overflow-hidden rounded-lg border bg-white p-0.5 transition ${
+                    defaultChar === o.id ? "border-indigo-400 ring-2 ring-indigo-200" : "border-slate-200 hover:border-slate-300"
+                  }`}
+                >
+                  {o.id === "ai" ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- AI로 받은 data: 주소
+                    <img src={art} alt="" className="h-full w-full object-contain" />
+                  ) : (
+                    <span
+                      className="block h-full w-full [&>svg]:h-full [&>svg]:w-full"
+                      // characterIconSvg 는 고정된 값으로 직접 만든 SVG 문자열
+                      dangerouslySetInnerHTML={{ __html: characterIconSvg(o.id) }}
+                    />
+                  )}
+                </button>
+              ))}
+            </div>
           </div>
 
           <AiArtPanel
             id="nt-art"
-            examples={TAG_EXAMPLES}
-            layout={TAG_LAYOUT}
-            width={1200}
-            height={736}
+            title="AI 캐릭터 그리기"
+            examples={CHAR_EXAMPLES}
+            layout={CHAR_LAYOUT}
+            width={640}
+            height={640}
             hasArt={!!art}
-            onArt={setArt}
+            onArt={changeArt}
+            transparent
           />
 
           <div className="space-y-2 border-t border-slate-100 pt-5">
@@ -171,7 +237,7 @@ export default function NameTagApp() {
               className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-[15px] font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
             >
               {busy === "print" && <Spinner className="h-5 w-5" />}
-              인쇄 · PDF로 저장 (A4 한 장에 10개)
+              인쇄 · PDF로 저장 (A4 한 장에 14개)
             </button>
             <button
               type="button"
@@ -192,21 +258,40 @@ export default function NameTagApp() {
         </div>
 
         <section aria-label="이름표 미리보기" className="min-w-0">
-          <div className="rounded-2xl border border-slate-200 bg-slate-100 p-3 sm:p-5">
-            <p className="mb-2 text-xs font-semibold text-slate-500">
-              {names.length ? `${names.length}명 · A4 ${Math.ceil(names.length / 10)}장` : "미리보기"}
-            </p>
-            <div className="grid gap-3 sm:grid-cols-2">
-              {svgs.map((svg, i) => (
+          <p className="mb-2 text-xs font-semibold text-slate-500">
+            {names.length ? `${names.length}명 · A4 ${Math.ceil(names.length / 14)}장` : "미리보기"}
+          </p>
+          <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2">
+            {tags.map((t, i) => (
+              <div key={`${t.name}-${i}`}>
                 <div
-                  key={`${names[i] ?? ""}-${i}`}
-                  className="overflow-hidden rounded-md bg-white shadow-md [&>svg]:block [&>svg]:h-auto [&>svg]:w-full"
+                  className="[&>svg]:block [&>svg]:h-auto [&>svg]:w-full"
                   // nameTagSvg 는 입력값을 XML 이스케이프한 뒤 직접 만든 SVG 문자열
-                  dangerouslySetInnerHTML={{ __html: svg }}
+                  dangerouslySetInnerHTML={{ __html: svgs[i] }}
                 />
-              ))}
-            </div>
+                {t.name && (
+                  <select
+                    aria-label={`${t.name} 캐릭터`}
+                    value={t.char}
+                    onChange={(e) => setCharFor((m) => ({ ...m, [t.name]: e.target.value as CharId }))}
+                    className="mt-1 h-8 w-full rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-600 outline-none focus:border-indigo-500"
+                  >
+                    {charChoices.map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            ))}
           </div>
+          {!art && (
+            <p className="mt-4 flex items-center gap-1.5 text-xs text-slate-400">
+              <SparkleIcon className="h-3.5 w-3.5" />
+              AI 캐릭터는 이름표 안 왼쪽 그림 자리에만 들어가요.
+            </p>
+          )}
         </section>
       </div>
     </div>

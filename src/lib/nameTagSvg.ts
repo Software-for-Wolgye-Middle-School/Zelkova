@@ -1,66 +1,118 @@
 /**
- * 이름표: 위쪽은 AI 그림(없으면 기본 느티나무 그림), 아래쪽 흰 칸에 반 이름과 학생 이름.
- * 크기는 90 × 55mm. A4 세로 한 장에 10개(2 × 5)씩 인쇄합니다.
+ * 이름표: 오색 테두리 흰 카드, 왼쪽에 캐릭터 얼굴, 오른쪽에 반 이름과 학생 이름.
+ * 캐릭터는 코드로 그린 남녀 6색(여자 아이: 머리 장식 색, 남자 아이: 모자 색) 또는 AI로 그린 그림.
+ * 크기는 90 × 40mm. A4 세로 한 장에 14개(2 × 7)씩 인쇄합니다.
  */
 import { esc, FONT } from "./svgExport";
 
 export const TAG_W = 900;
-export const TAG_H = 550;
-export const TAG_MM = { w: 90, h: 55 };
+export const TAG_H = 400;
+export const TAG_MM = { w: 90, h: 40 };
 
-const INK = "#3a3030";
+const INK = "#222";
+const HAIR = "#2b2a2e";
+const SKIN = "#ffe1cf";
 
-/** 이름 칸 테두리 · 반 이름 색 */
-export const TAG_COLORS = {
-  초록: "#4f9a5a",
-  분홍: "#e0607e",
-  하늘: "#3f86c6",
-  보라: "#8a63c9",
-  주황: "#e08a2e",
+/** 캐릭터 색: [밝은 색, 진한 색] */
+export const CHAR_COLORS = {
+  보라: ["#c3aeea", "#9b82d6"],
+  노랑: ["#fbd96f", "#eab93c"],
+  분홍: ["#f9a3b7", "#ec7593"],
+  초록: ["#a8de7c", "#7cc256"],
+  하늘: ["#8fcdf3", "#58ade6"],
+  주황: ["#fbb26f", "#ef8f3d"],
 } as const;
-export type TagColor = keyof typeof TAG_COLORS;
+export type CharColor = keyof typeof CHAR_COLORS;
 
-export type NameTag = { name: string; label: string; color: TagColor; art?: string };
+/** "girl-보라" · "boy-하늘" 처럼 코드로 그린 캐릭터, 또는 "ai" (AI로 그린 그림) */
+export type CharId = `${"girl" | "boy"}-${CharColor}` | "ai";
 
-/** 기본 그림: 맑은 하늘, 언덕 위 느티나무, 구름 */
-function defaultArt() {
-  return `<defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#bfe3fb"/><stop offset="1" stop-color="#eef8ff"/></linearGradient></defs>
-    <rect width="${TAG_W}" height="${TAG_H}" fill="url(#sky)"/>
-    <circle cx="790" cy="80" r="46" fill="#ffe27a"/>
-    <g fill="#fff"><ellipse cx="170" cy="90" rx="70" ry="26"/><ellipse cx="215" cy="74" rx="44" ry="30"/>
-      <ellipse cx="560" cy="60" rx="56" ry="20"/><ellipse cx="596" cy="48" rx="34" ry="22"/></g>
-    <ellipse cx="200" cy="560" rx="420" ry="190" fill="#a9d98f"/>
-    <ellipse cx="760" cy="580" rx="380" ry="200" fill="#8fcd78"/>
-    <rect x="110" y="200" width="30" height="120" rx="10" fill="#8a5a3c"/>
-    <g fill="#5fae5b"><circle cx="125" cy="170" r="70"/><circle cx="72" cy="200" r="48"/><circle cx="180" cy="196" r="52"/></g>
-    <rect x="770" y="230" width="22" height="90" rx="8" fill="#8a5a3c"/>
-    <g fill="#6fbf63"><circle cx="781" cy="206" r="52"/><circle cx="742" cy="230" r="34"/><circle cx="822" cy="228" r="38"/></g>`;
+export const CHAR_OPTIONS: { id: CharId; label: string }[] = (["girl", "boy"] as const).flatMap((kind) =>
+  (Object.keys(CHAR_COLORS) as CharColor[]).map((c) => ({
+    id: `${kind}-${c}` as CharId,
+    label: `${kind === "girl" ? "여자 아이" : "남자 아이"} · ${c}`,
+  })),
+);
+
+/** 테두리 오색 (분홍 · 주황 · 노랑 · 연두 · 파랑 · 보라 순서로 반복) */
+const BORDER = ["#f8829a", "#fbb06c", "#f9dc6a", "#c7ea84", "#79b4ee", "#b9a1e6"];
+
+export type NameTag = { name: string; label: string; char: CharId; art?: string };
+
+/** 공통 얼굴: 피부, 눈, 볼, 입 */
+function face(cx: number, cy: number, r: number) {
+  return `<ellipse cx="${cx}" cy="${cy + r * 0.28}" rx="${r * 0.9}" ry="${r * 0.72}" fill="${SKIN}"/>
+    <circle cx="${cx - r * 0.32}" cy="${cy + r * 0.32}" r="${r * 0.075}" fill="${INK}"/>
+    <circle cx="${cx + r * 0.32}" cy="${cy + r * 0.32}" r="${r * 0.075}" fill="${INK}"/>
+    <ellipse cx="${cx - r * 0.55}" cy="${cy + r * 0.52}" rx="${r * 0.16}" ry="${r * 0.1}" fill="#ffb1b1"/>
+    <ellipse cx="${cx + r * 0.55}" cy="${cy + r * 0.52}" rx="${r * 0.16}" ry="${r * 0.1}" fill="#ffb1b1"/>
+    <path d="M${cx - r * 0.1} ${cy + r * 0.5} q${r * 0.1} ${r * 0.12} ${r * 0.2} 0" fill="none" stroke="#f0727f" stroke-width="${r * 0.05}" stroke-linecap="round"/>`;
+}
+
+/** 여자 아이: 검은 머리, 양옆 꽁지, 정수리 머리 장식 */
+function girl(cx: number, cy: number, r: number, [light, dark]: readonly [string, string]) {
+  return `<circle cx="${cx - r * 0.95}" cy="${cy + r * 0.35}" r="${r * 0.26}" fill="${HAIR}"/>
+    <circle cx="${cx + r * 0.95}" cy="${cy + r * 0.35}" r="${r * 0.26}" fill="${HAIR}"/>
+    <ellipse cx="${cx}" cy="${cy}" rx="${r}" ry="${r * 0.88}" fill="${HAIR}"/>
+    ${face(cx, cy, r)}
+    <ellipse cx="${cx}" cy="${cy - r * 0.6}" rx="${r * 0.42}" ry="${r * 0.16}" fill="${light}" stroke="${dark}" stroke-width="${r * 0.04}"/>
+    <circle cx="${cx}" cy="${cy - r * 0.6}" r="${r * 0.1}" fill="${dark}"/>
+    <circle cx="${cx - r * 0.24}" cy="${cy - r * 0.6}" r="${r * 0.035}" fill="#fff"/>
+    <circle cx="${cx + r * 0.24}" cy="${cy - r * 0.6}" r="${r * 0.035}" fill="#fff"/>`;
+}
+
+/** 남자 아이: 색 모자(털모자), 아래로 검은 앞머리 */
+function boy(cx: number, cy: number, r: number, [light, dark]: readonly [string, string]) {
+  return `<ellipse cx="${cx}" cy="${cy + r * 0.05}" rx="${r * 0.95}" ry="${r * 0.6}" fill="${HAIR}"/>
+    ${face(cx, cy, r)}
+    <path d="M${cx - r * 1.02} ${cy - r * 0.02} C${cx - r * 1.02} ${cy - r * 1.18} ${cx + r * 1.02} ${cy - r * 1.18} ${cx + r * 1.02} ${cy - r * 0.02} Z" fill="${light}"/>
+    <rect x="${cx - r * 0.86}" y="${cy - r * 0.02}" width="${r * 1.72}" height="${r * 0.2}" rx="${r * 0.08}" fill="${HAIR}"/>
+    <rect x="${cx - r * 1.06}" y="${cy - r * 0.2}" width="${r * 2.12}" height="${r * 0.24}" rx="${r * 0.12}" fill="${dark}"/>
+    <path d="M${cx - r * 0.5} ${cy - r * 0.78} q${r * 0.1} ${-r * 0.1} ${r * 0.24} ${-r * 0.12}" fill="none" stroke="#fff" stroke-opacity="0.7" stroke-width="${r * 0.07}" stroke-linecap="round"/>`;
+}
+
+function character(t: NameTag, cx: number, cy: number, r: number) {
+  if (t.char === "ai") {
+    if (!t.art) return "";
+    const s = r * 2.5;
+    return `<image href="${t.art}" xlink:href="${t.art}" x="${cx - s / 2}" y="${cy - s / 2}" width="${s}" height="${s}" preserveAspectRatio="xMidYMid meet" clip-path="url(#tag-inner)"/>`;
+  }
+  const [kind, color] = t.char.split("-") as ["girl" | "boy", CharColor];
+  return kind === "girl" ? girl(cx, cy, r, CHAR_COLORS[color]) : boy(cx, cy, r, CHAR_COLORS[color]);
+}
+
+/** 둥근 사각형 테두리를 같은 길이의 색 조각으로 나눠 칠함 (pathLength 로 길이를 맞춤) */
+function rainbowBorder(x: number, y: number, w: number, h: number, rx: number, width: number) {
+  const pieces = 30;
+  const seg = 1000 / pieces;
+  return BORDER.map(
+    (c, i) =>
+      `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx}" fill="none" stroke="${c}" stroke-width="${width}" pathLength="1000" stroke-dasharray="${seg} ${seg * (BORDER.length - 1)}" stroke-dashoffset="${-i * seg}"/>`,
+  ).join("");
 }
 
 export function nameTagSvg(t: NameTag) {
-  const color = TAG_COLORS[t.color];
   const name = t.name || "○○○";
   const len = [...name].length;
-  const fontSize = Math.min(124, Math.floor(640 / Math.max(len, 1)));
-  const art = t.art
-    ? `<image href="${t.art}" xlink:href="${t.art}" x="0" y="0" width="${TAG_W}" height="${TAG_H}" preserveAspectRatio="xMidYMid slice"/>`
-    : defaultArt();
-  const px0 = 70;
-  const py0 = 236;
-  const pw = TAG_W - px0 * 2;
-  const ph = 270;
+  const textX = 610;
+  const fontSize = Math.min(132, Math.floor(470 / Math.max(len, 1.6)));
+  const nameY = t.label ? 300 : 200 + fontSize * 0.36;
+  const b = 26; // 테두리 굵기
   return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${TAG_W} ${TAG_H}" width="${TAG_W}" height="${TAG_H}" font-family='${FONT}'>
-  ${art}
-  <rect x="${px0}" y="${py0}" width="${pw}" height="${ph}" rx="44" fill="#fff" fill-opacity="0.95" stroke="${color}" stroke-width="7"/>
-  ${
-    t.label
-      ? `<rect x="${TAG_W / 2 - Math.max(120, [...t.label].length * 17 + 40)}" y="${py0 - 26}" width="${Math.max(240, [...t.label].length * 34 + 80)}" height="52" rx="26" fill="${color}"/>
-  <text x="${TAG_W / 2}" y="${py0 + 11}" text-anchor="middle" font-size="30" fill="#fff">${esc(t.label)}</text>`
-      : ""
-  }
-  <text x="${TAG_W / 2}" y="${py0 + ph / 2 + fontSize * 0.36 + (t.label ? 12 : 0)}" text-anchor="middle" font-size="${fontSize}" fill="${INK}" letter-spacing="${len <= 3 ? 10 : 2}">${esc(name)}</text>
+  <defs><clipPath id="tag-inner"><rect x="${b * 1.5}" y="${b * 1.5}" width="${TAG_W - b * 3}" height="${TAG_H - b * 3}" rx="36"/></clipPath></defs>
+  <rect x="${b}" y="${b}" width="${TAG_W - b * 2}" height="${TAG_H - b * 2}" rx="48" fill="#fff"/>
+  ${character(t, 200, 214, 118)}
+  ${rainbowBorder(b, b, TAG_W - b * 2, TAG_H - b * 2, 48, b)}
+  ${t.label ? `<text x="${textX}" y="152" text-anchor="middle" font-size="54" fill="${INK}">${esc(t.label)}</text>` : ""}
+  <text x="${textX}" y="${nameY}" text-anchor="middle" font-size="${fontSize}" fill="${INK}" letter-spacing="${len <= 3 ? 8 : 2}">${esc(name)}</text>
 </svg>`;
+}
+
+/** 미리보기 칩에 쓰는 작은 캐릭터 그림 */
+export function characterIconSvg(id: Exclude<CharId, "ai">) {
+  const [kind, color] = id.split("-") as ["girl" | "boy", CharColor];
+  const body = kind === "girl" ? girl(50, 46, 34, CHAR_COLORS[color]) : boy(50, 46, 34, CHAR_COLORS[color]);
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">${body}</svg>`;
 }
 
 export const nameTagText = (tags: NameTag[]) => tags.map((t) => t.name + t.label).join("") + "○";

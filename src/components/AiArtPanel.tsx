@@ -20,6 +20,8 @@ export default function AiArtPanel({
   height,
   hasArt,
   onArt,
+  title = "그림 설명 (AI 그림)",
+  transparent = false,
 }: {
   id: string;
   examples: ArtExample[];
@@ -28,6 +30,9 @@ export default function AiArtPanel({
   height: number;
   hasArt: boolean;
   onArt: (dataUrl: string | undefined) => void;
+  title?: string;
+  /** 바탕을 투명하게 지운 그림으로 받음 */
+  transparent?: boolean;
 }) {
   const [prompt, setPrompt] = useState(examples[0]?.prompt ?? "");
   const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
@@ -55,7 +60,7 @@ export default function AiArtPanel({
     setError(null);
     try {
       const art = await generateAiImage(
-        { subject: prompt, layout, width, height, seed: newSeed() },
+        { subject: prompt, layout, width, height, seed: newSeed(), transparent },
         { signal: ctrl.signal, onWait: setWaitLeft },
       );
       if (ctrl.signal.aborted) return;
@@ -80,7 +85,7 @@ export default function AiArtPanel({
       <div>
         <label htmlFor={`${id}-prompt`} className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
           <SparkleIcon className="h-4 w-4 text-indigo-500" />
-          그림 설명 (AI 그림)
+          {title}
         </label>
         <p className="mt-0.5 text-xs text-slate-500">
           원하는 그림을 한글로 적으면 무료로 그려 줘요. 무료라서 약 45초에 한 장씩 그릴 수 있어요.

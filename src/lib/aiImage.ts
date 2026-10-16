@@ -52,6 +52,8 @@ export type AiImageRequest = {
   width: number;
   height: number;
   seed: number;
+  /** 단색 바탕을 투명하게 지움 (이름표 캐릭터처럼 그림만 쓸 때) */
+  transparent?: boolean;
 };
 
 export const newSeed = () => Math.floor(Math.random() * 1_000_000_000);
@@ -110,17 +112,57 @@ export async function generateAiImage(
     if (!res.ok || !res.headers.get("content-type")?.startsWith("image/")) {
       throw new Error("AI 그림을 만들지 못했어요. 그림 설명을 조금 바꿔 다시 시도해 주세요.");
     }
-    return cropBottom(await res.blob(), WATERMARK_CROP);
+    const canvas = await cropBottom(await res.blob(), WATERMARK_CROP);
+    if (req.transparent) {
+      removeBackground(canvas);
+      return canvas.toDataURL("image/png");
+    }
+    return canvas.toDataURL("image/jpeg", 0.92);
   }
 }
 
-/** 그림 아래쪽 ratio 만큼 잘라 JPEG data: 주소로 */
-async function cropBottom(blob: Blob, ratio: number): Promise<string> {
+/** 그림 아래쪽 ratio 만큼 잘라 냄 */
+async function cropBottom(blob: Blob, ratio: number): Promise<HTMLCanvasElement> {
   const bmp = await createImageBitmap(blob);
   const canvas = document.createElement("canvas");
   canvas.width = bmp.width;
   canvas.height = Math.round(bmp.height * (1 - ratio));
   canvas.getContext("2d")!.drawImage(bmp, 0, 0);
   bmp.close();
-  return canvas.toDataURL("image/jpeg", 0.92);
+  return canvas;
+}
+
+/**
+ * 가장자리에서부터 바탕색(네 모서리 평균)과 비슷한 픽셀을 따라가며 투명하게 만듦.
+ * 그림 안쪽의 흰 부분(눈, 입 등)은 가장자리와 이어져 있지 않으면 그대로 남음.
+ */
+function removeBackground(canvas: HTMLCanvasElement, tolerance = 48) {
+  const { width: w, height: h } = canvas;
+  const ctx = canvas.getContext("2d")!;
+  const img = ctx.getImageData(0, 0, w, h);
+  const px = img.data;
+  const corners = [0, w - 1, (h - 1) * w, h * w - 1];
+  const bg = [0, 1, 2].map((c) => corners.reduce((sum, i) => sum + px[i * 4 + c], 0) / corners.length);
+  const dist = (i: number) => Math.max(...[0, 1, 2].map((c) => Math.abs(px[i * 4 + c] - bg[c])));
+  const soft = tolerance * 0.6;
+
+  const seen = new Uint8Array(w * h);
+  const stack: number[] = [];
+  for (let x = 0; x < w; x++) stack.push(x, (h - 1) * w + x);
+  for (let y = 0; y < h; y++) stack.push(y * w, y * w + w - 1);
+  while (stack.length) {
+    const i = stack.pop()!;
+    if (seen[i]) continue;
+    seen[i] = 1;
+    const d = dist(i);
+    if (d > tolerance) continue;
+    // 바탕과 아주 비슷하면 완전히 투명, 경계 쪽은 반투명으로 부드럽게
+    px[i * 4 + 3] = d < soft ? 0 : Math.round((255 * (d - soft)) / (tolerance - soft));
+    const x = i % w;
+    if (x > 0) stack.push(i - 1);
+    if (x < w - 1) stack.push(i + 1);
+    if (i >= w) stack.push(i - w);
+    if (i < (h - 1) * w) stack.push(i + w);
+  }
+  ctx.putImageData(img, 0, 0);
 }
