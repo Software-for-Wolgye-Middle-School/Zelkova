@@ -1,6 +1,6 @@
 # 느티나무 교실 도우미
 
-특수학급 시간표(전체 · 학생별)와 나와의 약속판을 만드는 Next.js 앱입니다.
+특수학급 시간표(전체 · 학생별), 나와의 약속판, 칭찬통장, 이름표를 만드는 Next.js 앱입니다.
 
 ## 특수학급 시간표
 
@@ -44,10 +44,11 @@ npm run dev      # http://localhost:3000
 - 앱이 약속판을 SVG로 직접 그립니다 (`src/lib/promiseBoardSvg.ts`). 무료이고, 날짜와 이름이 항상 정확합니다.
 - 글꼴은 Google Fonts 의 Jua 를 쓰며, 저장할 때 약속판에 쓰인 글자만 담은 글꼴을 그림 안에 넣습니다.
 
-### (선택) Gemini AI 그림
+## 칭찬통장 · 이름표
 
-미리보기 아래 `Gemini AI 그림으로 만들기` 는 서버(`src/app/api/promise-board/route.ts`)가 Gemini 이미지 모델로 그림을 받아옵니다.
-Gemini 이미지 모델은 무료 등급에서 쓸 수 없으므로 결제(유료 등급)를 연결한 API 키가 필요합니다. 이름과 날짜가 Gemini 로 전송됩니다.
+메인 화면의 `칭찬통장 생성하기` / `이름표 생성하기`.
 
-1. `.env.example` 을 `.env.local` 로 복사하고 `GEMINI_API_KEY` 를 넣은 뒤 서버를 다시 시작합니다. (`.env.example` 에는 키를 넣지 마세요)
-2. 형식을 맞출 참고 이미지를 `public/templates/promise-board-reference.png` (또는 .jpg/.webp) 로 저장합니다.
+- 칭찬통장: 표지 · 속지(이름 · 지점 · 계좌번호 · 구분 · 발행일, 도장, 서명 칸) · 거래 내역(날짜 | 내용 | 적립P | 사용P | 계)을 템플릿 모양대로 그립니다 (`src/lib/bankbookSvg.ts`). A6 가로 크기, A4 가로 한 장에 4쪽씩 인쇄합니다.
+- 이름표: 여러 학생을 한꺼번에 만들고 A4 세로 한 장에 10개(90 × 55mm)씩 인쇄합니다 (`src/lib/nameTagSvg.ts`).
+- 배경 그림은 그림 설명(프롬프트)을 적으면 [Pollinations](https://pollinations.ai) 무료 공개 API로 그립니다 (`src/lib/aiImage.ts`). 가입 · API 키가 필요 없지만 같은 인터넷 주소에서 약 45초에 한 장만 그릴 수 있어, 제한에 걸리면 앱이 기다렸다가 다시 시도합니다.
+- 한글 설명은 같은 서비스의 무료 텍스트 API로 영어로 옮겨 보냅니다. 학생 이름은 보내지 않고, 글자는 모두 그림 위에 코드로 그립니다.

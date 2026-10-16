@@ -3,12 +3,12 @@
  * 올려 준 약속판과 같은 형식: 제목, 리본, 토끼 · 강아지, 요일별 색, 날짜 동그라미, 하단 '이 달의 약속' 칸.
  */
 import { monthWeeks, WEEKDAYS, type PromiseBoardRequest } from "./promiseBoard";
+import { embeddedFontCss, esc, FONT, printSheets, svgToPng } from "./svgExport";
 
 export const BOARD_W = 860;
 export const BOARD_H = 1216; // A4 세로 비율
 
 const INK = "#4a2c2a";
-const FONT = `Jua, "Malgun Gothic", "맑은 고딕", sans-serif`;
 const TITLE = "나와의 약속판";
 const RIBBON = "작은 약속이 모여, 더 멋진 내가 돼요!";
 const BUBBLE = ["나는 !!", "할 수 있어!"];
@@ -20,8 +20,6 @@ const HEAD_TEXT = ["#d6455d", INK, INK, INK, INK, INK, "#2f6fb0"];
 const DOT_FILL = ["#f8c8d3", "#fde8a4", "#cfe8c3", "#cde4f7", "#e5d2f0", "#f9d4c7", "#cde4f7"];
 const DOT_TEXT = ["#d6455d", INK, INK, INK, INK, INK, "#2f6fb0"];
 const TITLE_COLORS = ["#f7a6be", "#8fc8f2", "#c7a7ea", "#ffd56e", "#a6dba0", "#8fc8f2"];
-
-const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 /** 위쪽 가운데 (x, y) 에서 시작하는 크기 s 의 하트 */
 function heart(x: number, y: number, s: number, fill: string, stroke = "") {
@@ -181,55 +179,24 @@ export function boardSvg({ name, year, month }: PromiseBoardRequest, opts: Board
 
 // ---------------------------------------------------------------- 내려받기 · 인쇄 (브라우저 전용)
 
-/** 약속판에 쓰인 글자만 담은 작은 Jua 글꼴을 받아 SVG 안에 넣을 @font-face 로 만듦 (실패하면 기본 글꼴 사용) */
-export async function embeddedFontCss(req: PromiseBoardRequest) {
-  const text = [TITLE, RIBBON, ...BUBBLE, BOTTOM, WEEKDAYS.join(""), `${req.year}년 ${req.month}월`, `이름: ${req.name}`, "0123456789"].join("");
-  const chars = [...new Set(text.replace(/\s/g, ""))].join("");
-  try {
-    const css = await (await fetch(`https://fonts.googleapis.com/css2?family=Jua&text=${encodeURIComponent(chars)}`)).text();
-    const url = css.match(/url\((https:[^)]+)\)/)?.[1];
-    if (!url) return "";
-    const buf = new Uint8Array(await (await fetch(url)).arrayBuffer());
-    let bin = "";
-    for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
-    const format = url.includes(".woff2") ? "woff2" : url.includes(".woff") ? "woff" : "truetype";
-    return `@font-face{font-family:'Jua';src:url(data:font/${format};base64,${btoa(bin)}) format('${format}');}`;
-  } catch {
-    return "";
-  }
-}
+const boardText = (req: PromiseBoardRequest) =>
+  [TITLE, RIBBON, ...BUBBLE, BOTTOM, WEEKDAYS.join(""), `${req.year}년 ${req.month}월`, `이름: ${req.name}`].join("");
 
 /** A4 인쇄에 충분한 해상도의 PNG */
 export async function boardPng(req: PromiseBoardRequest, scale = 2.5): Promise<Blob> {
-  const svg = boardSvg(req, { fontCss: await embeddedFontCss(req) });
-  const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
-  try {
-    const img = new Image();
-    img.decoding = "async";
-    img.src = url;
-    await img.decode();
-    // 글꼴이 그림에 반영될 시간을 조금 줌
-    await new Promise((r) => setTimeout(r, 100));
-    const canvas = document.createElement("canvas");
-    canvas.width = BOARD_W * scale;
-    canvas.height = BOARD_H * scale;
-    const ctx = canvas.getContext("2d")!;
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-    return await new Promise<Blob>((resolve, reject) =>
-      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("PNG 변환 실패"))), "image/png"),
-    );
-  } finally {
-    URL.revokeObjectURL(url);
-  }
+  const svg = boardSvg(req, { fontCss: await embeddedFontCss(boardText(req)) });
+  return svgToPng(svg, BOARD_W, BOARD_H, scale);
 }
 
 /** 새 창에서 A4 한 장으로 인쇄 */
 export async function printBoard(req: PromiseBoardRequest, win: Window) {
-  const svg = boardSvg(req, { fontCss: await embeddedFontCss(req) });
-  win.document.write(
-    `<!doctype html><meta charset="utf-8"><title>${esc(req.name)} 나와의 약속판</title>` +
-      `<style>@page{size:A4;margin:0}html,body{margin:0}svg{display:block;width:210mm;height:297mm}</style>${svg}` +
-      `<script>document.fonts.ready.then(()=>setTimeout(()=>print(),200))<\/script>`,
-  );
-  win.document.close();
+  const svg = boardSvg(req, { fontCss: await embeddedFontCss(boardText(req)) });
+  printSheets(win, {
+    title: `${req.name} 나와의 약속판`,
+    page: { w: 210, h: 297, css: "A4" },
+    items: [svg],
+    itemMm: { w: 210, h: 297 },
+    cols: 1,
+    rows: 1,
+  });
 }

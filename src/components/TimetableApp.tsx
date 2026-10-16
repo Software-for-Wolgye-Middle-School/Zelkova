@@ -24,6 +24,8 @@ import GeneratingScreen from "./GeneratingScreen";
 import ResultView from "./ResultView";
 import Landing from "./Landing";
 import PromiseBoardApp from "./PromiseBoardApp";
+import BankbookApp from "./BankbookApp";
+import NameTagApp from "./NameTagApp";
 
 export type StudentDoc = { key: string; student: Student; blob: Blob; fileName: string; hours: number; subjectHours: [string, number][] };
 
@@ -62,7 +64,7 @@ function studentFileNames(students: Student[], term: string) {
   });
 }
 
-type Phase = "home" | "upload" | "generating" | "result" | "promise";
+type Phase = "home" | "upload" | "generating" | "result" | "promise" | "bankbook" | "nametag";
 
 /** 각 단계가 너무 빨리 지나가 깜빡이지 않도록 최소 표시 시간 */
 const MIN_STAGE_MS = 600;
@@ -272,7 +274,12 @@ export default function TimetableApp() {
       </header>
 
       {phase === "home" ? (
-        <Landing onStartTimetable={openTimetable} onStartPromise={() => setPhase("promise")} />
+        <Landing
+          onStartTimetable={openTimetable}
+          onStartPromise={() => setPhase("promise")}
+          onStartBankbook={() => setPhase("bankbook")}
+          onStartNameTag={() => setPhase("nametag")}
+        />
       ) : (
         <>
           <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8 sm:px-6 sm:py-12">
@@ -300,12 +307,16 @@ export default function TimetableApp() {
             {phase === "generating" && <GeneratingScreen stage={stage} />}
             {phase === "result" && result && <ResultView result={result} onRestart={restart} />}
             {phase === "promise" && <PromiseBoardApp />}
+            {phase === "bankbook" && <BankbookApp />}
+            {phase === "nametag" && <NameTagApp />}
           </main>
 
           <footer className="px-4 pb-6 text-center text-xs text-slate-400">
-            {phase === "promise"
-              ? "약속판을 그릴 때 이름과 날짜만 Gemini로 보내요."
-              : "시간표는 이 컴퓨터의 브라우저 안에서만 만들어져요. 입력한 정보는 밖으로 전송되지 않아요."}
+            {phase === "bankbook" || phase === "nametag"
+              ? "AI 그림을 그릴 때 그림 설명만 Pollinations AI로 보내요. 학생 이름은 밖으로 전송되지 않아요."
+              : phase === "promise"
+                ? "약속판은 이 컴퓨터의 브라우저 안에서만 만들어져요."
+                : "시간표는 이 컴퓨터의 브라우저 안에서만 만들어져요. 입력한 정보는 밖으로 전송되지 않아요."}
           </footer>
         </>
       )}
