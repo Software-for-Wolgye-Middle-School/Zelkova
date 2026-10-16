@@ -3,15 +3,18 @@
 import { useEffect, useMemo, useState } from "react";
 import JSZip from "jszip";
 import {
+  BORDER_OPTIONS,
   CHAR_OPTIONS,
   characterIconSvg,
   nameTagSvg,
   nameTagText,
+  RAINBOW_CSS,
   TAG_H,
   TAG_MM,
   TAG_W,
   type CharId,
   type NameTag,
+  type TagBorder,
 } from "@/lib/nameTagSvg";
 import { downloadBlob, embeddedFontCss, printSheets, safeFileName, svgToPng, withFont } from "@/lib/svgExport";
 import AiArtPanel, { type ArtExample } from "./AiArtPanel";
@@ -45,6 +48,7 @@ export default function NameTagApp() {
   /** 학생마다 따로 고른 캐릭터 (이름 → 캐릭터) */
   const [charFor, setCharFor] = useState<Record<string, CharId>>({});
   const [art, setArt] = useState<string | undefined>();
+  const [border, setBorder] = useState<TagBorder>("rainbow");
   const [savedNames, setSavedNames] = useState<string[]>([]);
   const [busy, setBusy] = useState<"png" | "print" | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -66,8 +70,9 @@ export default function NameTagApp() {
         label: label.trim(),
         char: charFor[name] ?? defaultChar,
         art,
+        border,
       })),
-    [names, label, charFor, defaultChar, art],
+    [names, label, charFor, defaultChar, art, border],
   );
   const svgs = useMemo(() => tags.map(nameTagSvg), [tags]);
 
@@ -123,7 +128,7 @@ export default function NameTagApp() {
         itemMm: TAG_MM,
         cols: 2,
         rows: 7,
-        cutLines: false, // 오색 테두리를 따라 자르면 됨
+        cutLines: false, // 테두리를 따라 자르면 됨
       });
     } finally {
       setBusy(null);
@@ -140,7 +145,7 @@ export default function NameTagApp() {
       <div className="mb-8 text-center">
         <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-[28px]">이름표 만들기</h1>
         <p className="mt-2 text-[15px] text-slate-500">
-          오색 테두리 이름표를 여러 명 한꺼번에 만들어요. 캐릭터를 고르거나 AI로 새로 그릴 수 있어요.
+          이름표를 여러 명 한꺼번에 만들어요. 테두리 색과 캐릭터를 고르거나 AI로 새로 그릴 수 있어요.
         </p>
       </div>
 
@@ -184,6 +189,48 @@ export default function NameTagApp() {
             <span className="mb-1 block text-sm font-semibold text-slate-800">반 이름</span>
             <input value={label} maxLength={12} placeholder="비워도 돼요" onChange={(e) => setLabel(e.target.value)} className={field} />
           </label>
+
+          <div>
+            <p className="text-sm font-semibold text-slate-800">테두리</p>
+            <div className="mt-2 flex flex-wrap items-center gap-2" role="radiogroup" aria-label="테두리">
+              {BORDER_OPTIONS.map((o) => (
+                <button
+                  key={o.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={border === o.id}
+                  aria-label={o.label}
+                  title={o.label}
+                  onClick={() => setBorder(o.id)}
+                  style={{ background: o.id === "rainbow" ? RAINBOW_CSS : o.id }}
+                  className={`h-8 w-8 rounded-full ring-offset-2 transition ${
+                    border === o.id ? "ring-2 ring-indigo-500" : "ring-1 ring-slate-200 hover:ring-slate-300"
+                  }`}
+                />
+              ))}
+              {(() => {
+                const custom = border !== "rainbow" && !BORDER_OPTIONS.some((o) => o.id === border);
+                return (
+                  <label
+                    title="다른 색 고르기"
+                    className={`relative flex h-8 cursor-pointer items-center gap-1 rounded-full px-2.5 text-xs font-semibold ring-offset-2 transition ${
+                      custom ? "text-white ring-2 ring-indigo-500" : "bg-white text-slate-600 ring-1 ring-slate-200 hover:ring-slate-300"
+                    }`}
+                    style={custom ? { background: border } : undefined}
+                  >
+                    다른 색
+                    <input
+                      type="color"
+                      aria-label="테두리 색 직접 고르기"
+                      value={border === "rainbow" ? "#f8829a" : border}
+                      onChange={(e) => setBorder(e.target.value as TagBorder)}
+                      className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                    />
+                  </label>
+                );
+              })()}
+            </div>
+          </div>
 
           <div>
             <p className="text-sm font-semibold text-slate-800">캐릭터</p>

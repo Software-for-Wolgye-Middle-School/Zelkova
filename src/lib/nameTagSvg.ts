@@ -1,5 +1,5 @@
 /**
- * 이름표: 오색 테두리 흰 카드, 왼쪽에 캐릭터 얼굴, 오른쪽에 반 이름과 학생 이름.
+ * 이름표: 오색(또는 한 가지 색) 테두리 흰 카드, 왼쪽에 캐릭터 얼굴, 오른쪽에 반 이름과 학생 이름.
  * 캐릭터는 코드로 그린 남녀 6색(여자 아이: 머리 장식 색, 남자 아이: 모자 색) 또는 AI로 그린 그림.
  * 크기는 90 × 40mm. A4 세로 한 장에 14개(2 × 7)씩 인쇄합니다.
  */
@@ -37,7 +37,23 @@ export const CHAR_OPTIONS: { id: CharId; label: string }[] = (["girl", "boy"] as
 /** 테두리 오색 (분홍 · 주황 · 노랑 · 연두 · 파랑 · 보라 순서로 반복) */
 const BORDER = ["#f8829a", "#fbb06c", "#f9dc6a", "#c7ea84", "#79b4ee", "#b9a1e6"];
 
-export type NameTag = { name: string; label: string; char: CharId; art?: string };
+/** 테두리: "rainbow" (오색) 또는 한 가지 색 ("#rrggbb") */
+export type TagBorder = "rainbow" | `#${string}`;
+
+export const BORDER_OPTIONS: { id: TagBorder; label: string }[] = [
+  { id: "rainbow", label: "오색" },
+  { id: "#f8829a", label: "분홍" },
+  { id: "#fbb06c", label: "주황" },
+  { id: "#f9dc6a", label: "노랑" },
+  { id: "#a8de7c", label: "초록" },
+  { id: "#79b4ee", label: "하늘" },
+  { id: "#b9a1e6", label: "보라" },
+];
+
+/** 미리보기 칩에 쓰는 오색 원 배경 */
+export const RAINBOW_CSS = `conic-gradient(${BORDER.map((c, i) => `${c} ${(i * 100) / BORDER.length}% ${((i + 1) * 100) / BORDER.length}%`).join(", ")})`;
+
+export type NameTag = { name: string; label: string; char: CharId; art?: string; border?: TagBorder };
 
 /** 공통 얼굴: 피부, 눈, 볼, 입 */
 function face(cx: number, cy: number, r: number) {
@@ -102,7 +118,11 @@ export function nameTagSvg(t: NameTag) {
   <defs><clipPath id="tag-inner"><rect x="${b * 1.5}" y="${b * 1.5}" width="${TAG_W - b * 3}" height="${TAG_H - b * 3}" rx="36"/></clipPath></defs>
   <rect x="${b}" y="${b}" width="${TAG_W - b * 2}" height="${TAG_H - b * 2}" rx="48" fill="#fff"/>
   ${character(t, 200, 214, 118)}
-  ${rainbowBorder(b, b, TAG_W - b * 2, TAG_H - b * 2, 48, b)}
+  ${
+    !t.border || t.border === "rainbow"
+      ? rainbowBorder(b, b, TAG_W - b * 2, TAG_H - b * 2, 48, b)
+      : `<rect x="${b}" y="${b}" width="${TAG_W - b * 2}" height="${TAG_H - b * 2}" rx="48" fill="none" stroke="${esc(t.border)}" stroke-width="${b}"/>`
+  }
   ${t.label ? `<text x="${textX}" y="152" text-anchor="middle" font-size="54" fill="${INK}">${esc(t.label)}</text>` : ""}
   <text x="${textX}" y="${nameY}" text-anchor="middle" font-size="${fontSize}" fill="${INK}" letter-spacing="${len <= 3 ? 8 : 2}">${esc(name)}</text>
 </svg>`;
