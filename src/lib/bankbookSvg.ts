@@ -1,7 +1,7 @@
 /**
  * 칭찬통장: 올려 준 실물 통장과 같은 구성으로 코드로 그립니다.
- *  1) 표지 — AI 그림(없으면 기본 보름달 그림) 위에 '칭찬 통장' 제목, 이름표, 은행 이름
- *  2) 속지 — 말풍선 칸(이름 · 지점 · 계좌번호 · 구분 · 통장 발행일), 은행 이름과 도장, 서명 칸
+ *  1) 표지 — 캐릭터 앞 그림(또는 AI 그림, 없으면 기본 보름달 그림) 위에 '칭찬 통장' 제목, 이름표, 은행 이름
+ *  2) 속지 — 캐릭터 뒤 그림(없으면 속지 색) 위에 말풍선 칸(이름 · 지점 · 계좌번호 · 구분 · 통장 발행일), 은행 이름과 도장, 서명 칸
  *  3) 거래 내역 — 날짜 | 내용 | 적립P | 차감P | 계 표
  * 크기는 A6 가로(148 × 105mm). A4 가로 한 장에 4쪽씩 인쇄합니다.
  */
@@ -33,6 +33,8 @@ export type Bankbook = {
   paper: PaperColor;
   /** 표지 그림 (data: 주소). 없으면 기본 그림 */
   cover?: string;
+  /** 속지 바탕 그림 (data: 주소). 없으면 속지 색 */
+  back?: string;
 };
 
 const svgOpen = (w = BOOK_W, h = BOOK_H) =>
@@ -69,12 +71,14 @@ function defaultCoverArt() {
     ${persimmon(690, 70)}${persimmon(780, 130, 30)}${persimmon(735, 320, 24)}${persimmon(690, 470, 30)}`;
 }
 
+/** 쪽 전체를 덮는 그림 */
+const fullImage = (src: string) =>
+  `<image href="${src}" xlink:href="${src}" x="0" y="0" width="${BOOK_W}" height="${BOOK_H}" preserveAspectRatio="xMidYMid slice"/>`;
+
 function coverSvg(b: Bankbook) {
   const name = esc(b.name || "○○○");
   const pillW = Math.max(250, 150 + [...(b.name || "○○○")].length * 40);
-  const art = b.cover
-    ? `<image href="${b.cover}" xlink:href="${b.cover}" x="0" y="0" width="${BOOK_W}" height="${BOOK_H}" preserveAspectRatio="xMidYMid slice"/>`
-    : defaultCoverArt();
+  const art = b.cover ? fullImage(b.cover) : defaultCoverArt();
   return `${svgOpen()}
   ${art}
   <text x="${BOOK_W / 2}" y="292" text-anchor="middle" font-size="128" fill="#ffd84a" stroke="#3b2f63" stroke-width="14" stroke-linejoin="round" paint-order="stroke">${TITLE}</text>
@@ -137,10 +141,13 @@ function infoSvg(b: Bankbook) {
       <text y="26" text-anchor="middle" font-size="24" fill="#fff">확인</text>
     </g>`;
 
+  // 바탕 그림 위에서는 은행 이름이 잘 보이도록 흰 테두리를 두름
+  const bankStroke = b.back ? ` stroke="#fff" stroke-width="10" stroke-linejoin="round" paint-order="stroke"` : "";
+
   return `${svgOpen()}
-  <rect width="${BOOK_W}" height="${BOOK_H}" fill="${paper.fill}"/>
+  ${b.back ? fullImage(b.back) : `<rect width="${BOOK_W}" height="${BOOK_H}" fill="${paper.fill}"/>`}
   ${bubble}${lines}${sign}
-  <text x="${bankX}" y="556" text-anchor="middle" font-size="42" fill="${INK}">${esc(b.bank)}</text>
+  <text x="${bankX}" y="556" text-anchor="middle" font-size="42" fill="${INK}"${bankStroke}>${esc(b.bank)}</text>
   ${seal}
   ${holes()}
 </svg>`;
