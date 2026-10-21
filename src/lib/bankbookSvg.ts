@@ -1,8 +1,9 @@
 /**
  * 칭찬통장: 올려 준 실물 통장과 같은 구성으로 코드로 그립니다.
- *  1) 표지 — 캐릭터 앞 그림(또는 AI 그림, 없으면 기본 보름달 그림) 위에 '칭찬 통장' 제목, 이름표, 은행 이름
- *  2) 속지 — 캐릭터 뒤 그림(없으면 속지 색) 위에 말풍선 칸(이름 · 지점 · 계좌번호 · 구분 · 통장 발행일), 은행 이름과 도장, 서명 칸
+ *  1) 표지 — 캐릭터 앞 그림(또는 AI 그림, 없으면 기본 보름달 그림) 위에 이름표, 오른쪽 아래에 '칭찬 통장' 제목과 은행 이름
+ *  2) 속지 — 말풍선 칸(이름 · 지점 · 계좌번호 · 구분 · 통장 발행일), 은행 이름과 도장, 서명 칸
  *  3) 거래 내역 — 날짜 | 내용 | 적립P | 차감P | 계 표
+ *  4) 뒤표지 — 캐릭터 뒤 그림 (캐릭터 그림을 고른 경우만)
  * 크기는 A6 가로(148 × 105mm). A4 가로 한 장에 4쪽씩 인쇄합니다.
  */
 import { esc, FONT } from "./svgExport";
@@ -33,7 +34,7 @@ export type Bankbook = {
   paper: PaperColor;
   /** 표지 그림 (data: 주소). 없으면 기본 그림 */
   cover?: string;
-  /** 속지 바탕 그림 (data: 주소). 없으면 속지 색 */
+  /** 뒤표지 그림 (data: 주소). 없으면 뒤표지 없음 */
   back?: string;
 };
 
@@ -81,13 +82,15 @@ function coverSvg(b: Bankbook) {
   const art = b.cover ? fullImage(b.cover) : defaultCoverArt();
   return `${svgOpen()}
   ${art}
-  <text x="${BOOK_W / 2}" y="292" text-anchor="middle" font-size="128" fill="#ffd84a" stroke="#3b2f63" stroke-width="14" stroke-linejoin="round" paint-order="stroke">${TITLE}</text>
   <g transform="translate(44 520)">
     <rect width="${pillW}" height="72" rx="36" fill="#fff" fill-opacity="0.94" stroke="${INK}" stroke-opacity="0.15" stroke-width="2"/>
     <path d="M38 50 q-14 -22 6 -30 q6 16 -6 30z M38 50 q4 -24 24 -20 q-6 18 -24 20z" fill="#7cc36e"/>
     <text x="74" y="49" font-size="32" fill="${INK}">이름. <tspan font-size="38">${name}</tspan></text>
   </g>
-  <text x="${BOOK_W - 40}" y="${BOOK_H - 36}" text-anchor="end" font-size="26" fill="#fff" stroke="#3b2f63" stroke-width="6" stroke-linejoin="round" paint-order="stroke">${esc(b.bank)}</text>
+  <g text-anchor="end" fill="#fff" stroke="#3b2f63" stroke-linejoin="round" paint-order="stroke">
+    <text x="${BOOK_W - 40}" y="${BOOK_H - 76}" font-size="40" stroke-width="8">${TITLE}</text>
+    <text x="${BOOK_W - 40}" y="${BOOK_H - 36}" font-size="26" stroke-width="6">${esc(b.bank)}</text>
+  </g>
   ${holes()}
 </svg>`;
 }
@@ -141,13 +144,10 @@ function infoSvg(b: Bankbook) {
       <text y="26" text-anchor="middle" font-size="24" fill="#fff">확인</text>
     </g>`;
 
-  // 바탕 그림 위에서는 은행 이름이 잘 보이도록 흰 테두리를 두름
-  const bankStroke = b.back ? ` stroke="#fff" stroke-width="10" stroke-linejoin="round" paint-order="stroke"` : "";
-
   return `${svgOpen()}
-  ${b.back ? fullImage(b.back) : `<rect width="${BOOK_W}" height="${BOOK_H}" fill="${paper.fill}"/>`}
+  <rect width="${BOOK_W}" height="${BOOK_H}" fill="${paper.fill}"/>
   ${bubble}${lines}${sign}
-  <text x="${bankX}" y="556" text-anchor="middle" font-size="42" fill="${INK}"${bankStroke}>${esc(b.bank)}</text>
+  <text x="${bankX}" y="556" text-anchor="middle" font-size="42" fill="${INK}">${esc(b.bank)}</text>
   ${seal}
   ${holes()}
 </svg>`;
@@ -196,19 +196,25 @@ function ledgerSvg() {
 </svg>`;
 }
 
+const backSvg = (src: string) => `${svgOpen()}
+  ${fullImage(src)}
+  ${holes()}
+</svg>`;
+
 export type BookPage = { key: string; label: string; svg: string };
 
-/** A4 한 장에 4쪽. 첫 장은 표지 · 속지 · 거래 내역 2쪽, 둘째 장부터는 거래 내역 4쪽 */
+/** A4 한 장에 4쪽. 첫 장은 표지 · 속지 · 거래 내역 2쪽, 둘째 장부터는 거래 내역 4쪽. 뒤표지가 있으면 마지막 쪽을 차지 */
 export const PAGES_PER_SHEET = 4;
-export const ledgersForSheets = (sheets: number) => sheets * PAGES_PER_SHEET - 2;
+export const ledgersForSheets = (sheets: number, hasBack = false) => sheets * PAGES_PER_SHEET - 2 - (hasBack ? 1 : 0);
 
-/** 표지 · 속지 · 거래 내역(ledgers 쪽) 순서의 모든 쪽 */
+/** 표지 · 속지 · 거래 내역(ledgers 쪽) · 뒤표지 순서의 모든 쪽 */
 export function bankbookPages(b: Bankbook, ledgers: number): BookPage[] {
   const ledger = ledgerSvg();
   return [
     { key: "cover", label: "표지", svg: coverSvg(b) },
     { key: "info", label: "속지", svg: infoSvg(b) },
     ...Array.from({ length: ledgers }, (_, i) => ({ key: `ledger-${i}`, label: `거래 내역 ${i + 1}`, svg: ledger })),
+    ...(b.back ? [{ key: "back", label: "뒤표지", svg: backSvg(b.back) }] : []),
   ];
 }
 

@@ -83,7 +83,6 @@ export default function BankbookApp() {
   const [kind, setKind] = useState<Bankbook["kind"]>("신규");
   const [paper, setPaper] = useState<PaperColor>("노랑");
   const [sheets, setSheets] = useState(2);
-  const ledgers = ledgersForSheets(sheets);
   const [picture, setPicture] = useState<PictureKey>("pingu");
   const [art, setArt] = useState<{ key: PictureKey; front: string; back: string } | null>(null);
   const [aiCover, setAiCover] = useState<string | undefined>();
@@ -112,6 +111,7 @@ export default function BankbookApp() {
   const pictureArt = picture !== "ai" && art?.key === picture ? art : null;
   const cover = picture === "ai" ? aiCover : pictureArt?.front;
   const back = pictureArt?.back;
+  const ledgers = ledgersForSheets(sheets, !!back);
 
   const trimmed = name.trim().replace(/\s+/g, " ").slice(0, 10);
   const book = useMemo<Bankbook>(
@@ -207,7 +207,7 @@ export default function BankbookApp() {
 
           <div>
             <span className="block text-sm font-semibold text-slate-800">그림</span>
-            <p className="mt-0.5 text-xs text-slate-500">앞 그림은 표지, 뒤 그림은 속지 바탕이 돼요.</p>
+            <p className="mt-0.5 text-xs text-slate-500">앞 그림은 표지, 뒤 그림은 맨 뒤 뒤표지가 돼요.</p>
             <div className="mt-2 grid grid-cols-3 gap-1.5">
               {[...PICTURES, { key: "ai" as const, label: "AI 그림" }].map((p) => (
                 <button
@@ -272,13 +272,7 @@ export default function BankbookApp() {
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <Field label="속지 색">
-                  <select
-                    value={paper}
-                    disabled={!!back}
-                    title={back ? "캐릭터 그림을 고르면 속지 바탕은 뒤 그림이 돼요" : undefined}
-                    onChange={(e) => setPaper(e.target.value as PaperColor)}
-                    className={`${field} disabled:bg-slate-50 disabled:text-slate-400`}
-                  >
+                  <select value={paper} onChange={(e) => setPaper(e.target.value as PaperColor)} className={field}>
                     {Object.keys(PAPER_COLORS).map((c) => (
                       <option key={c}>{c}</option>
                     ))}
@@ -295,7 +289,8 @@ export default function BankbookApp() {
                 </Field>
               </div>
               <p className="text-xs text-slate-500">
-                첫 장은 표지 · 속지 · 거래 내역 2쪽, 둘째 장부터는 거래 내역 4쪽씩 들어가요. (거래 내역 모두 {ledgers}쪽)
+                첫 장은 표지 · 속지 · 거래 내역 2쪽, 둘째 장부터는 거래 내역 4쪽씩 들어가요.
+                {back && " 마지막 쪽은 뒤표지예요."} (거래 내역 모두 {ledgers}쪽)
               </p>
             </div>
           </details>
@@ -329,8 +324,8 @@ export default function BankbookApp() {
         </div>
 
         <section aria-label="칭찬통장 미리보기" className="min-w-0 space-y-4">
-          {/* 표지 · 속지 · 거래 내역 첫 쪽만 미리 보여 줌 (거래 내역은 모든 쪽이 같음) */}
-          {pages.slice(0, 3).map((p) => (
+          {/* 표지 · 속지 · 거래 내역 첫 쪽 · 뒤표지만 미리 보여 줌 (거래 내역은 모든 쪽이 같음) */}
+          {pages.filter((p) => !p.key.startsWith("ledger") || p.key === "ledger-0").map((p) => (
             <figure key={p.key} className="rounded-2xl border border-slate-200 bg-slate-100 p-3 sm:p-5">
               <figcaption className="mb-2 text-xs font-semibold text-slate-500">
                 {p.key.startsWith("ledger") ? `거래 내역 (${ledgers}쪽 · A4 ${sheets}장)` : p.label}
