@@ -32,8 +32,8 @@ function toBase64(buf: Uint8Array) {
 /** SVG 안에 글꼴을 넣음 (<svg ...> 바로 뒤에 <style> 추가) */
 export const withFont = (svg: string, fontCss: string) => (fontCss ? svg.replace(/(<svg[^>]*>)/, `$1<style>${fontCss}</style>`) : svg);
 
-/** SVG 문자열 → PNG. 그림이 들어 있으면 data: 주소여야 함 (외부 주소는 캔버스에 그려지지 않음) */
-export async function svgToPng(svg: string, width: number, height: number, scale = 2.5): Promise<Blob> {
+/** SVG 문자열 → PNG(또는 type 으로 JPEG). 그림이 들어 있으면 data: 주소여야 함 (외부 주소는 캔버스에 그려지지 않음) */
+export async function svgToPng(svg: string, width: number, height: number, scale = 2.5, type = "image/png"): Promise<Blob> {
   const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
   try {
     const img = new Image();
@@ -47,7 +47,7 @@ export async function svgToPng(svg: string, width: number, height: number, scale
     canvas.height = Math.round(height * scale);
     canvas.getContext("2d")!.drawImage(img, 0, 0, canvas.width, canvas.height);
     return await new Promise<Blob>((resolve, reject) =>
-      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("PNG 변환 실패"))), "image/png"),
+      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("PNG 변환 실패"))), type, 0.92),
     );
   } finally {
     URL.revokeObjectURL(url);

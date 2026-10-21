@@ -1,9 +1,9 @@
 /**
  * 칭찬통장: 올려 준 실물 통장과 같은 구성으로 코드로 그립니다.
- *  1) 표지 — 캐릭터 앞 그림(또는 AI 그림, 없으면 기본 보름달 그림) 위에 이름표, 오른쪽 아래에 '칭찬 통장' 제목과 은행 이름
+ *  1) 표지 — 캐릭터 앞 그림 위에 이름표, 오른쪽 아래에 '칭찬 통장' 제목과 은행 이름
  *  2) 속지 — 말풍선 칸(이름 · 지점 · 계좌번호 · 구분 · 통장 발행일), 은행 이름과 도장, 서명 칸
  *  3) 거래 내역 — 날짜 | 내용 | 적립P | 차감P | 계 표
- *  4) 뒤표지 — 캐릭터 뒤 그림 (캐릭터 그림을 고른 경우만)
+ *  4) 뒤표지 — 캐릭터 뒤 그림 (캐릭터가 없는 같은 배경)
  * 크기는 A6 가로(148 × 105mm). A4 가로 한 장에 4쪽씩 인쇄합니다.
  */
 import { esc, FONT } from "./svgExport";
@@ -32,10 +32,10 @@ export type Bankbook = {
   issued: string; // YYYY-MM-DD
   kind: "신규" | "재발급";
   paper: PaperColor;
-  /** 표지 그림 (data: 주소). 없으면 기본 그림 */
-  cover?: string;
-  /** 뒤표지 그림 (data: 주소). 없으면 뒤표지 없음 */
-  back?: string;
+  /** 표지 그림 (data: 주소) */
+  cover: string;
+  /** 뒤표지 그림 (data: 주소) */
+  back: string;
 };
 
 const svgOpen = (w = BOOK_W, h = BOOK_H) =>
@@ -47,31 +47,6 @@ const holes = () =>
     .map((p) => `<circle cx="${BOOK_W * p}" cy="30" r="11" fill="#fff" fill-opacity="0.85" stroke="#999" stroke-width="2"/>`)
     .join("");
 
-/** 기본 표지 그림: 템플릿처럼 남색 밤하늘, 왼쪽 아래 큰 보름달, 감나무 가지 */
-function defaultCoverArt() {
-  const persimmon = (x: number, y: number, r = 26) =>
-    `<circle cx="${x}" cy="${y}" r="${r}" fill="#f07a4a"/><path d="M${x - 8} ${y - r + 4} q8 -10 16 0 q-8 4 -16 0z" fill="#3f7d4a"/>`;
-  return `<defs>
-      <radialGradient id="glow" cx="0.18" cy="1.05" r="0.75">
-        <stop offset="0.55" stop-color="#fff3b0" stop-opacity="0.9"/>
-        <stop offset="0.7" stop-color="#7f78c9" stop-opacity="0.35"/>
-        <stop offset="1" stop-color="#4b47a3" stop-opacity="0"/>
-      </radialGradient>
-    </defs>
-    <rect width="${BOOK_W}" height="${BOOK_H}" fill="#4b47a3"/>
-    <rect width="${BOOK_W}" height="${BOOK_H}" fill="url(#glow)"/>
-    <circle cx="150" cy="700" r="390" fill="#f6b72c"/>
-    <g fill="none" stroke="#eea21f" stroke-width="22" opacity="0.8">
-      <ellipse cx="90" cy="430" rx="60" ry="48"/><ellipse cx="270" cy="520" rx="70" ry="54"/><ellipse cx="60" cy="600" rx="44" ry="36"/>
-    </g>
-    <g stroke="#5a3a2a" stroke-linecap="round" fill="none">
-      <path d="M${BOOK_W + 10} 120 C760 150 700 110 640 40" stroke-width="30"/>
-      <path d="M${BOOK_W + 10} 560 C780 520 760 470 700 450" stroke-width="34"/>
-      <path d="M760 505 C730 430 760 380 740 330" stroke-width="20"/>
-    </g>
-    ${persimmon(690, 70)}${persimmon(780, 130, 30)}${persimmon(735, 320, 24)}${persimmon(690, 470, 30)}`;
-}
-
 /** 쪽 전체를 덮는 그림 */
 const fullImage = (src: string) =>
   `<image href="${src}" xlink:href="${src}" x="0" y="0" width="${BOOK_W}" height="${BOOK_H}" preserveAspectRatio="xMidYMid slice"/>`;
@@ -79,9 +54,8 @@ const fullImage = (src: string) =>
 function coverSvg(b: Bankbook) {
   const name = esc(b.name || "○○○");
   const pillW = Math.max(250, 150 + [...(b.name || "○○○")].length * 40);
-  const art = b.cover ? fullImage(b.cover) : defaultCoverArt();
   return `${svgOpen()}
-  ${art}
+  ${fullImage(b.cover)}
   <g transform="translate(44 520)">
     <rect width="${pillW}" height="72" rx="36" fill="#fff" fill-opacity="0.94" stroke="${INK}" stroke-opacity="0.15" stroke-width="2"/>
     <path d="M38 50 q-14 -22 6 -30 q6 16 -6 30z M38 50 q4 -24 24 -20 q-6 18 -24 20z" fill="#7cc36e"/>
@@ -203,9 +177,8 @@ const backSvg = (src: string) => `${svgOpen()}
 
 export type BookPage = { key: string; label: string; svg: string };
 
-/** A4 한 장에 4쪽. 첫 장은 표지 · 속지 · 거래 내역 2쪽, 둘째 장부터는 거래 내역 4쪽. 뒤표지가 있으면 마지막 쪽을 차지 */
+/** A4 한 장에 4쪽 (2 × 2) */
 export const PAGES_PER_SHEET = 4;
-export const ledgersForSheets = (sheets: number, hasBack = false) => sheets * PAGES_PER_SHEET - 2 - (hasBack ? 1 : 0);
 
 /** 표지 · 속지 · 거래 내역(ledgers 쪽) · 뒤표지 순서의 모든 쪽 */
 export function bankbookPages(b: Bankbook, ledgers: number): BookPage[] {
@@ -214,7 +187,7 @@ export function bankbookPages(b: Bankbook, ledgers: number): BookPage[] {
     { key: "cover", label: "표지", svg: coverSvg(b) },
     { key: "info", label: "속지", svg: infoSvg(b) },
     ...Array.from({ length: ledgers }, (_, i) => ({ key: `ledger-${i}`, label: `거래 내역 ${i + 1}`, svg: ledger })),
-    ...(b.back ? [{ key: "back", label: "뒤표지", svg: backSvg(b.back) }] : []),
+    { key: "back", label: "뒤표지", svg: backSvg(b.back) },
   ];
 }
 
