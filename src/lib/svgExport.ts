@@ -54,6 +54,43 @@ export async function svgToPng(svg: string, width: number, height: number, scale
   }
 }
 
+/**
+ * public 폴더 그림을 maxWidth 이하로 줄여 data: 주소(JPEG)로 만듦. SVG 를 그림 파일 · PDF · 인쇄 창으로 내보낼 때도 그려지도록.
+ * whiten 이면 거의 흰 바탕을 완전한 흰색으로 바꿔 흰 카드 위에서 네모 자국이 보이지 않게 함.
+ */
+const imageCache = new Map<string, Promise<string>>();
+export function loadImageDataUrl(src: string, maxWidth: number, whiten = false) {
+  const key = `${src}@${maxWidth}${whiten ? "@white" : ""}`;
+  let p = imageCache.get(key);
+  if (!p) {
+    p = (async () => {
+      const img = new Image();
+      img.src = src;
+      await img.decode();
+      const scale = Math.min(1, maxWidth / img.naturalWidth);
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(img.naturalWidth * scale);
+      canvas.height = Math.round(img.naturalHeight * scale);
+      const ctx = canvas.getContext("2d")!;
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      if (whiten) {
+        const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const px = data.data;
+        for (let i = 0; i < px.length; i += 4) {
+          if (px[i] > 232 && px[i + 1] > 232 && px[i + 2] > 232) px[i] = px[i + 1] = px[i + 2] = 255;
+        }
+        ctx.putImageData(data, 0, 0);
+      }
+      return canvas.toDataURL("image/jpeg", 0.88);
+    })();
+    p.catch(() => imageCache.delete(key));
+    imageCache.set(key, p);
+  }
+  return p;
+}
+
 export function downloadBlob(blob: Blob, fileName: string) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");

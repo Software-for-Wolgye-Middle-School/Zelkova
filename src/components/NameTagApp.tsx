@@ -4,8 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import JSZip from "jszip";
 import {
   BORDER_OPTIONS,
-  CHAR_OPTIONS,
-  characterIconSvg,
+  ICON_OPTIONS,
   nameTagSheetSvgs,
   nameTagSvg,
   nameTagText,
@@ -13,27 +12,15 @@ import {
   SHEET_H,
   SHEET_W,
   TAG_MM,
-  type CharId,
+  type IconId,
   type NameTag,
   type TagBorder,
 } from "@/lib/nameTagSvg";
-import { downloadBlob, embeddedFontCss, printSheets, svgToPng, withFont } from "@/lib/svgExport";
-import AiArtPanel, { type ArtExample } from "./AiArtPanel";
-import { DownloadIcon, SparkleIcon, Spinner } from "./icons";
+import { downloadBlob, embeddedFontCss, loadImageDataUrl, printSheets, svgToPng, withFont } from "@/lib/svgExport";
+import { DownloadIcon, Spinner } from "./icons";
 import { loadRows } from "./students";
 
-const CHAR_EXAMPLES: ArtExample[] = [
-  { label: "곰돌이", prompt: "동그란 귀를 가진 귀여운 갈색 곰돌이 얼굴" },
-  { label: "토끼", prompt: "분홍 볼을 가진 귀여운 하얀 토끼 얼굴" },
-  { label: "고양이", prompt: "웃고 있는 귀여운 노란 고양이 얼굴" },
-  { label: "공룡", prompt: "웃고 있는 귀여운 초록 아기 공룡 얼굴" },
-  { label: "한복 아이", prompt: "댕기 머리를 한 귀여운 한복 입은 아이 얼굴" },
-];
-/** 이름표 카드 안 왼쪽에 들어갈 캐릭터 하나만, 흰 바탕으로 그리게 함 */
-const CHAR_LAYOUT =
-  "a single cute character head icon only, front view, centered, isolated on a plain pure white background, sticker style, nothing else in the picture";
-
-const DEFAULT_CHAR: CharId = "girl-보라";
+const DEFAULT_ICON: IconId = "clover";
 
 const field =
   "h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-[15px] outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100";
@@ -45,10 +32,11 @@ const parseNames = (text: string) =>
 export default function NameTagApp() {
   const [namesText, setNamesText] = useState("");
   const [label, setLabel] = useState("");
-  const [defaultChar, setDefaultChar] = useState<CharId>(DEFAULT_CHAR);
-  /** 학생마다 따로 고른 캐릭터 (이름 → 캐릭터) */
-  const [charFor, setCharFor] = useState<Record<string, CharId>>({});
-  const [art, setArt] = useState<string | undefined>();
+  const [defaultIcon, setDefaultIcon] = useState<IconId>(DEFAULT_ICON);
+  /** 학생마다 따로 고른 아이콘 (이름 → 아이콘) */
+  const [iconFor, setIconFor] = useState<Record<string, IconId>>({});
+  /** 아이콘 그림 (아이콘 → data: 주소) */
+  const [iconArt, setIconArt] = useState<Partial<Record<IconId, string>>>({});
   const [border, setBorder] = useState<TagBorder>("rainbow");
   const [savedNames, setSavedNames] = useState<string[]>([]);
   const [busy, setBusy] = useState<"png" | "print" | null>(null);
@@ -63,35 +51,30 @@ export default function NameTagApp() {
     setNamesText((t) => t || names.join("\n"));
   }, []);
 
+  useEffect(() => {
+    for (const o of ICON_OPTIONS) {
+      loadImageDataUrl(o.src, 400, true)
+        .then((art) => setIconArt((m) => ({ ...m, [o.id]: art })))
+        .catch((e) => console.error(e));
+    }
+  }, []);
+  const iconsReady = ICON_OPTIONS.every((o) => iconArt[o.id]);
+
   const names = useMemo(() => parseNames(namesText), [namesText]);
   const tags = useMemo<NameTag[]>(
     () =>
-      (names.length ? names : [""]).map((name) => ({
-        name,
-        label: label.trim(),
-        char: charFor[name] ?? defaultChar,
-        art,
-        border,
-      })),
-    [names, label, charFor, defaultChar, art, border],
+      (names.length ? names : [""]).map((name) => {
+        const icon = iconFor[name] ?? defaultIcon;
+        return { name, label: label.trim(), icon, art: iconArt[icon], border };
+      }),
+    [names, label, iconFor, defaultIcon, iconArt, border],
   );
   const svgs = useMemo(() => tags.map(nameTagSvg), [tags]);
 
-  const changeArt = (next: string | undefined) => {
-    setArt(next);
-    if (next) {
-      setDefaultChar("ai");
-    } else {
-      // AI 그림을 지우면 AI 캐릭터를 고른 곳은 기본 캐릭터로 되돌림
-      setDefaultChar((c) => (c === "ai" ? DEFAULT_CHAR : c));
-      setCharFor((m) => Object.fromEntries(Object.entries(m).filter(([, c]) => c !== "ai")));
-    }
-  };
-
-  /** 전체 캐릭터를 바꾸면 학생마다 따로 고른 것은 초기화 */
-  const chooseDefault = (id: CharId) => {
-    setDefaultChar(id);
-    setCharFor({});
+  /** 전체 아이콘을 바꾸면 학생마다 따로 고른 것은 초기화 */
+  const chooseDefault = (id: IconId) => {
+    setDefaultIcon(id);
+    setIconFor({});
   };
 
   const withFonts = async () => {
@@ -146,14 +129,12 @@ export default function NameTagApp() {
   const toggleName = (n: string) =>
     setNamesText(names.includes(n) ? names.filter((x) => x !== n).join("\n") : [...names, n].join("\n"));
 
-  const charChoices = art ? [...CHAR_OPTIONS, { id: "ai" as const, label: "AI 캐릭터" }] : CHAR_OPTIONS;
-
   return (
     <div className="fade-up mx-auto max-w-5xl">
       <div className="mb-8 text-center">
         <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-[28px]">이름표 만들기</h1>
         <p className="mt-2 text-[15px] text-slate-500">
-          이름표를 여러 명 한꺼번에 만들어요. 테두리 색과 캐릭터를 고르거나 AI로 새로 그릴 수 있어요.
+          이름표를 여러 명 한꺼번에 만들어요. 테두리 색과 아이콘을 골라 보세요.
         </p>
       </div>
 
@@ -241,54 +222,33 @@ export default function NameTagApp() {
           </div>
 
           <div>
-            <p className="text-sm font-semibold text-slate-800">캐릭터</p>
+            <p className="text-sm font-semibold text-slate-800">아이콘</p>
             <p className="mt-0.5 text-xs text-slate-500">모든 이름표에 적용돼요. 학생마다 바꾸려면 미리보기 아래에서 고르세요.</p>
-            <div className="mt-2 grid grid-cols-6 gap-1.5" role="radiogroup" aria-label="캐릭터">
-              {charChoices.map((o) => (
+            <div className="mt-2 grid grid-cols-3 gap-2" role="radiogroup" aria-label="아이콘">
+              {ICON_OPTIONS.map((o) => (
                 <button
                   key={o.id}
                   type="button"
                   role="radio"
-                  aria-checked={defaultChar === o.id}
-                  aria-label={o.label}
-                  title={o.label}
+                  aria-checked={defaultIcon === o.id}
                   onClick={() => chooseDefault(o.id)}
-                  className={`aspect-square overflow-hidden rounded-lg border bg-white p-0.5 transition ${
-                    defaultChar === o.id ? "border-indigo-400 ring-2 ring-indigo-200" : "border-slate-200 hover:border-slate-300"
+                  className={`overflow-hidden rounded-lg border bg-white p-1.5 text-xs font-semibold text-slate-600 transition ${
+                    defaultIcon === o.id ? "border-indigo-400 ring-2 ring-indigo-200" : "border-slate-200 hover:border-slate-300"
                   }`}
                 >
-                  {o.id === "ai" ? (
-                    // eslint-disable-next-line @next/next/no-img-element -- AI로 받은 data: 주소
-                    <img src={art} alt="" className="h-full w-full object-contain" />
-                  ) : (
-                    <span
-                      className="block h-full w-full [&>svg]:h-full [&>svg]:w-full"
-                      // characterIconSvg 는 고정된 값으로 직접 만든 SVG 문자열
-                      dangerouslySetInnerHTML={{ __html: characterIconSvg(o.id) }}
-                    />
-                  )}
+                  {/* eslint-disable-next-line @next/next/no-img-element -- public 폴더의 작은 아이콘 */}
+                  <img src={o.src} alt="" className="aspect-square w-full object-contain" />
+                  {o.label}
                 </button>
               ))}
             </div>
           </div>
 
-          <AiArtPanel
-            id="nt-art"
-            title="AI 캐릭터 그리기"
-            examples={CHAR_EXAMPLES}
-            layout={CHAR_LAYOUT}
-            width={640}
-            height={640}
-            hasArt={!!art}
-            onArt={changeArt}
-            transparent
-          />
-
           <div className="space-y-2 border-t border-slate-100 pt-5">
             <button
               type="button"
               onClick={print}
-              disabled={names.length === 0 || busy !== null}
+              disabled={names.length === 0 || busy !== null || !iconsReady}
               className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-[15px] font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
             >
               {busy === "print" && <Spinner className="h-5 w-5" />}
@@ -297,7 +257,7 @@ export default function NameTagApp() {
             <button
               type="button"
               onClick={downloadImages}
-              disabled={names.length === 0 || busy !== null}
+              disabled={names.length === 0 || busy !== null || !iconsReady}
               className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-3 text-[15px] font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
             >
               {busy === "png" ? <Spinner className="h-5 w-5" /> : <DownloadIcon className="h-5 w-5" />}
@@ -326,12 +286,12 @@ export default function NameTagApp() {
                 />
                 {t.name && (
                   <select
-                    aria-label={`${t.name} 캐릭터`}
-                    value={t.char}
-                    onChange={(e) => setCharFor((m) => ({ ...m, [t.name]: e.target.value as CharId }))}
+                    aria-label={`${t.name} 아이콘`}
+                    value={t.icon}
+                    onChange={(e) => setIconFor((m) => ({ ...m, [t.name]: e.target.value as IconId }))}
                     className="mt-1 h-8 w-full rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-600 outline-none focus:border-indigo-500"
                   >
-                    {charChoices.map((o) => (
+                    {ICON_OPTIONS.map((o) => (
                       <option key={o.id} value={o.id}>
                         {o.label}
                       </option>
@@ -341,12 +301,6 @@ export default function NameTagApp() {
               </div>
             ))}
           </div>
-          {!art && (
-            <p className="mt-4 flex items-center gap-1.5 text-xs text-slate-400">
-              <SparkleIcon className="h-3.5 w-3.5" />
-              AI 캐릭터는 이름표 안 왼쪽 그림 자리에만 들어가요.
-            </p>
-          )}
         </section>
       </div>
     </div>

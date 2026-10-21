@@ -15,11 +15,11 @@ import {
   type Bankbook,
   type PaperColor,
 } from "@/lib/bankbookSvg";
-import { embeddedFontCss, safeFileName, svgToPng, withFont } from "@/lib/svgExport";
+import { embeddedFontCss, loadImageDataUrl, safeFileName, svgToPng, withFont } from "@/lib/svgExport";
 import { DownloadIcon, Spinner } from "./icons";
 import { loadRows } from "./students";
 
-/** public/pictures 의 캐릭터 그림. 앞 그림은 표지, 뒤 그림(캐릭터 없는 같은 배경)은 뒤표지 */
+/** public/background 의 캐릭터 그림. 앞 그림은 표지, 뒤 그림(캐릭터 없는 같은 배경)은 뒤표지 */
 const PICTURES = [
   { key: "hello_kitty", label: "헬로키티", file: "hello_kitty/hellokitty" },
   { key: "pingu", label: "핑구", file: "pingu/pingu" },
@@ -31,32 +31,6 @@ const PICTURES = [
   { key: "cinamon", label: "시나모롤", file: "cinamon/cinamon" },
 ] as const;
 type PictureKey = (typeof PICTURES)[number]["key"];
-
-/** 그림을 쪽 크기에 맞게 줄여 data: 주소로 만듦 (PDF 로 저장할 때도 그려지도록) */
-const pictureCache = new Map<string, Promise<string>>();
-function loadPicture(src: string) {
-  let p = pictureCache.get(src);
-  if (!p) {
-    p = (async () => {
-      const img = new Image();
-      img.src = src;
-      await img.decode();
-      // 쪽을 크게 인쇄해도 흐리지 않도록 넉넉히 둠
-      const scale = Math.min(1, (BOOK_W * 3) / img.naturalWidth);
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.round(img.naturalWidth * scale);
-      canvas.height = Math.round(img.naturalHeight * scale);
-      const ctx = canvas.getContext("2d")!;
-      ctx.fillStyle = "#fff";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      return canvas.toDataURL("image/jpeg", 0.88);
-    })();
-    p.catch(() => pictureCache.delete(src));
-    pictureCache.set(src, p);
-  }
-  return p;
-}
 
 const field =
   "h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-[15px] outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100";
@@ -72,7 +46,7 @@ const today = () => {
 export default function BankbookApp() {
   const [name, setName] = useState("");
   const [bank, setBank] = useState("느티나무 은행");
-  const [branch, setBranch] = useState("");
+  const [branch, setBranch] = useState("월계중학교");
   const [issued, setIssued] = useState(today);
   const [account, setAccount] = useState(() => `${today()}-01`);
   const [kind, setKind] = useState<Bankbook["kind"]>("신규");
@@ -94,7 +68,9 @@ export default function BankbookApp() {
   useEffect(() => {
     const pic = PICTURES.find((p) => p.key === picture)!;
     let cancelled = false;
-    Promise.all([loadPicture(`/pictures/${pic.file}_front.png`), loadPicture(`/pictures/${pic.file}_back.png`)])
+    // 쪽을 크게 인쇄해도 흐리지 않도록 넉넉히 둠
+    const load = (side: string) => loadImageDataUrl(`/background/${pic.file}_${side}.png`, BOOK_W * 3);
+    Promise.all([load("front"), load("back")])
       .then(([front, back]) => !cancelled && setArt({ key: pic.key, front, back }))
       .catch((e) => console.error(e));
     return () => {

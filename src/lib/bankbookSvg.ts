@@ -53,13 +53,13 @@ const fullImage = (src: string) =>
 
 function coverSvg(b: Bankbook) {
   const name = esc(b.name || "○○○");
-  const pillW = Math.max(250, 150 + [...(b.name || "○○○")].length * 40);
+  const pillW = Math.max(270, 170 + [...(b.name || "○○○")].length * 40);
   return `${svgOpen()}
   ${fullImage(b.cover)}
   <g transform="translate(44 520)">
     <rect width="${pillW}" height="72" rx="36" fill="#fff" fill-opacity="0.94" stroke="${INK}" stroke-opacity="0.15" stroke-width="2"/>
     <path d="M38 50 q-14 -22 6 -30 q6 16 -6 30z M38 50 q4 -24 24 -20 q-6 18 -24 20z" fill="#7cc36e"/>
-    <text x="74" y="49" font-size="32" fill="${INK}">이름. <tspan font-size="38">${name}</tspan></text>
+    <text x="74" y="49" font-size="32" fill="${INK}">이름 : <tspan font-size="38">${name}</tspan></text>
   </g>
   <g text-anchor="end" fill="#fff" stroke="#3b2f63" stroke-linejoin="round" paint-order="stroke">
     <text x="${BOOK_W - 40}" y="${BOOK_H - 76}" font-size="40" stroke-width="8">${TITLE}</text>
@@ -236,5 +236,5 @@ export function bankbookPages(b: Bankbook, ledgers: number): BookPage[] {
 
 /** 글꼴을 내려받을 때 필요한 글자 */
 export const bankbookText = (b: Bankbook) =>
-  [TITLE, "이름.", b.name, b.bank, b.branch, b.account, b.issued, "지점계좌번호구분신규재발급통장발행일서명담임확인날짜내용적립P차감P계",
+  [TITLE, "이름 :", b.name, b.bank, b.branch, b.account, b.issued, "지점계좌번호구분신규재발급통장발행일서명담임확인날짜내용적립P차감P계",
     "본인임을 증명하는 서명을 적으세요.통장이 본인 소유임을 증명합니다."].join("");
