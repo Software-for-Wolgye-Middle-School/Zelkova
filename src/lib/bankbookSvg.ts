@@ -4,7 +4,7 @@
  *  2) 속지 — 말풍선 칸(이름 · 지점 · 계좌번호 · 구분 · 통장 발행일), 은행 이름과 도장, 서명 칸
  *  3) 거래 내역 — 날짜 | 내용 | 적립P | 차감P | 계 표
  *  4) 뒤표지 — 캐릭터 뒤 그림 (캐릭터가 없는 같은 배경)
- * 크기는 A6 가로(148 × 105mm). A4 가로 한 장에 4쪽씩 인쇄합니다.
+ * 기본 크기는 A6 가로(148 × 105mm). 쪽 크기를 바꾸면 모든 쪽이 같은 크기로 A4 한 장에 들어가는 만큼 인쇄합니다.
  */
 import { esc, FONT } from "./svgExport";
 
@@ -177,8 +177,51 @@ const backSvg = (src: string) => `${svgOpen()}
 
 export type BookPage = { key: string; label: string; svg: string };
 
-/** A4 한 장에 4쪽 (2 × 2) */
-export const PAGES_PER_SHEET = 4;
+/** 쪽 너비(mm)로 고를 수 있는 범위. 높이는 그림 비율(105 / 148)을 따름 */
+export const BOOK_MM_MIN = 60;
+export const BOOK_MM_MAX = 296;
+export const bookHeightMm = (w: number) => Math.round(((w * BOOK_MM.h) / BOOK_MM.w) * 10) / 10;
+
+export type SheetLayout = {
+  orientation: "landscape" | "portrait";
+  /** 종이 크기 (mm) */
+  paper: { w: number; h: number };
+  /** 한 쪽 크기 (mm) */
+  page: { w: number; h: number };
+  cols: number;
+  rows: number;
+  perSheet: number;
+  /** 가운데 놓기 위한 왼쪽 · 위쪽 여백 (mm) */
+  left: number;
+  top: number;
+};
+
+/** 쪽 너비 w(mm)로 A4 한 장에 가장 많이 들어가도록 가로/세로 방향과 격자를 고름 (같으면 가로) */
+export function a4Layout(w: number): SheetLayout {
+  const page = { w, h: bookHeightMm(w) };
+  const options = (["landscape", "portrait"] as const).map((orientation) => {
+    const paper = orientation === "landscape" ? { w: 297, h: 210 } : { w: 210, h: 297 };
+    const cols = Math.max(1, Math.floor((paper.w + 0.01) / page.w));
+    const rows = Math.max(1, Math.floor((paper.h + 0.01) / page.h));
+    return {
+      orientation,
+      paper,
+      page,
+      cols,
+      rows,
+      perSheet: cols * rows,
+      left: (paper.w - cols * page.w) / 2,
+      top: (paper.h - rows * page.h) / 2,
+    };
+  });
+  return options[1].perSheet > options[0].perSheet ? options[1] : options[0];
+}
+
+/** A4 한 장에 n쪽 이상 들어가는 가장 큰 쪽 너비 (mm) */
+export function largestWidthFor(n: number) {
+  for (let w = BOOK_MM_MAX; w >= BOOK_MM_MIN; w--) if (a4Layout(w).perSheet >= n) return w;
+  return BOOK_MM_MIN;
+}
 
 /** 표지 · 속지 · 거래 내역(ledgers 쪽) · 뒤표지 순서의 모든 쪽 */
 export function bankbookPages(b: Bankbook, ledgers: number): BookPage[] {

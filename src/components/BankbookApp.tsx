@@ -2,12 +2,15 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  a4Layout,
   BOOK_H,
   BOOK_MM,
+  BOOK_MM_MAX,
+  BOOK_MM_MIN,
   BOOK_W,
   bankbookPages,
   bankbookText,
-  PAGES_PER_SHEET,
+  largestWidthFor,
   PAPER_COLORS,
   type Bankbook,
   type PaperColor,
@@ -24,6 +27,8 @@ const PICTURES = [
   { key: "kurumi", label: "쿠루미", file: "kurumi/kurumi" },
   { key: "smurf", label: "스머프", file: "smurf/smurf" },
   { key: "thomas", label: "토마스", file: "thomas/thomas" },
+  { key: "conan", label: "코난", file: "conan/conan" },
+  { key: "cinamon", label: "시나모롤", file: "cinamon/cinamon" },
 ] as const;
 type PictureKey = (typeof PICTURES)[number]["key"];
 
@@ -36,7 +41,8 @@ function loadPicture(src: string) {
       const img = new Image();
       img.src = src;
       await img.decode();
-      const scale = Math.min(1, (BOOK_W * 2) / img.naturalWidth);
+      // 쪽을 크게 인쇄해도 흐리지 않도록 넉넉히 둠
+      const scale = Math.min(1, (BOOK_W * 3) / img.naturalWidth);
       const canvas = document.createElement("canvas");
       canvas.width = Math.round(img.naturalWidth * scale);
       canvas.height = Math.round(img.naturalHeight * scale);
@@ -55,6 +61,9 @@ function loadPicture(src: string) {
 const field =
   "h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-[15px] outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100";
 
+/** 쪽 크기 바로 고르기: A4 한 장에 n쪽이 들어가는 가장 큰 크기 */
+const SIZE_PRESETS = [1, 2, 4, 8].map((n) => ({ n, w: largestWidthFor(n) }));
+
 const today = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -69,6 +78,7 @@ export default function BankbookApp() {
   const [kind, setKind] = useState<Bankbook["kind"]>("신규");
   const [paper, setPaper] = useState<PaperColor>("노랑");
   const [ledgers, setLedgers] = useState(5);
+  const [pageW, setPageW] = useState<number>(BOOK_MM.w);
   const [picture, setPicture] = useState<PictureKey>("hello_kitty");
   const [art, setArt] = useState<{ key: PictureKey; front: string; back: string } | null>(null);
   const [savedNames, setSavedNames] = useState<string[]>([]);
@@ -95,8 +105,9 @@ export default function BankbookApp() {
   const pictureArt = art?.key === picture ? art : null;
   const cover = pictureArt?.front;
   const back = pictureArt?.back;
+  const layout = useMemo(() => a4Layout(pageW), [pageW]);
   // 표지 · 속지 · 거래 내역 · 뒤표지
-  const sheets = Math.ceil((ledgers + 3) / PAGES_PER_SHEET);
+  const sheets = Math.ceil((ledgers + 3) / layout.perSheet);
 
   const trimmed = name.trim().replace(/\s+/g, " ").slice(0, 10);
   const book = useMemo<Bankbook | null>(
@@ -109,33 +120,34 @@ export default function BankbookApp() {
   const pages = useMemo(() => (book ? bankbookPages(book, ledgers) : []), [book, ledgers]);
   const baseName = `${safeFileName(trimmed)} 칭찬통장`;
 
-  /** A4 가로 한 장에 4쪽(2 × 2)씩 놓고 자르는 점선을 그려 PDF 로 내려받음 */
+  /** 고른 크기 그대로 모든 쪽을 A4 한 장에 들어가는 만큼 놓고 자르는 점선을 그려 PDF 로 내려받음 */
   const savePdf = async () => {
     if (!book) return;
     setBusy(true);
     setExportError(null);
     try {
       const [{ jsPDF }, css] = await Promise.all([import("jspdf"), embeddedFontCss(bankbookText(book))]);
-      const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-      const { w, h } = BOOK_MM;
-      const left = (297 - w * 2) / 2;
-      const top = (210 - h * 2) / 2;
+      const { orientation, page, cols, perSheet, left, top } = layout;
+      const doc = new jsPDF({ orientation, unit: "mm", format: "a4" });
+      const { w, h } = page;
+      // 크게 인쇄할수록 그림을 더 촘촘하게 만듦
+      const scale = Math.max(2, (2 * w) / BOOK_MM.w);
       doc.setLineDashPattern([1, 1], 0);
       doc.setLineWidth(0.2);
       doc.setDrawColor(187);
       // 거래 내역 쪽은 모두 같으므로 그림을 한 번만 만들어 다시 씀
       const images = new Map<string, { data: Uint8Array; alias: string }>();
       for (const [i, p] of pages.entries()) {
-        const slot = i % PAGES_PER_SHEET;
+        const slot = i % perSheet;
         if (i > 0 && slot === 0) doc.addPage();
         let img = images.get(p.svg);
         if (!img) {
-          const blob = await svgToPng(withFont(p.svg, css), BOOK_W, BOOK_H, 2, "image/jpeg");
+          const blob = await svgToPng(withFont(p.svg, css), BOOK_W, BOOK_H, scale, "image/jpeg");
           img = { data: new Uint8Array(await blob.arrayBuffer()), alias: `page-${images.size}` };
           images.set(p.svg, img);
         }
-        const x = left + (slot % 2) * w;
-        const y = top + Math.floor(slot / 2) * h;
+        const x = left + (slot % cols) * w;
+        const y = top + Math.floor(slot / cols) * h;
         doc.addImage(img.data, "JPEG", x, y, w, h, img.alias);
         doc.rect(x, y, w, h);
       }
@@ -261,11 +273,49 @@ export default function BankbookApp() {
                   </select>
                 </Field>
               </div>
-              <p className="text-xs text-slate-500">
-                표지 · 속지 · 거래 내역 {ledgers}쪽 · 뒤표지를 A4 한 장에 4쪽씩 놓아 모두 {sheets}장이에요.
-              </p>
             </div>
           </details>
+
+          <div>
+            <div className="flex items-baseline justify-between">
+              <label htmlFor="bb-size" className="text-sm font-semibold text-slate-800">
+                쪽 크기
+              </label>
+              <span className="text-xs font-semibold text-indigo-700">
+                {layout.page.w} × {layout.page.h}mm
+              </span>
+            </div>
+            <p className="mt-0.5 text-xs text-slate-500">A4 종이에 놓을 크기를 먼저 정하면 모든 쪽이 같은 크기로 만들어져요.</p>
+            <input
+              id="bb-size"
+              type="range"
+              min={BOOK_MM_MIN}
+              max={BOOK_MM_MAX}
+              step={1}
+              value={pageW}
+              onChange={(e) => setPageW(Number(e.target.value))}
+              className="mt-3 w-full accent-indigo-600"
+            />
+            <div className="mt-2 grid grid-cols-4 gap-1.5">
+              {SIZE_PRESETS.map((p) => (
+                <button
+                  key={p.n}
+                  type="button"
+                  onClick={() => setPageW(p.w)}
+                  aria-pressed={pageW === p.w}
+                  className={`rounded-lg px-1 py-1.5 text-xs font-semibold ring-1 ring-inset transition ${
+                    pageW === p.w ? "bg-indigo-50 text-indigo-700 ring-indigo-300" : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"
+                  }`}
+                >
+                  {p.n}쪽
+                </button>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-slate-500">
+              표지 · 속지 · 거래 내역 {ledgers}쪽 · 뒤표지를 A4 {layout.orientation === "landscape" ? "가로" : "세로"} 한 장에{" "}
+              {layout.perSheet}쪽씩 놓아 모두 {sheets}장이에요.
+            </p>
+          </div>
 
           <div className="space-y-2 border-t border-slate-100 pt-5">
             <button
@@ -287,6 +337,34 @@ export default function BankbookApp() {
         </div>
 
         <section aria-label="칭찬통장 미리보기" className="min-w-0 space-y-4">
+          {/* A4 첫 장에 고른 크기로 놓인 모습 */}
+          <figure className="rounded-2xl border border-slate-200 bg-slate-100 p-3 sm:p-5">
+            <figcaption className="mb-2 text-xs font-semibold text-slate-500">
+              A4 {layout.orientation === "landscape" ? "가로" : "세로"} 첫 장 · 한 쪽 {layout.page.w} × {layout.page.h}mm
+            </figcaption>
+            <div
+              className="relative mx-auto bg-white shadow-md"
+              style={{
+                aspectRatio: `${layout.paper.w} / ${layout.paper.h}`,
+                maxWidth: layout.orientation === "landscape" ? 640 : 452,
+              }}
+            >
+              {pages.slice(0, layout.perSheet).map((p, slot) => (
+                <div
+                  key={p.key}
+                  className="absolute overflow-hidden outline-dashed outline-1 outline-slate-300 [&>svg]:block [&>svg]:h-full [&>svg]:w-full"
+                  style={{
+                    left: `${((layout.left + (slot % layout.cols) * layout.page.w) / layout.paper.w) * 100}%`,
+                    top: `${((layout.top + Math.floor(slot / layout.cols) * layout.page.h) / layout.paper.h) * 100}%`,
+                    width: `${(layout.page.w / layout.paper.w) * 100}%`,
+                    height: `${(layout.page.h / layout.paper.h) * 100}%`,
+                  }}
+                  dangerouslySetInnerHTML={{ __html: p.svg }}
+                />
+              ))}
+            </div>
+          </figure>
+
           {/* 표지 · 속지 · 거래 내역 첫 쪽 · 뒤표지만 미리 보여 줌 (거래 내역은 모든 쪽이 같음) */}
           {pages.filter((p) => !p.key.startsWith("ledger") || p.key === "ledger-0").map((p) => (
             <figure key={p.key} className="rounded-2xl border border-slate-200 bg-slate-100 p-3 sm:p-5">
