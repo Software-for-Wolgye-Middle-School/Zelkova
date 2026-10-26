@@ -26,6 +26,7 @@ import Landing from "./Landing";
 import PromiseBoardApp from "./PromiseBoardApp";
 import BankbookApp from "./BankbookApp";
 import NameTagApp from "./NameTagApp";
+import MealApp from "./MealApp";
 
 export type StudentDoc = { key: string; student: Student; blob: Blob; fileName: string; hours: number; subjectHours: [string, number][] };
 
@@ -64,7 +65,7 @@ function studentFileNames(students: Student[], term: string) {
   });
 }
 
-type Phase = "home" | "upload" | "generating" | "result" | "promise" | "bankbook" | "nametag";
+type Phase = "home" | "upload" | "generating" | "result" | "promise" | "bankbook" | "nametag" | "meal";
 
 /** 각 단계가 너무 빨리 지나가 깜빡이지 않도록 최소 표시 시간 */
 const MIN_STAGE_MS = 600;
@@ -279,6 +280,7 @@ export default function TimetableApp() {
           onStartPromise={() => setPhase("promise")}
           onStartBankbook={() => setPhase("bankbook")}
           onStartNameTag={() => setPhase("nametag")}
+          onStartMeal={() => setPhase("meal")}
         />
       ) : (
         <>
@@ -309,6 +311,7 @@ export default function TimetableApp() {
             {phase === "promise" && <PromiseBoardApp />}
             {phase === "bankbook" && <BankbookApp />}
             {phase === "nametag" && <NameTagApp />}
+            {phase === "meal" && <MealApp />}
           </main>
 
           <footer className="px-4 pb-6 text-center text-xs text-slate-400">
@@ -316,6 +319,8 @@ export default function TimetableApp() {
               ? "AI 그림을 그릴 때 그림 설명만 Pollinations AI로 보내요. 학생 이름은 밖으로 전송되지 않아요."
               : phase === "promise"
                 ? "약속판은 이 컴퓨터의 브라우저 안에서만 만들어져요."
+                : phase === "meal"
+                  ? "급식 안내는 월계중학교 홈페이지 가정통신문 게시판에서 가져와요."
                 : "시간표는 이 컴퓨터의 브라우저 안에서만 만들어져요. 입력한 정보는 밖으로 전송되지 않아요."}
           </footer>
         </>
