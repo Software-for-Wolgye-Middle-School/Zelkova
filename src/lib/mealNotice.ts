@@ -201,14 +201,30 @@ function toMealTable(table: HwpTable): MealTable | null {
   return { title: titleText, year: ym ? Number(ym[1]) : null, month: ym ? Number(ym[2]) : null, weekdays, weeks };
 }
 
-/** 가장 최근에 올라온 급식 안내 count 개 */
-export async function fetchMealNotices(count = 3): Promise<MealNotice[]> {
-  const posts = (await searchMealPosts()).slice(0, count);
-  return Promise.all(
-    posts.map(async (p) => {
-      const files = await postFiles(p.nttId);
-      const tables = (await Promise.all(files.map((f) => readMealTables(f).catch(() => [])))).flat();
-      return { ...p, files, tables };
-    }),
-  );
+/** 한국 시간 기준의 지금 연 · 월 */
+export function seoulYearMonth(now = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit" }).formatToParts(now);
+  const num = (type: string) => Number(parts.find((p) => p.type === type)!.value);
+  return { year: num("year"), month: num("month") };
+}
+
+/** 안내문이 여러 달(예: 12월 ~ 1월)을 담고 있으므로 가장 늦은 달의 식단표 하나만 */
+const latestTable = (tables: MealTable[]) =>
+  tables.reduce((a, b) => ((b.year ?? 0) * 12 + (b.month ?? 0) > (a.year ?? 0) * 12 + (a.month ?? 0) ? b : a));
+
+/**
+ * 이번 달 식단표가 든 급식 안내 한 개 (조회 속도를 위해 한 달치만 읽음).
+ * exact 가 false 면 이번 달 식단표를 아직 찾지 못해 가장 최근 안내로 대신한 것.
+ */
+export async function fetchMonthlyMealNotice({ year, month }: { year: number; month: number }): Promise<{ notice: MealNotice | null; exact: boolean }> {
+  const posts = (await searchMealPosts()).slice(0, 4); // 이번 달 안내는 최근 글 몇 개 안에 있음
+  let fallback: MealNotice | null = null;
+  for (const [i, p] of posts.entries()) {
+    const files = await postFiles(p.nttId);
+    const tables = (await Promise.all(files.map((f) => readMealTables(f).catch(() => [])))).flat();
+    const mine = tables.filter((t) => t.year === year && t.month === month);
+    if (mine.length) return { notice: { ...p, files, tables: mine }, exact: true };
+    if (i === 0) fallback = { ...p, files, tables: tables.length ? [latestTable(tables)] : [] };
+  }
+  return { notice: fallback, exact: false };
 }

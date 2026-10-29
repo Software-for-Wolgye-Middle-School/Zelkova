@@ -43,7 +43,7 @@ export default function MealApp() {
       <div className="mb-8 text-center">
         <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-[28px]">급식표 조회하기</h1>
         <p className="mt-2 text-[15px] text-slate-500">
-          월계중학교 가정통신문에 올라온 급식 안내를 매달 자동으로 가져와요. 최근 3번의 안내를 볼 수 있어요.
+          월계중학교 가정통신문에 올라온 이번 달 급식 안내를 가져와요. 빠르게 볼 수 있도록 한 달치만 보여 드려요.
         </p>
       </div>
 
@@ -84,7 +84,7 @@ export default function MealApp() {
           <p className="py-16 text-center text-[15px] text-slate-500">가정통신문 게시판에서 급식 안내를 찾지 못했어요.</p>
         ) : (
           <>
-            <div role="tablist" aria-label="급식 안내 달 고르기" className="mb-5 flex flex-wrap justify-center gap-2">
+            <div role="tablist" aria-label="급식 안내 달 고르기" className={`mb-5 flex-wrap justify-center gap-2 ${state.notices.length > 1 ? "flex" : "hidden"}`}>
               {state.notices.map((n, i) => {
                 const { year, months } = noticeMonths(n.title);
                 return (
