@@ -13,6 +13,7 @@ export default function Landing({
   onStartNameTag,
   onStartMeal,
   onStartStudents,
+  onStartHandwriting,
 }: {
   onStartTimetable: () => void;
   onStartPromise: () => void;
@@ -20,6 +21,7 @@ export default function Landing({
   onStartNameTag: () => void;
   onStartMeal: () => void;
   onStartStudents: () => void;
+  onStartHandwriting: () => void;
 }) {
   const menus = [
     { label: "특수학급 시간표 만들기", onClick: onStartTimetable, className: primary },
@@ -27,7 +29,8 @@ export default function Landing({
     { label: "칭찬통장 생성하기", onClick: onStartBankbook, className: `${secondary} text-amber-600 ring-amber-200` },
     { label: "이름표 생성하기", onClick: onStartNameTag, className: `${secondary} text-emerald-700 ring-emerald-200` },
     { label: "급식표 조회하기", onClick: onStartMeal, className: `${secondary} text-sky-700 ring-sky-200` },
-    { label: "학생 정보 관리하기", onClick: onStartStudents, className: `${secondary} text-violet-700 ring-violet-200` },
+    { label: "긍정·감성 필사 교실", onClick: onStartHandwriting, className: `${secondary} text-rose-600 ring-rose-200` },
+    { label: "학생 정보 관리하기", onClick: onStartStudents, className: `${secondary} text-violet-700 ring-violet-200 sm:col-span-2` },
   ];
   return (
     <section className="relative isolate flex flex-1 flex-col overflow-hidden" aria-labelledby="landing-title">
