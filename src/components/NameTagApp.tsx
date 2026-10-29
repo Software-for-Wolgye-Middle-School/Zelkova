@@ -12,15 +12,22 @@ import {
   SHEET_H,
   SHEET_W,
   TAG_MM,
-  type IconId,
   type NameTag,
   type TagBorder,
 } from "@/lib/nameTagSvg";
 import { downloadBlob, embeddedFontCss, loadImageDataUrl, printSheets, svgToPng, withFont } from "@/lib/svgExport";
-import { DownloadIcon, Spinner } from "./icons";
+import { DownloadIcon, PlusIcon, Spinner, TrashIcon } from "./icons";
+import {
+  loadCustomIcons,
+  MAX_CUSTOM_ICONS,
+  MAX_ICON_FILE_BYTES,
+  newIconId,
+  saveCustomIcons,
+  type CustomIcon,
+} from "./customIcons";
 import type { Student } from "@/lib/timetable";
 
-const DEFAULT_ICON: IconId = "clover";
+const DEFAULT_ICON = "clover";
 
 const field =
   "h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-[15px] outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100";
@@ -32,11 +39,15 @@ const parseNames = (text: string) =>
 export default function NameTagApp({ students }: { students: Student[] }) {
   const [namesText, setNamesText] = useState("");
   const [label, setLabel] = useState("");
-  const [defaultIcon, setDefaultIcon] = useState<IconId>(DEFAULT_ICON);
+  const [defaultIcon, setDefaultIcon] = useState(DEFAULT_ICON);
   /** 학생마다 따로 고른 아이콘 (이름 → 아이콘) */
-  const [iconFor, setIconFor] = useState<Record<string, IconId>>({});
+  const [iconFor, setIconFor] = useState<Record<string, string>>({});
   /** 아이콘 그림 (아이콘 → data: 주소) */
-  const [iconArt, setIconArt] = useState<Partial<Record<IconId, string>>>({});
+  const [iconArt, setIconArt] = useState<Record<string, string>>({});
+  /** 직접 등록한 이모티콘 */
+  const [customIcons, setCustomIcons] = useState<CustomIcon[]>([]);
+  const [iconError, setIconError] = useState<string | null>(null);
+  const [addingIcon, setAddingIcon] = useState(false);
   const [border, setBorder] = useState<TagBorder>("rainbow");
   const [busy, setBusy] = useState<"png" | "print" | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -58,19 +69,65 @@ export default function NameTagApp({ students }: { students: Student[] }) {
   }, []);
   const iconsReady = ICON_OPTIONS.every((o) => iconArt[o.id]);
 
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage 는 브라우저에서만 읽을 수 있음
+    setCustomIcons(loadCustomIcons());
+  }, []);
+
+  /** 기본 아이콘과 등록한 이모티콘 모두 */
+  const iconOptions = useMemo(
+    () => [...ICON_OPTIONS.map((o) => ({ id: o.id as string, label: o.label, src: o.src })), ...customIcons.map((c) => ({ id: c.id, label: c.label, src: c.art }))],
+    [customIcons],
+  );
+  const artOf = (id: string) => iconArt[id] ?? customIcons.find((c) => c.id === id)?.art;
+
+  /** 그림 파일을 골라 작게 줄인 뒤 내 이모티콘으로 등록 */
+  const addCustomIcon = async (file: File | undefined) => {
+    if (!file) return;
+    setIconError(null);
+    if (!file.type.startsWith("image/")) return setIconError("그림 파일(PNG, JPG 등)을 골라 주세요.");
+    if (file.size > MAX_ICON_FILE_BYTES) return setIconError("파일이 너무 커요. 10MB 이하의 그림을 골라 주세요.");
+    if (customIcons.length >= MAX_CUSTOM_ICONS) return setIconError(`이모티콘은 ${MAX_CUSTOM_ICONS}개까지 등록할 수 있어요. 안 쓰는 것을 지워 주세요.`);
+    setAddingIcon(true);
+    const url = URL.createObjectURL(file);
+    try {
+      const art = await loadImageDataUrl(url, 400, true);
+      const icon: CustomIcon = { id: newIconId(), label: file.name.replace(/\.[^.]+$/, "").trim().slice(0, 12) || "내 이모티콘", art };
+      const next = [...customIcons, icon];
+      if (!saveCustomIcons(next)) return setIconError("브라우저 저장 공간이 부족해서 등록하지 못했어요. 안 쓰는 이모티콘을 지워 보세요.");
+      setCustomIcons(next);
+      chooseDefault(icon.id);
+    } catch (e) {
+      console.error(e);
+      setIconError("그림을 읽지 못했어요. 다른 파일로 다시 해 주세요.");
+    } finally {
+      URL.revokeObjectURL(url);
+      setAddingIcon(false);
+    }
+  };
+
+  const removeCustomIcon = (id: string) => {
+    const next = customIcons.filter((c) => c.id !== id);
+    setCustomIcons(next);
+    saveCustomIcons(next);
+    // 지운 이모티콘을 쓰던 이름표는 기본 아이콘으로 되돌림
+    if (defaultIcon === id) setDefaultIcon(DEFAULT_ICON);
+    setIconFor((m) => Object.fromEntries(Object.entries(m).filter(([, v]) => v !== id)));
+  };
+
   const names = useMemo(() => parseNames(namesText), [namesText]);
   const tags = useMemo<NameTag[]>(
     () =>
       (names.length ? names : [""]).map((name) => {
         const icon = iconFor[name] ?? defaultIcon;
-        return { name, label: label.trim(), icon, art: iconArt[icon], border };
+        return { name, label: label.trim(), icon, art: iconArt[icon] ?? customIcons.find((c) => c.id === icon)?.art, border };
       }),
-    [names, label, iconFor, defaultIcon, iconArt, border],
+    [names, label, iconFor, defaultIcon, iconArt, customIcons, border],
   );
   const svgs = useMemo(() => tags.map(nameTagSvg), [tags]);
 
   /** 전체 아이콘을 바꾸면 학생마다 따로 고른 것은 초기화 */
-  const chooseDefault = (id: IconId) => {
+  const chooseDefault = (id: string) => {
     setDefaultIcon(id);
     setIconFor({});
   };
@@ -223,23 +280,59 @@ export default function NameTagApp({ students }: { students: Student[] }) {
             <p className="text-sm font-semibold text-slate-800">아이콘</p>
             <p className="mt-0.5 text-xs text-slate-500">모든 이름표에 적용돼요. 학생마다 바꾸려면 미리보기 아래에서 고르세요.</p>
             <div className="mt-2 grid grid-cols-3 gap-2" role="radiogroup" aria-label="아이콘">
-              {ICON_OPTIONS.map((o) => (
-                <button
-                  key={o.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={defaultIcon === o.id}
-                  onClick={() => chooseDefault(o.id)}
-                  className={`overflow-hidden rounded-lg border bg-white p-1.5 text-xs font-semibold text-slate-600 transition ${
-                    defaultIcon === o.id ? "border-indigo-400 ring-2 ring-indigo-200" : "border-slate-200 hover:border-slate-300"
-                  }`}
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element -- public 폴더의 작은 아이콘 */}
-                  <img src={o.src} alt="" className="aspect-square w-full object-contain" />
-                  {o.label}
-                </button>
-              ))}
+              {iconOptions.map((o) => {
+                const custom = o.id.startsWith("custom-");
+                return (
+                  <div key={o.id} className="relative">
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={defaultIcon === o.id}
+                      onClick={() => chooseDefault(o.id)}
+                      className={`block w-full overflow-hidden rounded-lg border bg-white p-1.5 text-xs font-semibold text-slate-600 transition ${
+                        defaultIcon === o.id ? "border-indigo-400 ring-2 ring-indigo-200" : "border-slate-200 hover:border-slate-300"
+                      }`}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element -- 작은 아이콘 그림 */}
+                      <img src={o.src} alt="" className="aspect-square w-full object-contain" />
+                      <span className="block truncate">{o.label}</span>
+                    </button>
+                    {custom && (
+                      <button
+                        type="button"
+                        onClick={() => removeCustomIcon(o.id)}
+                        aria-label={`${o.label} 이모티콘 지우기`}
+                        className="absolute right-0.5 top-0.5 grid h-6 w-6 place-items-center rounded-full bg-white/90 text-slate-500 shadow ring-1 ring-slate-200 transition hover:bg-red-50 hover:text-red-600"
+                      >
+                        <TrashIcon className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+              <label
+                className={`flex aspect-auto min-h-24 cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-1.5 text-center text-xs font-semibold text-slate-600 transition hover:border-indigo-400 hover:bg-indigo-50 ${
+                  addingIcon ? "pointer-events-none opacity-60" : ""
+                }`}
+              >
+                {addingIcon ? <Spinner className="h-5 w-5" /> : <PlusIcon className="h-5 w-5" />}
+                내 이모티콘 등록
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="sr-only"
+                  onChange={(e) => {
+                    void addCustomIcon(e.target.files?.[0]);
+                    e.target.value = ""; // 같은 파일을 다시 골라도 반응하도록
+                  }}
+                />
+              </label>
             </div>
+            {iconError && (
+              <p role="alert" className="mt-2 text-xs font-medium text-red-600">
+                {iconError}
+              </p>
+            )}
           </div>
 
           <div className="space-y-2 border-t border-slate-100 pt-5">
@@ -286,10 +379,10 @@ export default function NameTagApp({ students }: { students: Student[] }) {
                   <select
                     aria-label={`${t.name} 아이콘`}
                     value={t.icon}
-                    onChange={(e) => setIconFor((m) => ({ ...m, [t.name]: e.target.value as IconId }))}
+                    onChange={(e) => setIconFor((m) => ({ ...m, [t.name]: e.target.value }))}
                     className="mt-1 h-8 w-full rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-600 outline-none focus:border-indigo-500"
                   >
-                    {ICON_OPTIONS.map((o) => (
+                    {iconOptions.map((o) => (
                       <option key={o.id} value={o.id}>
                         {o.label}
                       </option>

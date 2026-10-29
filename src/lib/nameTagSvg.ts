@@ -36,8 +36,8 @@ export const BORDER_OPTIONS: { id: TagBorder; label: string }[] = [
 /** 미리보기 칩에 쓰는 오색 원 배경 */
 export const RAINBOW_CSS = `conic-gradient(${BORDER.map((c, i) => `${c} ${(i * 100) / BORDER.length}% ${((i + 1) * 100) / BORDER.length}%`).join(", ")})`;
 
-/** icon: 고른 아이콘, art: 그 아이콘 그림 (data: 주소, 불러오는 동안은 없음) */
-export type NameTag = { name: string; label: string; icon: IconId; art?: string; border?: TagBorder };
+/** icon: 고른 아이콘 (기본 아이콘 또는 직접 등록한 이모티콘의 id), art: 그 아이콘 그림 (data: 주소, 불러오는 동안은 없음) */
+export type NameTag = { name: string; label: string; icon: string; art?: string; border?: TagBorder };
 
 /** 왼쪽 그림 자리에 아이콘 */
 function iconImage(t: NameTag, cx: number, cy: number, size: number) {
