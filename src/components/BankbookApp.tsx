@@ -17,7 +17,7 @@ import {
 } from "@/lib/bankbookSvg";
 import { embeddedFontCss, loadImageDataUrl, safeFileName, svgToPng, withFont } from "@/lib/svgExport";
 import { DownloadIcon, Spinner } from "./icons";
-import { loadRows } from "./students";
+import type { Student } from "@/lib/timetable";
 
 /** public/background 의 캐릭터 그림. 앞 그림은 표지, 뒤 그림(캐릭터 없는 같은 배경)은 뒤표지 */
 const PICTURES = [
@@ -43,7 +43,7 @@ const today = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
 
-export default function BankbookApp() {
+export default function BankbookApp({ students }: { students: Student[] }) {
   const [name, setName] = useState("");
   const [bank, setBank] = useState("느티나무 은행");
   const [branch, setBranch] = useState("월계중학교");
@@ -55,15 +55,10 @@ export default function BankbookApp() {
   const [pageW, setPageW] = useState<number>(BOOK_MM.w);
   const [picture, setPicture] = useState<PictureKey>("hello_kitty");
   const [art, setArt] = useState<{ key: PictureKey; front: string; back: string } | null>(null);
-  const [savedNames, setSavedNames] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const rows = loadRows() ?? [];
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage 는 브라우저에서만 읽을 수 있음
-    setSavedNames([...new Set(rows.map((r) => r.name.trim()).filter(Boolean))]);
-  }, []);
+  const savedNames = useMemo(() => [...new Set(students.map((s) => s.name))], [students]);
 
   useEffect(() => {
     const pic = PICTURES.find((p) => p.key === picture)!;

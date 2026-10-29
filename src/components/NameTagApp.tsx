@@ -18,7 +18,7 @@ import {
 } from "@/lib/nameTagSvg";
 import { downloadBlob, embeddedFontCss, loadImageDataUrl, printSheets, svgToPng, withFont } from "@/lib/svgExport";
 import { DownloadIcon, Spinner } from "./icons";
-import { loadRows } from "./students";
+import type { Student } from "@/lib/timetable";
 
 const DEFAULT_ICON: IconId = "clover";
 
@@ -29,7 +29,7 @@ const field =
 const parseNames = (text: string) =>
   [...new Set(text.split(/[\n,]/).map((s) => s.trim().replace(/\s+/g, " ").slice(0, 10)).filter(Boolean))];
 
-export default function NameTagApp() {
+export default function NameTagApp({ students }: { students: Student[] }) {
   const [namesText, setNamesText] = useState("");
   const [label, setLabel] = useState("");
   const [defaultIcon, setDefaultIcon] = useState<IconId>(DEFAULT_ICON);
@@ -38,18 +38,16 @@ export default function NameTagApp() {
   /** 아이콘 그림 (아이콘 → data: 주소) */
   const [iconArt, setIconArt] = useState<Partial<Record<IconId, string>>>({});
   const [border, setBorder] = useState<TagBorder>("rainbow");
-  const [savedNames, setSavedNames] = useState<string[]>([]);
   const [busy, setBusy] = useState<"png" | "print" | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
 
-  // 시간표에서 입력해 둔 학생들을 처음 목록으로 사용
-  useEffect(() => {
-    const rows = loadRows() ?? [];
-    const names = [...new Set(rows.map((r) => r.name.trim()).filter(Boolean))];
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage 는 브라우저에서만 읽을 수 있음
-    setSavedNames(names);
-    setNamesText((t) => t || names.join("\n"));
-  }, []);
+  // 학생 정보 관리에 등록해 둔 학생들을 처음 목록으로 사용
+  const savedNames = useMemo(() => [...new Set(students.map((s) => s.name))], [students]);
+  const [prefilled, setPrefilled] = useState(false);
+  if (!prefilled && savedNames.length) {
+    setPrefilled(true);
+    setNamesText((t) => t || savedNames.join("\n"));
+  }
 
   useEffect(() => {
     for (const o of ICON_OPTIONS) {
@@ -154,7 +152,7 @@ export default function NameTagApp() {
             />
             {savedNames.length > 0 && (
               <div className="mt-1.5">
-                <p className="text-xs text-slate-400">시간표에 입력한 학생 (눌러서 넣고 빼기)</p>
+                <p className="text-xs text-slate-400">등록된 학생 (눌러서 넣고 빼기)</p>
                 <div className="mt-1.5 flex flex-wrap gap-1.5">
                   {savedNames.map((n) => (
                     <button

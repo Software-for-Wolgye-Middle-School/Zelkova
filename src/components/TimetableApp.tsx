@@ -27,6 +27,7 @@ import PromiseBoardApp from "./PromiseBoardApp";
 import BankbookApp from "./BankbookApp";
 import NameTagApp from "./NameTagApp";
 import MealApp from "./MealApp";
+import StudentsApp from "./StudentsApp";
 
 export type StudentDoc = { key: string; student: Student; blob: Blob; fileName: string; hours: number; subjectHours: [string, number][] };
 
@@ -65,7 +66,7 @@ function studentFileNames(students: Student[], term: string) {
   });
 }
 
-type Phase = "home" | "upload" | "generating" | "result" | "promise" | "bankbook" | "nametag" | "meal";
+type Phase = "home" | "upload" | "generating" | "result" | "promise" | "bankbook" | "nametag" | "meal" | "students";
 
 /** 각 단계가 너무 빨리 지나가 깜빡이지 않도록 최소 표시 시간 */
 const MIN_STAGE_MS = 600;
@@ -281,6 +282,7 @@ export default function TimetableApp() {
           onStartBankbook={() => setPhase("bankbook")}
           onStartNameTag={() => setPhase("nametag")}
           onStartMeal={() => setPhase("meal")}
+          onStartStudents={() => setPhase("students")}
         />
       ) : (
         <>
@@ -309,13 +311,16 @@ export default function TimetableApp() {
             {phase === "generating" && <GeneratingScreen stage={stage} />}
             {phase === "result" && result && <ResultView result={result} onRestart={restart} />}
             {phase === "promise" && <PromiseBoardApp />}
-            {phase === "bankbook" && <BankbookApp />}
-            {phase === "nametag" && <NameTagApp />}
+            {phase === "bankbook" && <BankbookApp students={students} />}
+            {phase === "nametag" && <NameTagApp students={students} />}
+            {phase === "students" && <StudentsApp rows={rows} onRowsChange={changeRows} />}
             {phase === "meal" && <MealApp />}
           </main>
 
           <footer className="px-4 pb-6 text-center text-xs text-slate-400">
-            {phase === "bankbook" || phase === "nametag"
+            {phase === "students"
+              ? "학생 정보는 이 컴퓨터의 브라우저 안에만 저장돼요. 밖으로 전송되지 않아요."
+              : phase === "bankbook" || phase === "nametag"
               ? "AI 그림을 그릴 때 그림 설명만 Pollinations AI로 보내요. 학생 이름은 밖으로 전송되지 않아요."
               : phase === "promise"
                 ? "약속판은 이 컴퓨터의 브라우저 안에서만 만들어져요."
