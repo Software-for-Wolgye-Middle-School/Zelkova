@@ -16,7 +16,16 @@ import {
   type PaperColor,
 } from "@/lib/bankbookSvg";
 import { embeddedFontCss, loadImageDataUrl, safeFileName, svgToPng, withFont } from "@/lib/svgExport";
-import { DownloadIcon, Spinner } from "./icons";
+import { ArrowLeftIcon, ArrowRightIcon, CheckIcon, DownloadIcon, PlusIcon, Spinner, TrashIcon } from "./icons";
+import {
+  BACKGROUND_MAX_WIDTH,
+  loadCustomBackgrounds,
+  MAX_BACKGROUND_FILE_BYTES,
+  MAX_CUSTOM_BACKGROUNDS,
+  newBackgroundId,
+  saveCustomBackgrounds,
+  type CustomBackground,
+} from "./customBackgrounds";
 import type { Student } from "@/lib/timetable";
 
 /** public/background 의 캐릭터 그림. 앞 그림은 표지, 뒤 그림(캐릭터 없는 같은 배경)은 뒤표지 */
@@ -30,10 +39,19 @@ const PICTURES = [
   { key: "conan", label: "코난", file: "conan/conan" },
   { key: "cinamon", label: "시나모롤", file: "cinamon/cinamon" },
 ] as const;
-type PictureKey = (typeof PICTURES)[number]["key"];
+/** 기본 그림의 key 또는 직접 올린 사진의 id ("custom-…") */
+type PictureKey = string;
 
 const field =
   "h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-[15px] outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100";
+
+/** 통장을 만드는 순서 */
+const STEPS = [
+  { title: "배경", heading: "표지에 쓸 그림을 골라 주세요", hint: "기본 캐릭터 그림을 고르거나 내 사진을 올릴 수 있어요." },
+  { title: "이름", heading: "누구의 통장인가요?", hint: "등록된 학생을 누르거나 이름을 직접 적어 주세요." },
+  { title: "통장 정보", heading: "통장에 들어갈 내용을 확인해 주세요", hint: "바뀐 것이 없으면 그대로 다음으로 넘어가도 돼요." },
+  { title: "저장", heading: "크기를 정하고 저장해요", hint: "A4 종이에 놓을 크기를 정하고 PDF로 저장하세요." },
+] as const;
 
 /** 쪽 크기 바로 고르기: A4 한 장에 n쪽이 들어가는 가장 큰 크기 */
 const SIZE_PRESETS = [1, 2, 4, 8].map((n) => ({ n, w: largestWidthFor(n) }));
@@ -44,6 +62,7 @@ const today = () => {
 };
 
 export default function BankbookApp({ students }: { students: Student[] }) {
+  const [step, setStep] = useState(0);
   const [name, setName] = useState("");
   const [bank, setBank] = useState("느티나무 은행");
   const [branch, setBranch] = useState("월계중학교");
@@ -55,13 +74,28 @@ export default function BankbookApp({ students }: { students: Student[] }) {
   const [pageW, setPageW] = useState<number>(BOOK_MM.w);
   const [picture, setPicture] = useState<PictureKey>("hello_kitty");
   const [art, setArt] = useState<{ key: PictureKey; front: string; back: string } | null>(null);
+  const [customBgs, setCustomBgs] = useState<CustomBackground[]>([]);
+  const [bgError, setBgError] = useState<string | null>(null);
+  const [addingBg, setAddingBg] = useState(false);
+  const savedNames = useMemo(() => [...new Set(students.map((s) => s.name))], [students]);
   const [busy, setBusy] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
 
-  const savedNames = useMemo(() => [...new Set(students.map((s) => s.name))], [students]);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage 는 브라우저에서만 읽을 수 있음
+    setCustomBgs(loadCustomBackgrounds());
+  }, []);
 
   useEffect(() => {
-    const pic = PICTURES.find((p) => p.key === picture)!;
+    const custom = customBgs.find((c) => c.id === picture);
+    if (custom) {
+      // 올린 사진 한 장을 표지와 뒤표지에 같이 씀
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 고른 그림에 맞춰 표지 · 뒤표지 그림을 바꿈
+      setArt({ key: custom.id, front: custom.art, back: custom.art });
+      return;
+    }
+    const pic = PICTURES.find((p) => p.key === picture);
+    if (!pic) return; // 올린 사진을 아직 불러오는 중
     let cancelled = false;
     // 쪽을 크게 인쇄해도 흐리지 않도록 넉넉히 둠
     const load = (side: string) => loadImageDataUrl(`/background/${pic.file}_${side}.png`, BOOK_W * 3);
@@ -71,7 +105,7 @@ export default function BankbookApp({ students }: { students: Student[] }) {
     return () => {
       cancelled = true;
     };
-  }, [picture]);
+  }, [picture, customBgs]);
 
   const pictureArt = art?.key === picture ? art : null;
   const cover = pictureArt?.front;
@@ -90,6 +124,38 @@ export default function BankbookApp({ students }: { students: Student[] }) {
   );
   const pages = useMemo(() => (book ? bankbookPages(book, ledgers) : []), [book, ledgers]);
   const baseName = `${safeFileName(trimmed)} 칭찬통장`;
+
+  /** 사진 파일을 골라 크기를 줄인 뒤 배경으로 등록하고 바로 선택 */
+  const addBackground = async (file: File | undefined) => {
+    if (!file) return;
+    setBgError(null);
+    if (!file.type.startsWith("image/")) return setBgError("그림 파일(PNG, JPG 등)을 골라 주세요.");
+    if (file.size > MAX_BACKGROUND_FILE_BYTES) return setBgError("파일이 너무 커요. 15MB 이하의 사진을 골라 주세요.");
+    if (customBgs.length >= MAX_CUSTOM_BACKGROUNDS) return setBgError(`내 사진은 ${MAX_CUSTOM_BACKGROUNDS}장까지 올릴 수 있어요. 안 쓰는 사진을 지워 주세요.`);
+    setAddingBg(true);
+    const url = URL.createObjectURL(file);
+    try {
+      const data = await loadImageDataUrl(url, BACKGROUND_MAX_WIDTH);
+      const bg: CustomBackground = { id: newBackgroundId(), label: file.name.replace(/\.[^.]+$/, "").trim().slice(0, 12) || "내 사진", art: data };
+      const next = [...customBgs, bg];
+      if (!saveCustomBackgrounds(next)) return setBgError("브라우저 저장 공간이 부족해서 올리지 못했어요. 안 쓰는 사진을 지워 보세요.");
+      setCustomBgs(next);
+      setPicture(bg.id);
+    } catch (e) {
+      console.error(e);
+      setBgError("사진을 읽지 못했어요. 다른 파일로 다시 해 주세요.");
+    } finally {
+      URL.revokeObjectURL(url);
+      setAddingBg(false);
+    }
+  };
+
+  const removeBackground = (id: string) => {
+    const next = customBgs.filter((c) => c.id !== id);
+    setCustomBgs(next);
+    saveCustomBackgrounds(next);
+    if (picture === id) setPicture(PICTURES[0].key); // 지운 사진을 쓰고 있었다면 기본 그림으로
+  };
 
   /** 고른 크기 그대로 모든 쪽을 A4 한 장에 들어가는 만큼 놓고 자르는 점선을 그려 PDF 로 내려받음 */
   const savePdf = async () => {
@@ -131,81 +197,158 @@ export default function BankbookApp({ students }: { students: Student[] }) {
     }
   };
 
+  const last = step === STEPS.length - 1;
+  /** 이름을 적어야 이름 단계 다음으로 갈 수 있음 */
+  const canNext = step === 0 ? !!pictureArt : step === 1 ? !!trimmed : true;
+  const chip = (on: boolean) =>
+    `rounded-lg px-2 py-2 text-sm font-semibold ring-1 ring-inset transition ${
+      on ? "bg-indigo-50 text-indigo-700 ring-indigo-300" : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"
+    }`;
+
   return (
     <div className="fade-up mx-auto max-w-5xl">
       <div className="mb-8 text-center">
         <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-[28px]">칭찬통장 만들기</h1>
-        <p className="mt-2 text-[15px] text-slate-500">
-          표지 · 속지 · 거래 내역 · 뒤표지를 템플릿 모양 그대로 만들어요. 좋아하는 캐릭터 그림을 골라 보세요.
-        </p>
+        <p className="mt-2 text-[15px] text-slate-500">배경 → 이름 → 통장 정보 → 저장, 네 단계로 차근차근 만들어요.</p>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[22rem_minmax(0,1fr)]">
         <div className="h-fit space-y-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-          <div>
-            <span className="block text-sm font-semibold text-slate-800">그림</span>
-            <p className="mt-0.5 text-xs text-slate-500">앞 그림은 표지, 뒤 그림은 맨 뒤 뒤표지가 돼요.</p>
-            <div className="mt-2 grid grid-cols-3 gap-1.5">
-              {PICTURES.map((p) => (
+          <ol className="flex items-center" aria-label="진행 단계">
+            {STEPS.map((s, i) => (
+              <li key={s.title} className="flex flex-1 items-center last:flex-none" aria-current={i === step ? "step" : undefined}>
                 <button
-                  key={p.key}
                   type="button"
-                  onClick={() => setPicture(p.key)}
-                  aria-pressed={picture === p.key}
-                  className={`rounded-lg px-2 py-2 text-sm font-semibold ring-1 ring-inset transition ${
-                    picture === p.key ? "bg-indigo-50 text-indigo-700 ring-indigo-300" : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"
-                  }`}
+                  onClick={() => i <= step && setStep(i)}
+                  disabled={i > step}
+                  className="flex flex-col items-center gap-1 disabled:cursor-default"
                 >
-                  {p.label}
+                  <span
+                    className={`grid h-8 w-8 place-items-center rounded-full text-sm font-bold transition ${
+                      i < step ? "bg-indigo-600 text-white" : i === step ? "bg-indigo-600 text-white ring-4 ring-indigo-100" : "bg-slate-100 text-slate-400"
+                    }`}
+                  >
+                    {i < step ? <CheckIcon className="h-4 w-4" /> : i + 1}
+                  </span>
+                  <span className={`text-[11px] font-semibold ${i <= step ? "text-slate-800" : "text-slate-400"}`}>{s.title}</span>
                 </button>
-              ))}
-            </div>
-            {!pictureArt && (
-              <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-500">
-                <Spinner className="h-3.5 w-3.5" /> 그림을 불러오고 있어요
-              </p>
-            )}
+                {i < STEPS.length - 1 && <span className={`mx-1 mb-5 h-0.5 flex-1 rounded ${i < step ? "bg-indigo-600" : "bg-slate-200"}`} />}
+              </li>
+            ))}
+          </ol>
+
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">{STEPS[step].heading}</h2>
+            <p className="mt-0.5 text-xs text-slate-500">{STEPS[step].hint}</p>
           </div>
 
-          <details open className="group rounded-xl border border-slate-200">
-            <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-semibold text-slate-800">
-              속지 내용
-              <span className="text-slate-400 transition group-open:rotate-180" aria-hidden="true">
-                ▾
-              </span>
-            </summary>
-            <div className="space-y-3 border-t border-slate-100 px-4 py-4">
-              <div>
-                <label className="mb-1 block text-xs font-semibold text-slate-600" htmlFor="bb-name">
-                  이름
-                </label>
-                <input
-                  id="bb-name"
-                  value={name}
-                  maxLength={10}
-                  autoComplete="off"
-                  placeholder="예: 하초현"
-                  onChange={(e) => setName(e.target.value)}
-                  className={field}
-                />
-                {savedNames.length > 0 && (
-                  <div className="mt-1.5 flex flex-wrap gap-1.5">
-                    {savedNames.map((n) => (
-                      <button
-                        key={n}
-                        type="button"
-                        onClick={() => setName(n)}
-                        aria-pressed={trimmed === n}
-                        className={`rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset transition ${
-                          trimmed === n ? "bg-indigo-50 text-indigo-700 ring-indigo-300" : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"
-                        }`}
-                      >
-                        {n}
-                      </button>
-                    ))}
-                  </div>
-                )}
+          {step === 0 && (
+            <div>
+              <div className="grid grid-cols-3 gap-1.5">
+                {PICTURES.map((p) => (
+                  <button key={p.key} type="button" onClick={() => setPicture(p.key)} aria-pressed={picture === p.key} className={chip(picture === p.key)}>
+                    {p.label}
+                  </button>
+                ))}
               </div>
+
+              <p className="mb-1.5 mt-4 text-xs font-semibold text-slate-600">
+                내 사진 <span className="font-normal text-slate-400">· 표지와 뒤표지에 같이 들어가요</span>
+              </p>
+              <div className="grid grid-cols-3 gap-1.5">
+                {customBgs.map((c) => (
+                  <div key={c.id} className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setPicture(c.id)}
+                      aria-pressed={picture === c.id}
+                      className={`block w-full overflow-hidden rounded-lg border bg-white p-1 text-xs font-semibold text-slate-600 transition ${
+                        picture === c.id ? "border-indigo-400 ring-2 ring-indigo-200" : "border-slate-200 hover:border-slate-300"
+                      }`}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element -- 직접 올린 사진(data: 주소) */}
+                      <img src={c.art} alt="" className="aspect-[4/3] w-full rounded object-cover" />
+                      <span className="mt-1 block truncate">{c.label}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => removeBackground(c.id)}
+                      aria-label={`${c.label} 사진 지우기`}
+                      className="absolute right-1 top-1 grid h-6 w-6 place-items-center rounded-full bg-white/90 text-slate-500 shadow ring-1 ring-slate-200 transition hover:bg-red-50 hover:text-red-600"
+                    >
+                      <TrashIcon className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+                <label
+                  className={`flex min-h-20 cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-1.5 text-center text-xs font-semibold text-slate-600 transition hover:border-indigo-400 hover:bg-indigo-50 ${
+                    addingBg ? "pointer-events-none opacity-60" : ""
+                  }`}
+                >
+                  {addingBg ? <Spinner className="h-5 w-5" /> : <PlusIcon className="h-5 w-5" />}
+                  사진 추가
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="sr-only"
+                    onChange={(e) => {
+                      void addBackground(e.target.files?.[0]);
+                      e.target.value = ""; // 같은 파일을 다시 골라도 반응하도록
+                    }}
+                  />
+                </label>
+              </div>
+              {bgError && (
+                <p role="alert" className="mt-2 text-xs font-medium text-red-600">
+                  {bgError}
+                </p>
+              )}
+              {!pictureArt && (
+                <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-500">
+                  <Spinner className="h-3.5 w-3.5" /> 그림을 불러오고 있어요
+                </p>
+              )}
+            </div>
+          )}
+
+          {step === 1 && (
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-600" htmlFor="bb-name">
+                이름
+              </label>
+              <input
+                id="bb-name"
+                value={name}
+                maxLength={10}
+                autoComplete="off"
+                placeholder="예: 하초현"
+                onChange={(e) => setName(e.target.value)}
+                className={field}
+              />
+              {savedNames.length > 0 ? (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {savedNames.map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => setName(n)}
+                      aria-pressed={trimmed === n}
+                      className={`rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset transition ${
+                        trimmed === n ? "bg-indigo-50 text-indigo-700 ring-indigo-300" : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"
+                      }`}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-2 text-xs text-slate-400">‘학생 정보 관리하기’에 학생을 등록해 두면 여기서 바로 고를 수 있어요.</p>
+              )}
+            </div>
+          )}
+
+          {step === 2 && (
+            <div className="space-y-3">
               <Field label="은행 이름">
                 <input value={bank} maxLength={12} onChange={(e) => setBank(e.target.value)} className={field} />
               </Field>
@@ -245,66 +388,79 @@ export default function BankbookApp({ students }: { students: Student[] }) {
                 </Field>
               </div>
             </div>
-          </details>
+          )}
 
-          <div>
-            <div className="flex items-baseline justify-between">
-              <label htmlFor="bb-size" className="text-sm font-semibold text-slate-800">
-                쪽 크기
-              </label>
-              <span className="text-xs font-semibold text-indigo-700">
-                {layout.page.w} × {layout.page.h}mm
-              </span>
+          {step === 3 && (
+            <div>
+              <div className="flex items-baseline justify-between">
+                <label htmlFor="bb-size" className="text-sm font-semibold text-slate-800">
+                  쪽 크기
+                </label>
+                <span className="text-xs font-semibold text-indigo-700">
+                  {layout.page.w} × {layout.page.h}mm
+                </span>
+              </div>
+              <input
+                id="bb-size"
+                type="range"
+                min={BOOK_MM_MIN}
+                max={BOOK_MM_MAX}
+                step={1}
+                value={pageW}
+                onChange={(e) => setPageW(Number(e.target.value))}
+                className="mt-3 w-full accent-indigo-600"
+              />
+              <div className="mt-2 grid grid-cols-4 gap-1.5">
+                {SIZE_PRESETS.map((p) => (
+                  <button key={p.n} type="button" onClick={() => setPageW(p.w)} aria-pressed={pageW === p.w} className={chip(pageW === p.w)}>
+                    {p.n}쪽
+                  </button>
+                ))}
+              </div>
+              <p className="mt-2 text-xs text-slate-500">
+                표지 · 속지 · 거래 내역 {ledgers}쪽 · 뒤표지를 A4 {layout.orientation === "landscape" ? "가로" : "세로"} 한 장에 {layout.perSheet}쪽씩 놓아
+                모두 {sheets}장이에요.
+              </p>
+              <button
+                type="button"
+                onClick={savePdf}
+                disabled={!trimmed || busy || !book}
+                className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-[15px] font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
+              >
+                {busy ? <Spinner className="h-5 w-5" /> : <DownloadIcon className="h-5 w-5" />}
+                PDF로 저장하기
+              </button>
+              {exportError && (
+                <p role="alert" className="mt-2 text-center text-xs font-medium text-red-600">
+                  {exportError}
+                </p>
+              )}
             </div>
-            <p className="mt-0.5 text-xs text-slate-500">A4 종이에 놓을 크기를 먼저 정하면 모든 쪽이 같은 크기로 만들어져요.</p>
-            <input
-              id="bb-size"
-              type="range"
-              min={BOOK_MM_MIN}
-              max={BOOK_MM_MAX}
-              step={1}
-              value={pageW}
-              onChange={(e) => setPageW(Number(e.target.value))}
-              className="mt-3 w-full accent-indigo-600"
-            />
-            <div className="mt-2 grid grid-cols-4 gap-1.5">
-              {SIZE_PRESETS.map((p) => (
-                <button
-                  key={p.n}
-                  type="button"
-                  onClick={() => setPageW(p.w)}
-                  aria-pressed={pageW === p.w}
-                  className={`rounded-lg px-1 py-1.5 text-xs font-semibold ring-1 ring-inset transition ${
-                    pageW === p.w ? "bg-indigo-50 text-indigo-700 ring-indigo-300" : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"
-                  }`}
-                >
-                  {p.n}쪽
-                </button>
-              ))}
-            </div>
-            <p className="mt-2 text-xs text-slate-500">
-              표지 · 속지 · 거래 내역 {ledgers}쪽 · 뒤표지를 A4 {layout.orientation === "landscape" ? "가로" : "세로"} 한 장에{" "}
-              {layout.perSheet}쪽씩 놓아 모두 {sheets}장이에요.
-            </p>
-          </div>
+          )}
 
-          <div className="space-y-2 border-t border-slate-100 pt-5">
+          <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-4">
             <button
               type="button"
-              onClick={savePdf}
-              disabled={!trimmed || busy || !book}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-[15px] font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
+              onClick={() => setStep((s) => s - 1)}
+              disabled={step === 0}
+              className="inline-flex items-center gap-1.5 rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 disabled:invisible"
             >
-              {busy ? <Spinner className="h-5 w-5" /> : <DownloadIcon className="h-5 w-5" />}
-              PDF로 저장하기
+              <ArrowLeftIcon className="h-4 w-4" />
+              이전
             </button>
-            {!trimmed && <p className="text-center text-xs text-slate-400">이름을 입력하면 저장할 수 있어요</p>}
-            {exportError && (
-              <p role="alert" className="text-center text-xs font-medium text-red-600">
-                {exportError}
-              </p>
+            {!last && (
+              <button
+                type="button"
+                onClick={() => setStep((s) => s + 1)}
+                disabled={!canNext}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
+              >
+                다음
+                <ArrowRightIcon className="h-4 w-4" />
+              </button>
             )}
           </div>
+          {step === 1 && !trimmed && <p className="-mt-3 text-center text-xs text-slate-400">이름을 입력하면 다음으로 넘어갈 수 있어요</p>}
         </div>
 
         <section aria-label="칭찬통장 미리보기" className="min-w-0 space-y-4">
