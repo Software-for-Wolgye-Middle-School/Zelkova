@@ -79,6 +79,7 @@ export default function BankbookApp({ students }: { students: Student[] }) {
   const [art, setArt] = useState<{ key: PictureKey; front: string; back: string } | null>(null);
   const [sets, setSets] = useState<CustomPhotoSet[]>([]);
   const [draft, setDraft] = useState<{ front: string | null; back: string | null }>({ front: null, back: null });
+  const [customOpen, setCustomOpen] = useState(false);
   const [draftName, setDraftName] = useState("");
   const [draftPaper, setDraftPaper] = useState<PaperColor>("노랑");
   const [bgError,setBgError] = useState<string | null>(null);
@@ -126,8 +127,9 @@ export default function BankbookApp({ students }: { students: Student[] }) {
     setPicture(set.id);
     setPaper(set.paper);
   };
-  const cover = pictureArt?.front;
-  const back = pictureArt?.back;
+  const cover = customOpen && draft.front ? draft.front : pictureArt?.front;
+  const back = customOpen && draft.back ? draft.back : pictureArt?.back;
+  const previewPaper = customOpen ? draftPaper : paper;
   const layout = useMemo(() => a4Layout(pageW), [pageW]);
   // 표지 · 속지 · 거래 내역 · 뒤표지
   const sheets = Math.ceil((ledgers + 3) / layout.perSheet);
@@ -136,9 +138,9 @@ export default function BankbookApp({ students }: { students: Student[] }) {
   const book = useMemo<Bankbook | null>(
     () =>
       cover && back
-        ? { name: trimmed, bank: bank.trim(), branch: branch.trim(), account: account.trim(), issued, kind, paper, cover, back }
+        ? { name: trimmed, bank: bank.trim(), branch: branch.trim(), account: account.trim(), issued, kind, paper: previewPaper, cover, back }
         : null,
-    [trimmed, bank, branch, account, issued, kind, paper, cover, back],
+    [trimmed, bank, branch, account, issued, kind, previewPaper, cover, back],
   );
   const pages = useMemo(() => (book ? bankbookPages(book, ledgers) : []), [book, ledgers]);
   const baseName = `${safeFileName(trimmed)} 칭찬통장`;
@@ -174,6 +176,7 @@ export default function BankbookApp({ students }: { students: Student[] }) {
     setSets(next);
     setDraft({ front: null, back: null });
     setDraftName("");
+    setCustomOpen(false);
     pickSet(set);
   };
 
@@ -226,7 +229,7 @@ export default function BankbookApp({ students }: { students: Student[] }) {
 
   const last = step === STEPS.length - 1;
   /** 이름을 적어야 이름 단계 다음으로 갈 수 있음 */
-  const canNext = step === 0 ? !!pictureArt : step === 1 ? !!trimmed : true;
+  const canNext = step === 0 ? !!pictureArt && !customOpen : step === 1 ? !!trimmed : true;
   const chip = (on: boolean) =>
     `rounded-lg px-2 py-2 text-sm font-semibold ring-1 ring-inset transition ${
       on ? "bg-indigo-50 text-indigo-700 ring-indigo-300" : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"
@@ -295,9 +298,17 @@ export default function BankbookApp({ students }: { students: Student[] }) {
                 ))}
               </div>
 
-              <p className="mb-1.5 mt-4 text-xs font-semibold text-slate-600">
-                내 사진
-              </p>
+              <button
+                type="button"
+                onClick={() => setCustomOpen((o) => !o)}
+                aria-expanded={customOpen}
+                className={`mt-4 w-full ${chip(customOpen)}`}
+              >
+                내 사진 사용하기
+              </button>
+              {customOpen && (
+                <div className="mt-2 space-y-0">
+                  <p className="mb-1.5 text-xs text-slate-500">앞면 · 뒷면 사진을 올리면 미리보기에 바로 보여요. 등록하면 바로 저장돼요.</p>
               {sets.length < MAX_PHOTO_SETS && (
                 <>
                   <div className="grid grid-cols-2 gap-1.5">
@@ -365,6 +376,8 @@ export default function BankbookApp({ students }: { students: Student[] }) {
                     기본 배경으로 등록하기
                   </button>
                 </>
+              )}
+                </div>
               )}
               {bgError && (
                 <p role="alert" className="mt-2 text-xs font-medium text-red-600">
