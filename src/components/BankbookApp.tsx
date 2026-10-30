@@ -19,35 +19,38 @@ import { embeddedFontCss, loadImageDataUrl, safeFileName, svgToPng, withFont } f
 import { ArrowLeftIcon, ArrowRightIcon, CheckIcon, DownloadIcon, PlusIcon, Spinner, TrashIcon } from "./icons";
 import {
   BACKGROUND_MAX_WIDTH,
-  loadCustomBackgrounds,
+  loadCustomPhotos,
   MAX_BACKGROUND_FILE_BYTES,
-  MAX_CUSTOM_BACKGROUNDS,
-  newBackgroundId,
-  saveCustomBackgrounds,
-  type CustomBackground,
+  NO_PHOTOS,
+  saveCustomPhotos,
+  type CustomPhotos,
 } from "./customBackgrounds";
 import type { Student } from "@/lib/timetable";
 
-/** public/background 의 캐릭터 그림. 앞 그림은 표지, 뒤 그림(캐릭터 없는 같은 배경)은 뒤표지 */
+/** public/background 의 캐릭터 그림. 앞 그림은 표지, 뒤 그림(캐릭터 없는 같은 배경)은 뒤표지. paper 는 그 그림에 어울리는 속지 색 */
 const PICTURES = [
-  { key: "hello_kitty", label: "헬로키티", file: "hello_kitty/hellokitty" },
-  { key: "pingu", label: "핑구", file: "pingu/pingu" },
-  { key: "jerry", label: "제리", file: "jerry/jerry" },
-  { key: "kurumi", label: "쿠루미", file: "kurumi/kurumi" },
-  { key: "smurf", label: "스머프", file: "smurf/smurf" },
-  { key: "thomas", label: "토마스", file: "thomas/thomas" },
-  { key: "conan", label: "코난", file: "conan/conan" },
-  { key: "cinamon", label: "시나모롤", file: "cinamon/cinamon" },
-] as const;
-/** 기본 그림의 key 또는 직접 올린 사진의 id ("custom-…") */
+  { key: "hello_kitty", label: "헬로키티", file: "hello_kitty/hellokitty", paper: "분홍" },
+  { key: "pingu", label: "핑구", file: "pingu/pingu", paper: "하늘" },
+  { key: "jerry", label: "제리", file: "jerry/jerry", paper: "노랑" },
+  { key: "kurumi", label: "쿠루미", file: "kurumi/kurumi", paper: "보라" },
+  { key: "smurf", label: "스머프", file: "smurf/smurf", paper: "하늘" },
+  { key: "thomas", label: "토마스", file: "thomas/thomas", paper: "노랑" },
+  { key: "conan", label: "코난", file: "conan/conan", paper: "남색" },
+  { key: "cinamon", label: "시나모롤", file: "cinamon/cinamon", paper: "하늘" },
+] as const satisfies readonly { key: string; label: string; file: string; paper: PaperColor }[];
+/** 직접 올린 앞면 · 뒷면 사진을 쓸 때의 key */
+const CUSTOM_KEY = "custom";
+/** 기본 그림의 key 또는 CUSTOM_KEY */
 type PictureKey = string;
+
+const MAX_LEDGERS = 99;
 
 const field =
   "h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-[15px] outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100";
 
 /** 통장을 만드는 순서 */
 const STEPS = [
-  { title: "배경", heading: "표지에 쓸 그림을 골라 주세요", hint: "기본 캐릭터 그림을 고르거나 내 사진을 올릴 수 있어요." },
+  { title: "배경", heading: "표지에 쓸 그림을 골라 주세요", hint: "기본 캐릭터 그림을 고르거나, 내 사진 앞면 · 뒷면 2장을 올려 주세요." },
   { title: "이름", heading: "누구의 통장인가요?", hint: "등록된 학생을 누르거나 이름을 직접 적어 주세요." },
   { title: "통장 정보", heading: "통장에 들어갈 내용을 확인해 주세요", hint: "바뀐 것이 없으면 그대로 다음으로 넘어가도 돼요." },
   { title: "저장", heading: "크기를 정하고 저장해요", hint: "A4 종이에 놓을 크기를 정하고 PDF로 저장하세요." },
@@ -69,29 +72,29 @@ export default function BankbookApp({ students }: { students: Student[] }) {
   const [issued, setIssued] = useState(today);
   const [account, setAccount] = useState(() => `${today()}-01`);
   const [kind, setKind] = useState<Bankbook["kind"]>("신규");
-  const [paper, setPaper] = useState<PaperColor>("노랑");
-  const [ledgers, setLedgers] = useState(5);
+  const [paper, setPaper] = useState<PaperColor>("분홍");
+  const [ledgersText, setLedgersText] = useState("5");
   const [pageW, setPageW] = useState<number>(BOOK_MM.w);
   const [picture, setPicture] = useState<PictureKey>("hello_kitty");
   const [art, setArt] = useState<{ key: PictureKey; front: string; back: string } | null>(null);
-  const [customBgs, setCustomBgs] = useState<CustomBackground[]>([]);
+  const [photos, setPhotos] = useState<CustomPhotos>(NO_PHOTOS);
   const [bgError, setBgError] = useState<string | null>(null);
-  const [addingBg, setAddingBg] = useState(false);
+  const [addingSide, setAddingSide] = useState<"front" | "back" | null>(null);
   const savedNames = useMemo(() => [...new Set(students.map((s) => s.name))], [students]);
   const [busy, setBusy] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage 는 브라우저에서만 읽을 수 있음
-    setCustomBgs(loadCustomBackgrounds());
+    setPhotos(loadCustomPhotos());
   }, []);
 
   useEffect(() => {
-    const custom = customBgs.find((c) => c.id === picture);
-    if (custom) {
-      // 올린 사진 한 장을 표지와 뒤표지에 같이 씀
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- 고른 그림에 맞춰 표지 · 뒤표지 그림을 바꿈
-      setArt({ key: custom.id, front: custom.art, back: custom.art });
+    if (picture === CUSTOM_KEY) {
+      if (photos.front && photos.back) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- 고른 그림에 맞춰 표지 · 뒤표지 그림을 바꿈
+        setArt({ key: CUSTOM_KEY, front: photos.front, back: photos.back });
+      }
       return;
     }
     const pic = PICTURES.find((p) => p.key === picture);
@@ -105,9 +108,18 @@ export default function BankbookApp({ students }: { students: Student[] }) {
     return () => {
       cancelled = true;
     };
-  }, [picture, customBgs]);
+  }, [picture, photos]);
 
   const pictureArt = art?.key === picture ? art : null;
+  const customReady = !!photos.front && !!photos.back;
+  const ledgers = Math.min(MAX_LEDGERS, Math.max(1, parseInt(ledgersText, 10) || 1));
+
+  /** 기본 그림을 고르면 그 그림에 어울리는 속지 색으로 바꿈 */
+  const choosePicture = (key: PictureKey) => {
+    setPicture(key);
+    const pic = PICTURES.find((p) => p.key === key);
+    if (pic) setPaper(pic.paper);
+  };
   const cover = pictureArt?.front;
   const back = pictureArt?.back;
   const layout = useMemo(() => a4Layout(pageW), [pageW]);
@@ -125,36 +137,33 @@ export default function BankbookApp({ students }: { students: Student[] }) {
   const pages = useMemo(() => (book ? bankbookPages(book, ledgers) : []), [book, ledgers]);
   const baseName = `${safeFileName(trimmed)} 칭찬통장`;
 
-  /** 사진 파일을 골라 크기를 줄인 뒤 배경으로 등록하고 바로 선택 */
-  const addBackground = async (file: File | undefined) => {
+  /** 사진 파일을 골라 크기를 줄인 뒤 앞면 또는 뒷면 사진으로 등록 */
+  const addPhoto = async (side: "front" | "back", file: File | undefined) => {
     if (!file) return;
     setBgError(null);
     if (!file.type.startsWith("image/")) return setBgError("그림 파일(PNG, JPG 등)을 골라 주세요.");
     if (file.size > MAX_BACKGROUND_FILE_BYTES) return setBgError("파일이 너무 커요. 15MB 이하의 사진을 골라 주세요.");
-    if (customBgs.length >= MAX_CUSTOM_BACKGROUNDS) return setBgError(`내 사진은 ${MAX_CUSTOM_BACKGROUNDS}장까지 올릴 수 있어요. 안 쓰는 사진을 지워 주세요.`);
-    setAddingBg(true);
+    setAddingSide(side);
     const url = URL.createObjectURL(file);
     try {
       const data = await loadImageDataUrl(url, BACKGROUND_MAX_WIDTH);
-      const bg: CustomBackground = { id: newBackgroundId(), label: file.name.replace(/\.[^.]+$/, "").trim().slice(0, 12) || "내 사진", art: data };
-      const next = [...customBgs, bg];
-      if (!saveCustomBackgrounds(next)) return setBgError("브라우저 저장 공간이 부족해서 올리지 못했어요. 안 쓰는 사진을 지워 보세요.");
-      setCustomBgs(next);
-      setPicture(bg.id);
+      const next = { ...photos, [side]: data };
+      if (!saveCustomPhotos(next)) return setBgError("브라우저 저장 공간이 부족해서 올리지 못했어요. 더 작은 사진으로 해 보세요.");
+      setPhotos(next);
     } catch (e) {
       console.error(e);
       setBgError("사진을 읽지 못했어요. 다른 파일로 다시 해 주세요.");
     } finally {
       URL.revokeObjectURL(url);
-      setAddingBg(false);
+      setAddingSide(null);
     }
   };
 
-  const removeBackground = (id: string) => {
-    const next = customBgs.filter((c) => c.id !== id);
-    setCustomBgs(next);
-    saveCustomBackgrounds(next);
-    if (picture === id) setPicture(PICTURES[0].key); // 지운 사진을 쓰고 있었다면 기본 그림으로
+  const removePhoto = (side: "front" | "back") => {
+    const next = { ...photos, [side]: null };
+    setPhotos(next);
+    saveCustomPhotos(next);
+    if (picture === CUSTOM_KEY) setPicture(PICTURES[0].key); // 한 장이라도 지우면 기본 그림으로
   };
 
   /** 고른 크기 그대로 모든 쪽을 A4 한 장에 들어가는 만큼 놓고 자르는 점선을 그려 PDF 로 내려받음 */
@@ -246,64 +255,70 @@ export default function BankbookApp({ students }: { students: Student[] }) {
             <div>
               <div className="grid grid-cols-3 gap-1.5">
                 {PICTURES.map((p) => (
-                  <button key={p.key} type="button" onClick={() => setPicture(p.key)} aria-pressed={picture === p.key} className={chip(picture === p.key)}>
+                  <button key={p.key} type="button" onClick={() => choosePicture(p.key)} aria-pressed={picture === p.key} className={chip(picture === p.key)}>
                     {p.label}
                   </button>
                 ))}
               </div>
 
               <p className="mb-1.5 mt-4 text-xs font-semibold text-slate-600">
-                내 사진 <span className="font-normal text-slate-400">· 표지와 뒤표지에 같이 들어가요</span>
+                내 사진 <span className="font-normal text-slate-400">· 앞면과 뒷면 2장을 모두 올려야 해요</span>
               </p>
-              <div className="grid grid-cols-3 gap-1.5">
-                {customBgs.map((c) => (
-                  <div key={c.id} className="relative">
-                    <button
-                      type="button"
-                      onClick={() => setPicture(c.id)}
-                      aria-pressed={picture === c.id}
-                      className={`block w-full overflow-hidden rounded-lg border bg-white p-1 text-xs font-semibold text-slate-600 transition ${
-                        picture === c.id ? "border-indigo-400 ring-2 ring-indigo-200" : "border-slate-200 hover:border-slate-300"
+              <div className="grid grid-cols-2 gap-1.5">
+                {(["front", "back"] as const).map((side) => {
+                  const src = photos[side];
+                  const label = side === "front" ? "앞면" : "뒷면";
+                  return src ? (
+                    <div key={side} className="relative">
+                      {/* eslint-disable-next-line @next/next/no-img-element -- 직접 올린 사진(data: 주소) */}
+                      <img src={src} alt={`내 사진 ${label}`} className="aspect-[4/3] w-full rounded-lg border border-slate-200 object-cover" />
+                      <span className="absolute left-1 top-1 rounded bg-white/90 px-1.5 py-0.5 text-[11px] font-semibold text-slate-600 ring-1 ring-slate-200">{label}</span>
+                      <button
+                        type="button"
+                        onClick={() => removePhoto(side)}
+                        aria-label={`${label} 사진 지우기`}
+                        className="absolute right-1 top-1 grid h-6 w-6 place-items-center rounded-full bg-white/90 text-slate-500 shadow ring-1 ring-slate-200 transition hover:bg-red-50 hover:text-red-600"
+                      >
+                        <TrashIcon className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <label
+                      key={side}
+                      className={`flex aspect-[4/3] cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-1.5 text-center text-xs font-semibold text-slate-600 transition hover:border-indigo-400 hover:bg-indigo-50 ${
+                        addingSide ? "pointer-events-none opacity-60" : ""
                       }`}
                     >
-                      {/* eslint-disable-next-line @next/next/no-img-element -- 직접 올린 사진(data: 주소) */}
-                      <img src={c.art} alt="" className="aspect-[4/3] w-full rounded object-cover" />
-                      <span className="mt-1 block truncate">{c.label}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => removeBackground(c.id)}
-                      aria-label={`${c.label} 사진 지우기`}
-                      className="absolute right-1 top-1 grid h-6 w-6 place-items-center rounded-full bg-white/90 text-slate-500 shadow ring-1 ring-slate-200 transition hover:bg-red-50 hover:text-red-600"
-                    >
-                      <TrashIcon className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                ))}
-                <label
-                  className={`flex min-h-20 cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-1.5 text-center text-xs font-semibold text-slate-600 transition hover:border-indigo-400 hover:bg-indigo-50 ${
-                    addingBg ? "pointer-events-none opacity-60" : ""
-                  }`}
-                >
-                  {addingBg ? <Spinner className="h-5 w-5" /> : <PlusIcon className="h-5 w-5" />}
-                  사진 추가
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="sr-only"
-                    onChange={(e) => {
-                      void addBackground(e.target.files?.[0]);
-                      e.target.value = ""; // 같은 파일을 다시 골라도 반응하도록
-                    }}
-                  />
-                </label>
+                      {addingSide === side ? <Spinner className="h-5 w-5" /> : <PlusIcon className="h-5 w-5" />}
+                      {label} 사진 추가
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="sr-only"
+                        onChange={(e) => {
+                          void addPhoto(side, e.target.files?.[0]);
+                          e.target.value = ""; // 같은 파일을 다시 골라도 반응하도록
+                        }}
+                      />
+                    </label>
+                  );
+                })}
               </div>
+              <button
+                type="button"
+                onClick={() => setPicture(CUSTOM_KEY)}
+                disabled={!customReady}
+                aria-pressed={picture === CUSTOM_KEY}
+                className={`mt-1.5 w-full disabled:cursor-not-allowed disabled:opacity-50 ${chip(picture === CUSTOM_KEY)}`}
+              >
+                {customReady ? "내 사진 쓰기" : "앞면 · 뒷면을 모두 올리면 쓸 수 있어요"}
+              </button>
               {bgError && (
                 <p role="alert" className="mt-2 text-xs font-medium text-red-600">
                   {bgError}
                 </p>
               )}
-              {!pictureArt && (
+              {!pictureArt && picture !== CUSTOM_KEY && (
                 <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-500">
                   <Spinner className="h-3.5 w-3.5" /> 그림을 불러오고 있어요
                 </p>
@@ -377,14 +392,17 @@ export default function BankbookApp({ students }: { students: Student[] }) {
                     ))}
                   </select>
                 </Field>
-                <Field label="거래 내역">
-                  <select value={ledgers} onChange={(e) => setLedgers(Number(e.target.value))} className={field}>
-                    {Array.from({ length: 30 }, (_, i) => i + 1).map((n) => (
-                      <option key={n} value={n}>
-                        {n}쪽
-                      </option>
-                    ))}
-                  </select>
+                <Field label="거래 내역 쪽수">
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    max={MAX_LEDGERS}
+                    value={ledgersText}
+                    onChange={(e) => setLedgersText(e.target.value)}
+                    onBlur={() => setLedgersText(String(ledgers))}
+                    className={field}
+                  />
                 </Field>
               </div>
             </div>
@@ -464,47 +482,23 @@ export default function BankbookApp({ students }: { students: Student[] }) {
         </div>
 
         <section aria-label="칭찬통장 미리보기" className="min-w-0 space-y-4">
-          {/* A4 첫 장에 고른 크기로 놓인 모습 */}
-          <figure className="rounded-2xl border border-slate-200 bg-slate-100 p-3 sm:p-5">
-            <figcaption className="mb-2 text-xs font-semibold text-slate-500">
-              A4 {layout.orientation === "landscape" ? "가로" : "세로"} 첫 장 · 한 쪽 {layout.page.w} × {layout.page.h}mm
-            </figcaption>
-            <div
-              className="relative mx-auto bg-white shadow-md"
-              style={{
-                aspectRatio: `${layout.paper.w} / ${layout.paper.h}`,
-                maxWidth: layout.orientation === "landscape" ? 640 : 452,
-              }}
-            >
-              {pages.slice(0, layout.perSheet).map((p, slot) => (
-                <div
-                  key={p.key}
-                  className="absolute overflow-hidden outline-dashed outline-1 outline-slate-300 [&>svg]:block [&>svg]:h-full [&>svg]:w-full"
-                  style={{
-                    left: `${((layout.left + (slot % layout.cols) * layout.page.w) / layout.paper.w) * 100}%`,
-                    top: `${((layout.top + Math.floor(slot / layout.cols) * layout.page.h) / layout.paper.h) * 100}%`,
-                    width: `${(layout.page.w / layout.paper.w) * 100}%`,
-                    height: `${(layout.page.h / layout.paper.h) * 100}%`,
-                  }}
-                  dangerouslySetInnerHTML={{ __html: p.svg }}
-                />
+          {/* 앞면 · 속지 · 거래 내역 · 뒷면 (거래 내역은 모든 쪽이 같음) */}
+          <div className="grid gap-4 sm:grid-cols-2">
+            {pages
+              .filter((p) => !p.key.startsWith("ledger") || p.key === "ledger-0")
+              .map((p) => (
+                <figure key={p.key} className="rounded-2xl border border-slate-200 bg-slate-100 p-3">
+                  <figcaption className="mb-2 text-xs font-semibold text-slate-500">
+                    {p.key === "cover" ? "앞면" : p.key === "back" ? "뒷면" : p.key.startsWith("ledger") ? `거래 내역 (${ledgers}쪽)` : p.label}
+                  </figcaption>
+                  <div
+                    className="overflow-hidden rounded-md bg-white shadow-md [&>svg]:block [&>svg]:h-auto [&>svg]:w-full"
+                    // bankbookPages 는 입력값을 XML 이스케이프한 뒤 직접 만든 SVG 문자열
+                    dangerouslySetInnerHTML={{ __html: p.svg }}
+                  />
+                </figure>
               ))}
-            </div>
-          </figure>
-
-          {/* 표지 · 속지 · 거래 내역 첫 쪽 · 뒤표지만 미리 보여 줌 (거래 내역은 모든 쪽이 같음) */}
-          {pages.filter((p) => !p.key.startsWith("ledger") || p.key === "ledger-0").map((p) => (
-            <figure key={p.key} className="rounded-2xl border border-slate-200 bg-slate-100 p-3 sm:p-5">
-              <figcaption className="mb-2 text-xs font-semibold text-slate-500">
-                {p.key.startsWith("ledger") ? `거래 내역 (${ledgers}쪽)` : p.label}
-              </figcaption>
-              <div
-                className="mx-auto max-w-[640px] overflow-hidden rounded-md bg-white shadow-md [&>svg]:block [&>svg]:h-auto [&>svg]:w-full"
-                // bankbookPages 는 입력값을 XML 이스케이프한 뒤 직접 만든 SVG 문자열
-                dangerouslySetInnerHTML={{ __html: p.svg }}
-              />
-            </figure>
-          ))}
+          </div>
         </section>
       </div>
     </div>

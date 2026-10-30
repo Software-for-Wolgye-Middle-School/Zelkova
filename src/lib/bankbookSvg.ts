@@ -21,6 +21,8 @@ export const PAPER_COLORS = {
   분홍: { fill: "#fbd9e1", seal: "#d8343f" },
   하늘: { fill: "#d5eaf8", seal: "#d8343f" },
   연두: { fill: "#dff0c8", seal: "#d8343f" },
+  보라: { fill: "#e4d6f4", seal: "#d8343f" },
+  남색: { fill: "#c3cdea", seal: "#d8343f" },
 } as const;
 export type PaperColor = keyof typeof PAPER_COLORS;
 
