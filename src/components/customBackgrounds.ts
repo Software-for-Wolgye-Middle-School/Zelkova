@@ -1,5 +1,7 @@
+import { PAPER_COLORS, type PaperColor } from "@/lib/bankbookSvg";
+
 /** 칭찬통장에 쓰려고 직접 올린 앞면 · 뒷면 사진 한 세트. 작게 줄여 브라우저에 저장 */
-export type CustomPhotoSet = { id: string; label: string; /** data: 주소 */ front: string; back: string };
+export type CustomPhotoSet = { id: string; label: string; /** data: 주소 */ front: string; back: string; paper: PaperColor };
 
 const STORAGE_KEY = "zelkova.bankbook.photosets.v3";
 export const MAX_PHOTO_SETS = 5;
@@ -16,7 +18,13 @@ export function loadPhotoSets(): CustomPhotoSet[] {
     if (!Array.isArray(data)) return [];
     return data
       .filter((d) => typeof d.id === "string" && isImage(d.front) && isImage(d.back))
-      .map((d) => ({ id: d.id!, label: String(d.label ?? "내 사진").slice(0, 12), front: d.front!, back: d.back! }))
+      .map((d) => ({
+        id: d.id!,
+        label: String(d.label ?? "내 사진").slice(0, 12),
+        front: d.front!,
+        back: d.back!,
+        paper: d.paper && d.paper in PAPER_COLORS ? d.paper : "노랑",
+      }))
       .slice(0, MAX_PHOTO_SETS);
   } catch {
     return [];
