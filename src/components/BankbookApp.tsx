@@ -588,36 +588,72 @@ export default function BankbookApp({ students }: { students: Student[] }) {
 
           <div className={`grid gap-4 sm:grid-cols-2 ${step === 3 ? "hidden" : ""}`}>
             {[
-              { key: "cover", label: "앞면" },
-              { key: "info", label: "속지" },
-              { key: "ledger-0", label: `거래 내역 (${ledgers}쪽)` },
-              { key: "back", label: "뒷면" },
-            ].map((slot) => {
-              const p = pages.find((x) => x.key === slot.key);
-              return (
-                <figure key={slot.key} className="rounded-2xl border border-slate-200 bg-slate-100 p-3">
-                  <figcaption className="mb-2 text-xs font-semibold text-slate-500">{slot.label}</figcaption>
-                  {p ? (
-                    <div
-                      className="overflow-hidden rounded-md bg-white shadow-md [&>svg]:block [&>svg]:h-auto [&>svg]:w-full"
-                      // bankbookPages 는 입력값을 XML 이스케이프한 뒤 직접 만든 SVG 문자열
-                      dangerouslySetInnerHTML={{ __html: p.svg }}
-                    />
-                  ) : (
-                    <div
-                      role="status"
-                      aria-label={`${slot.label} 불러오는 중`}
-                      className="w-full animate-pulse rounded-md bg-slate-200 shadow-md"
-                      style={{ aspectRatio: `${BOOK_W} / ${BOOK_H}` }}
-                    />
-                  )}
-                </figure>
-              );
-            })}
+              { key: "cover", label: "앞면", fadeKey: cover },
+              { key: "info", label: "속지", fadeKey: previewPaper },
+              { key: "ledger-0", label: `거래 내역 (${ledgers}쪽)`, fadeKey: previewPaper },
+              { key: "back", label: "뒷면", fadeKey: back },
+            ].map((slot) => (
+              <figure key={slot.key} className="rounded-2xl border border-slate-200 bg-slate-100 p-3">
+                <figcaption className="mb-2 text-xs font-semibold text-slate-500">{slot.label}</figcaption>
+                <FadePage svg={pages.find((x) => x.key === slot.key)?.svg} fadeKey={slot.fadeKey} label={slot.label} />
+              </figure>
+            ))}
           </div>
         </section>
       </div>
     </div>
+  );
+}
+
+const FADE_MS = 250;
+
+/**
+ * 쪽 그림을 보여 줌. fadeKey(고른 그림 · 속지 색)가 바뀌면 이전 그림이 서서히 사라진 뒤 새 그림이 서서히 나타나고,
+ * 글자를 고치는 것처럼 fadeKey 가 같을 때는 바로 바꿈. 새 그림을 불러오는 동안(svg 없음)은 이전 그림을 그대로 둠.
+ * 처음 불러올 때는 회색 칸이 깜빡임.
+ */
+function FadePage({ svg, fadeKey, label }: { svg: string | undefined; fadeKey: string | undefined; label: string }) {
+  const [shown, setShown] = useState<{ svg: string; key: string | undefined } | null>(null);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    if (!svg) return;
+    if (!shown) {
+      // 처음 나타날 때: 투명한 채로 그린 다음 서서히 보이게 함
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 그림이 바뀔 때 서서히 바꾸는 애니메이션
+      setShown({ svg, key: fadeKey });
+      const raf = requestAnimationFrame(() => requestAnimationFrame(() => setVisible(true)));
+      return () => cancelAnimationFrame(raf);
+    }
+    if (shown.key === fadeKey) {
+      if (shown.svg !== svg) setShown({ svg, key: fadeKey });
+      return;
+    }
+    setVisible(false);
+    const t = setTimeout(() => {
+      setShown({ svg, key: fadeKey });
+      requestAnimationFrame(() => setVisible(true));
+    }, FADE_MS);
+    return () => clearTimeout(t);
+  }, [svg, fadeKey, shown]);
+
+  if (!shown) {
+    return (
+      <div
+        role="status"
+        aria-label={`${label} 불러오는 중`}
+        className="w-full animate-pulse rounded-md bg-slate-200 shadow-md"
+        style={{ aspectRatio: `${BOOK_W} / ${BOOK_H}` }}
+      />
+    );
+  }
+  return (
+    <div
+      className="overflow-hidden rounded-md bg-white shadow-md transition-opacity ease-in-out motion-reduce:transition-none [&>svg]:block [&>svg]:h-auto [&>svg]:w-full"
+      style={{ opacity: visible ? 1 : 0, transitionDuration: `${FADE_MS}ms` }}
+      // bankbookPages 는 입력값을 XML 이스케이프한 뒤 직접 만든 SVG 문자열
+      dangerouslySetInnerHTML={{ __html: shown.svg }}
+    />
   );
 }
 
