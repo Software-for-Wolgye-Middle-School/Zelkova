@@ -95,18 +95,13 @@ export default function BankbookApp({ students }: { students: Student[] }) {
 
   useEffect(() => {
     const custom = sets.find((c) => c.id === picture);
-    if (custom) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- 고른 그림에 맞춰 표지 · 뒤표지 그림을 바꿈
-      setArt({ key: custom.id, front: custom.front, back: custom.back });
-      return;
-    }
     const pic = PICTURES.find((p) => p.key === picture);
-    if (!pic) return; // 올린 사진을 아직 불러오는 중
+    const target = custom ? { key: custom.id, front: custom.front, back: custom.back } : pic ? { key: pic.key, front: `/background/${pic.file}_front.png`, back: `/background/${pic.file}_back.png` } : null;
+    if (!target) return; // 등록한 배경 목록을 아직 불러오는 중
     let cancelled = false;
     // 쪽을 크게 인쇄해도 흐리지 않도록 넉넉히 둠
-    const load = (side: string) => loadImageDataUrl(`/background/${pic.file}_${side}.png`, BOOK_W * 3);
-    Promise.all([load("front"), load("back")])
-      .then(([front, back]) => !cancelled && setArt({ key: pic.key, front, back }))
+    Promise.all([loadImageDataUrl(target.front, BOOK_W * 3), loadImageDataUrl(target.back, BOOK_W * 3)])
+      .then(([front, back]) => !cancelled && setArt({ key: target.key, front, back }))
       .catch((e) => console.error(e));
     return () => {
       cancelled = true;

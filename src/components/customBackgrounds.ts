@@ -1,7 +1,9 @@
 import type { PaperColor } from "@/lib/bankbookSvg";
 
-/** 칭찬통장에 등록한 앞면 · 뒷면 사진 한 세트. 서버에 저장되어 모든 사용자가 같이 씀 */
-export type CustomPhotoSet = { id: string; label: string; /** data: 주소 */ front: string; back: string; paper: PaperColor };
+/** 칭찬통장에 등록한 앞면 · 뒷면 사진 한 세트. 서버(Vercel Blob)에 저장되어 모든 사용자가 같이 씀 */
+export type CustomPhotoSet = { id: string; label: string; /** 서버에 저장된 사진의 주소 */ front: string; back: string; paper: PaperColor };
+/** 등록할 사진 (data: 주소) */
+export type NewPhotoSet = Omit<CustomPhotoSet, "id">;
 
 const API = "/api/bankbook/backgrounds";
 export const MAX_PHOTO_SETS = 20;
@@ -16,7 +18,7 @@ export async function fetchPhotoSets(): Promise<CustomPhotoSet[]> {
 }
 
 /** 실패하면 서버가 알려 준 문장을 담은 Error 를 던짐 */
-export async function registerPhotoSet(set: Omit<CustomPhotoSet, "id">): Promise<CustomPhotoSet> {
+export async function registerPhotoSet(set: NewPhotoSet): Promise<CustomPhotoSet> {
   const res = await fetch(API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(set) });
   if (!res.ok) throw new Error((await res.text()) || "서버에 저장하지 못했어요.");
   return res.json();
