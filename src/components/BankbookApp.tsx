@@ -38,6 +38,7 @@ const PICTURES = [
   { key: "thomas", label: "토마스", file: "thomas/thomas", paper: "노랑" },
   { key: "conan", label: "코난", file: "conan/conan", paper: "남색" },
   { key: "cinamon", label: "시나모롤", file: "cinamon/cinamon", paper: "하늘" },
+  { key: "chiikawa", label: "치이카와", file: "chiikawa/chiikawa", paper: "하늘" },
 ] as const satisfies readonly { key: string; label: string; file: string; paper: PaperColor }[];
 /** 기본 그림의 key 또는 등록한 내 사진 세트의 id ("custom-…") */
 type PictureKey = string;
@@ -129,8 +130,9 @@ export default function BankbookApp({ students }: { students: Student[] }) {
     setPicture(set.id);
     setPaper(set.paper);
   };
-  const cover = customOpen && draft.front ? draft.front : pictureArt?.front;
-  const back = customOpen && draft.back ? draft.back : pictureArt?.back;
+  // 내 사진 등록 창에서는 올린 사진만 보여 줌 (고르던 배경이 섞여 보이지 않도록)
+  const cover = customOpen ? (draft.front ?? undefined) : pictureArt?.front;
+  const back = customOpen ? (draft.back ?? undefined) : pictureArt?.back;
   const previewPaper = customOpen ? draftPaper : paper;
   const layout = useMemo(() => a4Layout(pageW), [pageW]);
   // 표지 · 속지 · 거래 내역 · 뒤표지
@@ -246,6 +248,23 @@ export default function BankbookApp({ students }: { students: Student[] }) {
     `rounded-lg px-2 py-2 text-sm font-semibold ring-1 ring-inset transition ${
       on ? "bg-indigo-50 text-indigo-700 ring-indigo-300" : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"
     }`;
+
+  /** 내 사진 등록 창에서 앞면 · 뒷면 사진을 모두 올리기 전에 보여 주는 빈 칸 */
+  const emptyGrid = (
+    <div className="grid gap-4 sm:grid-cols-2">
+      {["앞면", "속지", "거래 내역", "뒷면"].map((label) => (
+        <figure key={label} className="rounded-2xl border border-slate-200 bg-slate-100 p-3">
+          <figcaption className="mb-2 text-xs font-semibold text-slate-500">{label}</figcaption>
+          <div
+            className="grid w-full place-items-center rounded-md border border-dashed border-slate-300 bg-white/60 px-3 text-center text-xs text-slate-400"
+            style={{ aspectRatio: `${BOOK_W} / ${BOOK_H}` }}
+          >
+            앞면 · 뒷면 사진을 올리면 보여요
+          </div>
+        </figure>
+      ))}
+    </div>
+  );
 
   /** 앞면 · 속지 · 거래 내역 · 뒷면 (거래 내역은 모든 쪽이 같음). 화면과 내 사진 등록 창에서 같이 씀 */
   const slotGrid = (
@@ -623,7 +642,7 @@ export default function BankbookApp({ students }: { students: Student[] }) {
                   </p>
                 )}
               </div>
-              <div className="min-w-0">{slotGrid}</div>
+              <div className="min-w-0">{draft.front && draft.back ? slotGrid : emptyGrid}</div>
             </div>
           </div>
         </div>
