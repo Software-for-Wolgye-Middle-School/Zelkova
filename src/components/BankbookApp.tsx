@@ -50,7 +50,7 @@ const field =
 
 /** 통장을 만드는 순서 */
 const STEPS = [
-  { title: "배경", heading: "표지에 쓸 그림을 골라 주세요", hint: "기본 캐릭터 그림을 고르거나, 내 사진 앞면 · 뒷면 2장을 올려 주세요." },
+  { title: "배경", heading: "표지에 쓸 그림을 골라 주세요", hint: "목록에서 고르거나, 내 사진 앞면 · 뒷면 2장을 기본 배경으로 등록할 수 있어요." },
   { title: "이름", heading: "누구의 통장인가요?", hint: "등록된 학생을 누르거나 이름을 직접 적어 주세요." },
   { title: "통장 정보", heading: "통장에 들어갈 내용을 확인해 주세요", hint: "바뀐 것이 없으면 그대로 다음으로 넘어가도 돼요." },
   { title: "저장", heading: "크기를 정하고 저장해요", hint: "A4 종이에 놓을 크기를 정하고 PDF로 저장하세요." },
@@ -79,7 +79,8 @@ export default function BankbookApp({ students }: { students: Student[] }) {
   const [art, setArt] = useState<{ key: PictureKey; front: string; back: string } | null>(null);
   const [sets, setSets] = useState<CustomPhotoSet[]>([]);
   const [draft, setDraft] = useState<{ front: string | null; back: string | null }>({ front: null, back: null });
-  const [bgError, setBgError] = useState<string | null>(null);
+  const [draftName, setDraftName] = useState("");
+  const [bgError,setBgError] = useState<string | null>(null);
   const [addingSide, setAddingSide] = useState<"front" | "back" | null>(null);
   const savedNames = useMemo(() => [...new Set(students.map((s) => s.name))], [students]);
   const [busy, setBusy] = useState(false);
@@ -158,14 +159,15 @@ export default function BankbookApp({ students }: { students: Student[] }) {
 
   /** 앞면 · 뒷면이 모두 있으면 한 세트로 등록하고 바로 선택 */
   const registerSet = () => {
-    if (!draft.front || !draft.back) return;
+    if (!draft.front || !draft.back || !draftName.trim()) return;
     setBgError(null);
     if (sets.length >= MAX_PHOTO_SETS) return setBgError(`내 사진은 ${MAX_PHOTO_SETS}세트까지 등록할 수 있어요. 안 쓰는 세트를 지워 주세요.`);
-    const set: CustomPhotoSet = { id: newPhotoSetId(), label: `내 사진 ${sets.length + 1}`, front: draft.front, back: draft.back };
+    const set: CustomPhotoSet = { id: newPhotoSetId(), label: draftName.trim().slice(0, 12), front: draft.front, back: draft.back };
     const next = [...sets, set];
     if (!savePhotoSets(next)) return setBgError("브라우저 저장 공간이 부족해서 등록하지 못했어요. 안 쓰는 세트를 지워 보세요.");
     setSets(next);
     setDraft({ front: null, back: null });
+    setDraftName("");
     setPicture(set.id);
   };
 
@@ -269,43 +271,26 @@ export default function BankbookApp({ students }: { students: Student[] }) {
                     {p.label}
                   </button>
                 ))}
+                {sets.map((c) => (
+                  <div key={c.id} className="relative">
+                    <button type="button" onClick={() => setPicture(c.id)} aria-pressed={picture === c.id} className={`w-full truncate pr-6 ${chip(picture === c.id)}`}>
+                      {c.label}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => removeSet(c.id)}
+                      aria-label={`${c.label} 지우기`}
+                      className="absolute right-1 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center rounded-full text-slate-400 transition hover:bg-red-50 hover:text-red-600"
+                    >
+                      <TrashIcon className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
               </div>
 
               <p className="mb-1.5 mt-4 text-xs font-semibold text-slate-600">
-                내 사진 <span className="font-normal text-slate-400">· 앞면과 뒷면 2장을 한 세트로 등록해요 ({sets.length}/{MAX_PHOTO_SETS})</span>
+                내 사진을 기본 배경으로 등록 <span className="font-normal text-slate-400">· 앞면 · 뒷면 2장과 이름을 넣으면 위 목록에 추가돼요 ({sets.length}/{MAX_PHOTO_SETS})</span>
               </p>
-              {sets.length > 0 && (
-                <div className="mb-2 grid grid-cols-2 gap-1.5">
-                  {sets.map((c) => (
-                    <div key={c.id} className="relative">
-                      <button
-                        type="button"
-                        onClick={() => setPicture(c.id)}
-                        aria-pressed={picture === c.id}
-                        className={`block w-full overflow-hidden rounded-lg border bg-white p-1 text-xs font-semibold text-slate-600 transition ${
-                          picture === c.id ? "border-indigo-400 ring-2 ring-indigo-200" : "border-slate-200 hover:border-slate-300"
-                        }`}
-                      >
-                        <span className="grid grid-cols-2 gap-1">
-                          {/* eslint-disable-next-line @next/next/no-img-element -- 직접 올린 사진(data: 주소) */}
-                          <img src={c.front} alt="" className="aspect-[4/3] w-full rounded object-cover" />
-                          {/* eslint-disable-next-line @next/next/no-img-element -- 직접 올린 사진(data: 주소) */}
-                          <img src={c.back} alt="" className="aspect-[4/3] w-full rounded object-cover" />
-                        </span>
-                        <span className="mt-1 block truncate">{c.label}</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => removeSet(c.id)}
-                        aria-label={`${c.label} 지우기`}
-                        className="absolute right-1 top-1 grid h-6 w-6 place-items-center rounded-full bg-white/90 text-slate-500 shadow ring-1 ring-slate-200 transition hover:bg-red-50 hover:text-red-600"
-                      >
-                        <TrashIcon className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
               {sets.length < MAX_PHOTO_SETS && (
                 <>
                   <div className="grid grid-cols-2 gap-1.5">
@@ -348,13 +333,21 @@ export default function BankbookApp({ students }: { students: Student[] }) {
                       );
                     })}
                   </div>
+                  <input
+                    value={draftName}
+                    maxLength={12}
+                    placeholder="배경 이름 (예: 우리 반)"
+                    aria-label="배경 이름"
+                    onChange={(e) => setDraftName(e.target.value)}
+                    className={`mt-1.5 ${field}`}
+                  />
                   <button
                     type="button"
                     onClick={registerSet}
-                    disabled={!draft.front || !draft.back}
+                    disabled={!draft.front || !draft.back || !draftName.trim()}
                     className="mt-1.5 w-full rounded-lg bg-indigo-600 px-2 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
                   >
-                    {draft.front && draft.back ? "내 사진 등록하기" : "앞면 · 뒷면을 모두 올리면 등록할 수 있어요"}
+                    {!draft.front || !draft.back ? "앞면 · 뒷면을 모두 올려 주세요" : !draftName.trim() ? "배경 이름을 입력해 주세요" : "기본 배경으로 등록하기"}
                   </button>
                 </>
               )}
