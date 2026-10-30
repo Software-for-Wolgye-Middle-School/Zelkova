@@ -371,11 +371,6 @@ export default function BankbookApp({ students }: { students: Student[] }) {
                   {bgError}
                 </p>
               )}
-              {!pictureArt && (PICTURES.some((p) => p.key === picture) || sets.some((c) => c.id === picture)) && (
-                <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-500">
-                  <Spinner className="h-3.5 w-3.5" /> 그림을 불러오고 있어요
-                </p>
-              )}
             </div>
           )}
 
@@ -568,20 +563,33 @@ export default function BankbookApp({ students }: { students: Student[] }) {
           )}
 
           <div className={`grid gap-4 sm:grid-cols-2 ${step === 3 ? "hidden" : ""}`}>
-            {pages
-              .filter((p) => !p.key.startsWith("ledger") || p.key === "ledger-0")
-              .map((p) => (
-                <figure key={p.key} className="rounded-2xl border border-slate-200 bg-slate-100 p-3">
-                  <figcaption className="mb-2 text-xs font-semibold text-slate-500">
-                    {p.key === "cover" ? "앞면" : p.key === "back" ? "뒷면" : p.key.startsWith("ledger") ? `거래 내역 (${ledgers}쪽)` : p.label}
-                  </figcaption>
-                  <div
-                    className="overflow-hidden rounded-md bg-white shadow-md [&>svg]:block [&>svg]:h-auto [&>svg]:w-full"
-                    // bankbookPages 는 입력값을 XML 이스케이프한 뒤 직접 만든 SVG 문자열
-                    dangerouslySetInnerHTML={{ __html: p.svg }}
-                  />
+            {[
+              { key: "cover", label: "앞면" },
+              { key: "info", label: "속지" },
+              { key: "ledger-0", label: `거래 내역 (${ledgers}쪽)` },
+              { key: "back", label: "뒷면" },
+            ].map((slot) => {
+              const p = pages.find((x) => x.key === slot.key);
+              return (
+                <figure key={slot.key} className="rounded-2xl border border-slate-200 bg-slate-100 p-3">
+                  <figcaption className="mb-2 text-xs font-semibold text-slate-500">{slot.label}</figcaption>
+                  {p ? (
+                    <div
+                      className="overflow-hidden rounded-md bg-white shadow-md [&>svg]:block [&>svg]:h-auto [&>svg]:w-full"
+                      // bankbookPages 는 입력값을 XML 이스케이프한 뒤 직접 만든 SVG 문자열
+                      dangerouslySetInnerHTML={{ __html: p.svg }}
+                    />
+                  ) : (
+                    <div
+                      role="status"
+                      aria-label={`${slot.label} 불러오는 중`}
+                      className="w-full animate-pulse rounded-md bg-slate-200 shadow-md"
+                      style={{ aspectRatio: `${BOOK_W} / ${BOOK_H}` }}
+                    />
+                  )}
                 </figure>
-              ))}
+              );
+            })}
           </div>
         </section>
       </div>
