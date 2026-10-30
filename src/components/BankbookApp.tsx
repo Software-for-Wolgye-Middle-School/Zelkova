@@ -43,6 +43,7 @@ const PICTURES = [
 /** 기본 그림의 key 또는 등록한 내 사진 세트의 id ("custom-…") */
 type PictureKey = string;
 
+const BLANK_ART = "data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%271%27 height=%271%27%3E%3Crect width=%271%27 height=%271%27 fill=%27%23fff%27/%3E%3C/svg%3E";
 const MAX_LEDGERS = 99;
 const MAX_PREVIEW_SHEETS = 4;
 
@@ -134,6 +135,8 @@ export default function BankbookApp({ students }: { students: Student[] }) {
   const cover = customOpen ? (draft.front ?? undefined) : pictureArt?.front;
   const back = customOpen ? (draft.back ?? undefined) : pictureArt?.back;
   const previewPaper = customOpen ? draftPaper : paper;
+  // 등록 창에서는 사진을 아직 안 올린 쪽도 속지 · 거래 내역을 먼저 보여 주려고 빈 그림으로 채움
+  const blankArt = customOpen ? BLANK_ART : undefined;
   const layout = useMemo(() => a4Layout(pageW), [pageW]);
   // 표지 · 속지 · 거래 내역 · 뒤표지
   const sheets = Math.ceil((ledgers + 3) / layout.perSheet);
@@ -141,10 +144,10 @@ export default function BankbookApp({ students }: { students: Student[] }) {
   const trimmed = name.trim().replace(/\s+/g, " ").slice(0, 10);
   const book = useMemo<Bankbook | null>(
     () =>
-      cover && back
-        ? { name: trimmed, bank: bank.trim(), branch: branch.trim(), account: account.trim(), issued, kind, paper: previewPaper, cover, back }
+      (cover ?? blankArt) && (back ?? blankArt)
+        ? { name: trimmed, bank: bank.trim(), branch: branch.trim(), account: account.trim(), issued, kind, paper: previewPaper, cover: (cover ?? blankArt)!, back: (back ?? blankArt)! }
         : null,
-    [trimmed, bank, branch, account, issued, kind, previewPaper, cover, back],
+    [trimmed, bank, branch, account, issued, kind, previewPaper, cover, back, blankArt],
   );
   const pages = useMemo(() => (book ? bankbookPages(book, ledgers) : []), [book, ledgers]);
   const baseName = `${safeFileName(trimmed)} 칭찬통장`;
@@ -249,23 +252,6 @@ export default function BankbookApp({ students }: { students: Student[] }) {
       on ? "bg-indigo-50 text-indigo-700 ring-indigo-300" : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"
     }`;
 
-  /** 내 사진 등록 창에서 앞면 · 뒷면 사진을 모두 올리기 전에 보여 주는 빈 칸 */
-  const emptyGrid = (
-    <div className="grid gap-4 sm:grid-cols-2">
-      {["앞면", "속지", "거래 내역", "뒷면"].map((label) => (
-        <figure key={label} className="rounded-2xl border border-slate-200 bg-slate-100 p-3">
-          <figcaption className="mb-2 text-xs font-semibold text-slate-500">{label}</figcaption>
-          <div
-            className="grid w-full place-items-center rounded-md border border-dashed border-slate-300 bg-white/60 px-3 text-center text-xs text-slate-400"
-            style={{ aspectRatio: `${BOOK_W} / ${BOOK_H}` }}
-          >
-            앞면 · 뒷면 사진을 올리면 보여요
-          </div>
-        </figure>
-      ))}
-    </div>
-  );
-
   /** 앞면 · 속지 · 거래 내역 · 뒷면 (거래 내역은 모든 쪽이 같음). 화면과 내 사진 등록 창에서 같이 씀 */
   const slotGrid = (
     <div className="grid gap-4 sm:grid-cols-2">
@@ -277,7 +263,16 @@ export default function BankbookApp({ students }: { students: Student[] }) {
               ].map((slot) => (
                 <figure key={slot.key} className="rounded-2xl border border-slate-200 bg-slate-100 p-3">
                   <figcaption className="mb-2 text-xs font-semibold text-slate-500">{slot.label}</figcaption>
-                  <FadePage svg={pages.find((x) => x.key === slot.key)?.svg} fadeKey={slot.fadeKey} label={slot.label} />
+                  {customOpen && ((slot.key === "cover" && !draft.front) || (slot.key === "back" && !draft.back)) ? (
+                    <div
+                      className="grid w-full place-items-center rounded-md border border-dashed border-slate-300 bg-white/60 px-3 text-center text-xs text-slate-400"
+                      style={{ aspectRatio: `${BOOK_W} / ${BOOK_H}` }}
+                    >
+                      {slot.label} 사진을 올리면 보여요
+                    </div>
+                  ) : (
+                    <FadePage svg={pages.find((x) => x.key === slot.key)?.svg} fadeKey={slot.fadeKey} label={slot.label} />
+                  )}
                 </figure>
               ))}
     </div>
@@ -642,7 +637,7 @@ export default function BankbookApp({ students }: { students: Student[] }) {
                   </p>
                 )}
               </div>
-              <div className="min-w-0">{draft.front && draft.back ? slotGrid : emptyGrid}</div>
+              <div className="min-w-0">{slotGrid}</div>
             </div>
           </div>
         </div>
