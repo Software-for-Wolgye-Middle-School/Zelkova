@@ -1,8 +1,10 @@
+import { connection } from "next/server";
 import type { NextRequest } from "next/server";
 import { addSet, isValidId, listSets, removeSet } from "@/lib/bankbookBackgroundStore";
 
 /** 등록된 칭찬통장 배경 목록 */
 export async function GET() {
+  await connection(); // 빌드할 때 한 번 만들어 두지 않고 요청마다 서버 디스크를 읽도록
   try {
     return Response.json(await listSets(), { headers: { "Cache-Control": "no-store" } });
   } catch (e) {
