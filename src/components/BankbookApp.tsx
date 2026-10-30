@@ -44,6 +44,7 @@ const CUSTOM_KEY = "custom";
 type PictureKey = string;
 
 const MAX_LEDGERS = 99;
+const MAX_PREVIEW_SHEETS = 4;
 
 const field =
   "h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-[15px] outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100";
@@ -483,7 +484,38 @@ export default function BankbookApp({ students }: { students: Student[] }) {
 
         <section aria-label="칭찬통장 미리보기" className="min-w-0 space-y-4">
           {/* 앞면 · 속지 · 거래 내역 · 뒷면 (거래 내역은 모든 쪽이 같음) */}
-          <div className="grid gap-4 sm:grid-cols-2">
+          {step === 3 && (
+            <div className="space-y-4">
+              {Array.from({ length: Math.min(sheets, MAX_PREVIEW_SHEETS) }, (_, s) => (
+                <figure key={s} className="rounded-2xl border border-slate-200 bg-slate-100 p-3 sm:p-5">
+                  <figcaption className="mb-2 text-xs font-semibold text-slate-500">
+                    A4 {layout.orientation === "landscape" ? "가로" : "세로"} {s + 1}/{sheets}장 · 한 쪽 {layout.page.w} × {layout.page.h}mm
+                  </figcaption>
+                  <div
+                    className="relative mx-auto bg-white shadow-md"
+                    style={{ aspectRatio: `${layout.paper.w} / ${layout.paper.h}`, maxWidth: layout.orientation === "landscape" ? 640 : 452 }}
+                  >
+                    {pages.slice(s * layout.perSheet, (s + 1) * layout.perSheet).map((p, slot) => (
+                      <div
+                        key={p.key}
+                        className="absolute overflow-hidden outline-dashed outline-1 outline-slate-300 [&>svg]:block [&>svg]:h-full [&>svg]:w-full"
+                        style={{
+                          left: `${((layout.left + (slot % layout.cols) * layout.page.w) / layout.paper.w) * 100}%`,
+                          top: `${((layout.top + Math.floor(slot / layout.cols) * layout.page.h) / layout.paper.h) * 100}%`,
+                          width: `${(layout.page.w / layout.paper.w) * 100}%`,
+                          height: `${(layout.page.h / layout.paper.h) * 100}%`,
+                        }}
+                        dangerouslySetInnerHTML={{ __html: p.svg }}
+                      />
+                    ))}
+                  </div>
+                </figure>
+              ))}
+              {sheets > MAX_PREVIEW_SHEETS && <p className="text-center text-xs text-slate-400">미리보기는 처음 {MAX_PREVIEW_SHEETS}장까지만 보여 줘요. PDF에는 모두 들어가요.</p>}
+            </div>
+          )}
+
+          <div className={`grid gap-4 sm:grid-cols-2 ${step === 3 ? "hidden" : ""}`}>
             {pages
               .filter((p) => !p.key.startsWith("ledger") || p.key === "ledger-0")
               .map((p) => (
