@@ -50,7 +50,7 @@ const field =
 
 /** 통장을 만드는 순서 */
 const STEPS = [
-  { title: "배경", heading: "표지에 쓸 그림을 골라 주세요", hint: "목록에서 고르거나, 내 사진 앞면 · 뒷면 2장을 기본 배경으로 등록할 수 있어요." },
+  { title: "배경", heading: "표지에 쓸 그림을 골라 주세요", hint: "" },
   { title: "이름", heading: "누구의 통장인가요?", hint: "등록된 학생을 누르거나 이름을 직접 적어 주세요." },
   { title: "통장 정보", heading: "통장에 들어갈 내용을 확인해 주세요", hint: "바뀐 것이 없으면 그대로 다음으로 넘어가도 돼요." },
   { title: "저장", heading: "크기를 정하고 저장해요", hint: "A4 종이에 놓을 크기를 정하고 PDF로 저장하세요." },
@@ -260,11 +260,12 @@ export default function BankbookApp({ students }: { students: Student[] }) {
 
           <div>
             <h2 className="text-lg font-bold text-slate-900">{STEPS[step].heading}</h2>
-            <p className="mt-0.5 text-xs text-slate-500">{STEPS[step].hint}</p>
+            {STEPS[step].hint && <p className="mt-0.5 text-xs text-slate-500">{STEPS[step].hint}</p>}
           </div>
 
           {step === 0 && (
             <div>
+              <p className="mb-1.5 text-xs font-semibold text-slate-600">기본 배경</p>
               <div className="grid grid-cols-3 gap-1.5">
                 {PICTURES.map((p) => (
                   <button key={p.key} type="button" onClick={() => choosePicture(p.key)} aria-pressed={picture === p.key} className={chip(picture === p.key)}>
@@ -289,7 +290,7 @@ export default function BankbookApp({ students }: { students: Student[] }) {
               </div>
 
               <p className="mb-1.5 mt-4 text-xs font-semibold text-slate-600">
-                내 사진을 기본 배경으로 등록 <span className="font-normal text-slate-400">· 앞면 · 뒷면 2장과 이름을 넣으면 위 목록에 추가돼요 ({sets.length}/{MAX_PHOTO_SETS})</span>
+                내 사진 <span className="font-normal text-slate-400">· 앞면 · 뒷면 2장과 이름을 넣으면 위 목록에 추가돼요 ({sets.length}/{MAX_PHOTO_SETS})</span>
               </p>
               {sets.length < MAX_PHOTO_SETS && (
                 <>
