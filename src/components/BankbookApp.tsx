@@ -316,7 +316,13 @@ export default function BankbookApp({ students }: { students: Student[] }) {
                   </span>
                   <span className={`text-[11px] font-semibold ${i <= step ? "text-slate-800" : "text-slate-400"}`}>{s.title}</span>
                 </button>
-                {i < STEPS.length - 1 && <span className={`mx-1 mb-5 h-0.5 flex-1 rounded ${i < step ? "bg-indigo-600" : "bg-slate-200"}`} />}
+                {i < STEPS.length - 1 && (
+                  <span className="mx-1 mb-5 h-0.5 flex-1 overflow-hidden rounded bg-slate-200">
+                    <span
+                      className={`block h-full origin-left rounded bg-indigo-600 transition-transform duration-500 ease-out motion-reduce:transition-none ${i < step ? "scale-x-100" : "scale-x-0"}`}
+                    />
+                  </span>
+                )}
               </li>
             ))}
           </ol>
@@ -630,9 +636,25 @@ export default function BankbookApp({ students }: { students: Student[] }) {
                     type="button"
                     onClick={() => void registerSet()}
                     disabled={!draft.front || !draft.back || !draftName.trim() || registering}
-                    className="mt-1.5 w-full rounded-lg bg-indigo-600 px-2 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
+                    aria-busy={registering}
+                    className={`relative mt-1.5 flex w-full items-center justify-center overflow-hidden rounded-lg bg-indigo-600 px-2 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed ${
+                      registering ? "disabled:bg-indigo-600" : "disabled:bg-slate-200 disabled:text-slate-400"
+                    }`}
                   >
-                    {registering ? "서버에 등록하는 중..." : "기본 배경으로 등록하기"}
+                    {registering ? (
+                      <>
+                        <svg className="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                          <circle cx="12" cy="12" r="9" stroke="currentColor" strokeOpacity="0.3" strokeWidth="3" />
+                          <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+                        </svg>
+                        <span className="sr-only">등록 중</span>
+                        <span aria-hidden="true" className="absolute inset-x-0 bottom-0 h-0.5 overflow-hidden bg-white/25">
+                          <span className="block h-full w-1/3 animate-[slide_1.1s_ease-in-out_infinite] rounded bg-white" />
+                        </span>
+                      </>
+                    ) : (
+                      "기본 배경으로 등록하기"
+                    )}
                   </button>
                 </>
               )}
