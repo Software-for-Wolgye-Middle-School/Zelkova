@@ -19,11 +19,12 @@ import { embeddedFontCss, loadImageDataUrl, safeFileName, svgToPng, withFont } f
 import { ArrowLeftIcon, ArrowRightIcon, CheckIcon, DownloadIcon, PlusIcon, Spinner, TrashIcon } from "./icons";
 import {
   BACKGROUND_MAX_WIDTH,
-  loadCustomPhotos,
+  loadPhotoSets,
   MAX_BACKGROUND_FILE_BYTES,
-  NO_PHOTOS,
-  saveCustomPhotos,
-  type CustomPhotos,
+  MAX_PHOTO_SETS,
+  newPhotoSetId,
+  savePhotoSets,
+  type CustomPhotoSet,
 } from "./customBackgrounds";
 import type { Student } from "@/lib/timetable";
 
@@ -38,9 +39,7 @@ const PICTURES = [
   { key: "conan", label: "코난", file: "conan/conan", paper: "남색" },
   { key: "cinamon", label: "시나모롤", file: "cinamon/cinamon", paper: "하늘" },
 ] as const satisfies readonly { key: string; label: string; file: string; paper: PaperColor }[];
-/** 직접 올린 앞면 · 뒷면 사진을 쓸 때의 key */
-const CUSTOM_KEY = "custom";
-/** 기본 그림의 key 또는 CUSTOM_KEY */
+/** 기본 그림의 key 또는 등록한 내 사진 세트의 id ("custom-…") */
 type PictureKey = string;
 
 const MAX_LEDGERS = 99;
@@ -78,7 +77,8 @@ export default function BankbookApp({ students }: { students: Student[] }) {
   const [pageW, setPageW] = useState<number>(BOOK_MM.w);
   const [picture, setPicture] = useState<PictureKey>("hello_kitty");
   const [art, setArt] = useState<{ key: PictureKey; front: string; back: string } | null>(null);
-  const [photos, setPhotos] = useState<CustomPhotos>(NO_PHOTOS);
+  const [sets, setSets] = useState<CustomPhotoSet[]>([]);
+  const [draft, setDraft] = useState<{ front: string | null; back: string | null }>({ front: null, back: null });
   const [bgError, setBgError] = useState<string | null>(null);
   const [addingSide, setAddingSide] = useState<"front" | "back" | null>(null);
   const savedNames = useMemo(() => [...new Set(students.map((s) => s.name))], [students]);
@@ -87,15 +87,14 @@ export default function BankbookApp({ students }: { students: Student[] }) {
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage 는 브라우저에서만 읽을 수 있음
-    setPhotos(loadCustomPhotos());
+    setSets(loadPhotoSets());
   }, []);
 
   useEffect(() => {
-    if (picture === CUSTOM_KEY) {
-      if (photos.front && photos.back) {
-        // eslint-disable-next-line react-hooks/set-state-in-effect -- 고른 그림에 맞춰 표지 · 뒤표지 그림을 바꿈
-        setArt({ key: CUSTOM_KEY, front: photos.front, back: photos.back });
-      }
+    const custom = sets.find((c) => c.id === picture);
+    if (custom) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 고른 그림에 맞춰 표지 · 뒤표지 그림을 바꿈
+      setArt({ key: custom.id, front: custom.front, back: custom.back });
       return;
     }
     const pic = PICTURES.find((p) => p.key === picture);
@@ -109,10 +108,9 @@ export default function BankbookApp({ students }: { students: Student[] }) {
     return () => {
       cancelled = true;
     };
-  }, [picture, photos]);
+  }, [picture, sets]);
 
   const pictureArt = art?.key === picture ? art : null;
-  const customReady = !!photos.front && !!photos.back;
   const ledgers = Math.min(MAX_LEDGERS, Math.max(1, parseInt(ledgersText, 10) || 1));
 
   /** 기본 그림을 고르면 그 그림에 어울리는 속지 색으로 바꿈 */
@@ -138,8 +136,8 @@ export default function BankbookApp({ students }: { students: Student[] }) {
   const pages = useMemo(() => (book ? bankbookPages(book, ledgers) : []), [book, ledgers]);
   const baseName = `${safeFileName(trimmed)} 칭찬통장`;
 
-  /** 사진 파일을 골라 크기를 줄인 뒤 앞면 또는 뒷면 사진으로 등록 */
-  const addPhoto = async (side: "front" | "back", file: File | undefined) => {
+  /** 사진 파일을 골라 크기를 줄인 뒤 등록하려는 세트의 앞면 또는 뒷면에 넣음 */
+  const readPhoto = async (side: "front" | "back", file: File | undefined) => {
     if (!file) return;
     setBgError(null);
     if (!file.type.startsWith("image/")) return setBgError("그림 파일(PNG, JPG 등)을 골라 주세요.");
@@ -148,9 +146,7 @@ export default function BankbookApp({ students }: { students: Student[] }) {
     const url = URL.createObjectURL(file);
     try {
       const data = await loadImageDataUrl(url, BACKGROUND_MAX_WIDTH);
-      const next = { ...photos, [side]: data };
-      if (!saveCustomPhotos(next)) return setBgError("브라우저 저장 공간이 부족해서 올리지 못했어요. 더 작은 사진으로 해 보세요.");
-      setPhotos(next);
+      setDraft((d) => ({ ...d, [side]: data }));
     } catch (e) {
       console.error(e);
       setBgError("사진을 읽지 못했어요. 다른 파일로 다시 해 주세요.");
@@ -160,11 +156,24 @@ export default function BankbookApp({ students }: { students: Student[] }) {
     }
   };
 
-  const removePhoto = (side: "front" | "back") => {
-    const next = { ...photos, [side]: null };
-    setPhotos(next);
-    saveCustomPhotos(next);
-    if (picture === CUSTOM_KEY) setPicture(PICTURES[0].key); // 한 장이라도 지우면 기본 그림으로
+  /** 앞면 · 뒷면이 모두 있으면 한 세트로 등록하고 바로 선택 */
+  const registerSet = () => {
+    if (!draft.front || !draft.back) return;
+    setBgError(null);
+    if (sets.length >= MAX_PHOTO_SETS) return setBgError(`내 사진은 ${MAX_PHOTO_SETS}세트까지 등록할 수 있어요. 안 쓰는 세트를 지워 주세요.`);
+    const set: CustomPhotoSet = { id: newPhotoSetId(), label: `내 사진 ${sets.length + 1}`, front: draft.front, back: draft.back };
+    const next = [...sets, set];
+    if (!savePhotoSets(next)) return setBgError("브라우저 저장 공간이 부족해서 등록하지 못했어요. 안 쓰는 세트를 지워 보세요.");
+    setSets(next);
+    setDraft({ front: null, back: null });
+    setPicture(set.id);
+  };
+
+  const removeSet = (id: string) => {
+    const next = sets.filter((c) => c.id !== id);
+    setSets(next);
+    savePhotoSets(next);
+    if (picture === id) choosePicture(PICTURES[0].key); // 지운 세트를 쓰고 있었다면 기본 그림으로
   };
 
   /** 고른 크기 그대로 모든 쪽을 A4 한 장에 들어가는 만큼 놓고 자르는 점선을 그려 PDF 로 내려받음 */
@@ -263,63 +272,98 @@ export default function BankbookApp({ students }: { students: Student[] }) {
               </div>
 
               <p className="mb-1.5 mt-4 text-xs font-semibold text-slate-600">
-                내 사진 <span className="font-normal text-slate-400">· 앞면과 뒷면 2장을 모두 올려야 해요</span>
+                내 사진 <span className="font-normal text-slate-400">· 앞면과 뒷면 2장을 한 세트로 등록해요 ({sets.length}/{MAX_PHOTO_SETS})</span>
               </p>
-              <div className="grid grid-cols-2 gap-1.5">
-                {(["front", "back"] as const).map((side) => {
-                  const src = photos[side];
-                  const label = side === "front" ? "앞면" : "뒷면";
-                  return src ? (
-                    <div key={side} className="relative">
-                      {/* eslint-disable-next-line @next/next/no-img-element -- 직접 올린 사진(data: 주소) */}
-                      <img src={src} alt={`내 사진 ${label}`} className="aspect-[4/3] w-full rounded-lg border border-slate-200 object-cover" />
-                      <span className="absolute left-1 top-1 rounded bg-white/90 px-1.5 py-0.5 text-[11px] font-semibold text-slate-600 ring-1 ring-slate-200">{label}</span>
+              {sets.length > 0 && (
+                <div className="mb-2 grid grid-cols-2 gap-1.5">
+                  {sets.map((c) => (
+                    <div key={c.id} className="relative">
                       <button
                         type="button"
-                        onClick={() => removePhoto(side)}
-                        aria-label={`${label} 사진 지우기`}
+                        onClick={() => setPicture(c.id)}
+                        aria-pressed={picture === c.id}
+                        className={`block w-full overflow-hidden rounded-lg border bg-white p-1 text-xs font-semibold text-slate-600 transition ${
+                          picture === c.id ? "border-indigo-400 ring-2 ring-indigo-200" : "border-slate-200 hover:border-slate-300"
+                        }`}
+                      >
+                        <span className="grid grid-cols-2 gap-1">
+                          {/* eslint-disable-next-line @next/next/no-img-element -- 직접 올린 사진(data: 주소) */}
+                          <img src={c.front} alt="" className="aspect-[4/3] w-full rounded object-cover" />
+                          {/* eslint-disable-next-line @next/next/no-img-element -- 직접 올린 사진(data: 주소) */}
+                          <img src={c.back} alt="" className="aspect-[4/3] w-full rounded object-cover" />
+                        </span>
+                        <span className="mt-1 block truncate">{c.label}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removeSet(c.id)}
+                        aria-label={`${c.label} 지우기`}
                         className="absolute right-1 top-1 grid h-6 w-6 place-items-center rounded-full bg-white/90 text-slate-500 shadow ring-1 ring-slate-200 transition hover:bg-red-50 hover:text-red-600"
                       >
                         <TrashIcon className="h-3.5 w-3.5" />
                       </button>
                     </div>
-                  ) : (
-                    <label
-                      key={side}
-                      className={`flex aspect-[4/3] cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-1.5 text-center text-xs font-semibold text-slate-600 transition hover:border-indigo-400 hover:bg-indigo-50 ${
-                        addingSide ? "pointer-events-none opacity-60" : ""
-                      }`}
-                    >
-                      {addingSide === side ? <Spinner className="h-5 w-5" /> : <PlusIcon className="h-5 w-5" />}
-                      {label} 사진 추가
-                      <input
-                        type="file"
-                        accept="image/*"
-                        className="sr-only"
-                        onChange={(e) => {
-                          void addPhoto(side, e.target.files?.[0]);
-                          e.target.value = ""; // 같은 파일을 다시 골라도 반응하도록
-                        }}
-                      />
-                    </label>
-                  );
-                })}
-              </div>
-              <button
-                type="button"
-                onClick={() => setPicture(CUSTOM_KEY)}
-                disabled={!customReady}
-                aria-pressed={picture === CUSTOM_KEY}
-                className={`mt-1.5 w-full disabled:cursor-not-allowed disabled:opacity-50 ${chip(picture === CUSTOM_KEY)}`}
-              >
-                {customReady ? "내 사진 쓰기" : "앞면 · 뒷면을 모두 올리면 쓸 수 있어요"}
-              </button>
+                  ))}
+                </div>
+              )}
+              {sets.length < MAX_PHOTO_SETS && (
+                <>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {(["front", "back"] as const).map((side) => {
+                      const src = draft[side];
+                      const label = side === "front" ? "앞면" : "뒷면";
+                      return src ? (
+                        <div key={side} className="relative">
+                          {/* eslint-disable-next-line @next/next/no-img-element -- 직접 올린 사진(data: 주소) */}
+                          <img src={src} alt={`등록할 ${label} 사진`} className="aspect-[4/3] w-full rounded-lg border border-slate-200 object-cover" />
+                          <span className="absolute left-1 top-1 rounded bg-white/90 px-1.5 py-0.5 text-[11px] font-semibold text-slate-600 ring-1 ring-slate-200">{label}</span>
+                          <button
+                            type="button"
+                            onClick={() => setDraft((d) => ({ ...d, [side]: null }))}
+                            aria-label={`${label} 사진 빼기`}
+                            className="absolute right-1 top-1 grid h-6 w-6 place-items-center rounded-full bg-white/90 text-slate-500 shadow ring-1 ring-slate-200 transition hover:bg-red-50 hover:text-red-600"
+                          >
+                            <TrashIcon className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <label
+                          key={side}
+                          className={`flex aspect-[4/3] cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-1.5 text-center text-xs font-semibold text-slate-600 transition hover:border-indigo-400 hover:bg-indigo-50 ${
+                            addingSide ? "pointer-events-none opacity-60" : ""
+                          }`}
+                        >
+                          {addingSide === side ? <Spinner className="h-5 w-5" /> : <PlusIcon className="h-5 w-5" />}
+                          {label} 사진 추가
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="sr-only"
+                            onChange={(e) => {
+                              void readPhoto(side, e.target.files?.[0]);
+                              e.target.value = ""; // 같은 파일을 다시 골라도 반응하도록
+                            }}
+                          />
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={registerSet}
+                    disabled={!draft.front || !draft.back}
+                    className="mt-1.5 w-full rounded-lg bg-indigo-600 px-2 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
+                  >
+                    {draft.front && draft.back ? "내 사진 등록하기" : "앞면 · 뒷면을 모두 올리면 등록할 수 있어요"}
+                  </button>
+                </>
+              )}
               {bgError && (
                 <p role="alert" className="mt-2 text-xs font-medium text-red-600">
                   {bgError}
                 </p>
               )}
-              {!pictureArt && picture !== CUSTOM_KEY && (
+              {!pictureArt && (PICTURES.some((p) => p.key === picture) || sets.some((c) => c.id === picture)) && (
                 <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-500">
                   <Spinner className="h-3.5 w-3.5" /> 그림을 불러오고 있어요
                 </p>
