@@ -108,6 +108,13 @@ export default function BankbookApp({ students }: { students: Student[] }) {
     };
   }, [picture, sets]);
 
+  useEffect(() => {
+    if (!customOpen) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setCustomOpen(false);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [customOpen]);
+
   const pictureArt = art?.key === picture ? art : null;
   const ledgers = Math.min(MAX_LEDGERS, Math.max(1, parseInt(ledgersText, 10) || 1));
 
@@ -234,11 +241,28 @@ export default function BankbookApp({ students }: { students: Student[] }) {
 
   const last = step === STEPS.length - 1;
   /** 이름을 적어야 이름 단계 다음으로 갈 수 있음 */
-  const canNext = step === 0 ? !!pictureArt && !customOpen : step === 1 ? !!trimmed : true;
+  const canNext = step === 0 ? !!pictureArt : step === 1 ? !!trimmed : true;
   const chip = (on: boolean) =>
     `rounded-lg px-2 py-2 text-sm font-semibold ring-1 ring-inset transition ${
       on ? "bg-indigo-50 text-indigo-700 ring-indigo-300" : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"
     }`;
+
+  /** 앞면 · 속지 · 거래 내역 · 뒷면 (거래 내역은 모든 쪽이 같음). 화면과 내 사진 등록 창에서 같이 씀 */
+  const slotGrid = (
+    <div className="grid gap-4 sm:grid-cols-2">
+              {[
+                { key: "cover", label: "앞면", fadeKey: cover },
+                { key: "info", label: "속지", fadeKey: previewPaper },
+                { key: "ledger-0", label: `거래 내역 (${ledgers}쪽)`, fadeKey: previewPaper },
+                { key: "back", label: "뒷면", fadeKey: back },
+              ].map((slot) => (
+                <figure key={slot.key} className="rounded-2xl border border-slate-200 bg-slate-100 p-3">
+                  <figcaption className="mb-2 text-xs font-semibold text-slate-500">{slot.label}</figcaption>
+                  <FadePage svg={pages.find((x) => x.key === slot.key)?.svg} fadeKey={slot.fadeKey} label={slot.label} />
+                </figure>
+              ))}
+    </div>
+  );
 
   return (
     <div className="fade-up mx-auto max-w-5xl">
@@ -305,85 +329,13 @@ export default function BankbookApp({ students }: { students: Student[] }) {
 
               <button
                 type="button"
-                onClick={() => setCustomOpen((o) => !o)}
-                aria-expanded={customOpen}
-                className={`mt-4 w-full ${chip(customOpen)}`}
+                onClick={() => setCustomOpen(true)}
+                disabled={sets.length >= MAX_PHOTO_SETS}
+                className={`mt-4 w-full disabled:cursor-not-allowed disabled:opacity-50 ${chip(false)}`}
               >
                 내 사진 사용하기
               </button>
-              {customOpen && (
-                <div className="mt-2 space-y-0">
-                  <p className="mb-1.5 text-xs text-slate-500">앞면 · 뒷면 사진을 올리면 미리보기에 바로 보여요. 등록하면 서버에 저장돼 모두가 쓸 수 있어요.</p>
-              {sets.length < MAX_PHOTO_SETS && (
-                <>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    {(["front", "back"] as const).map((side) => {
-                      const src = draft[side];
-                      const label = side === "front" ? "앞면" : "뒷면";
-                      return src ? (
-                        <div key={side} className="relative">
-                          {/* eslint-disable-next-line @next/next/no-img-element -- 직접 올린 사진(data: 주소) */}
-                          <img src={src} alt={`등록할 ${label} 사진`} className="aspect-[4/3] w-full rounded-lg border border-slate-200 object-cover" />
-                          <span className="absolute left-1 top-1 rounded bg-white/90 px-1.5 py-0.5 text-[11px] font-semibold text-slate-600 ring-1 ring-slate-200">{label}</span>
-                          <button
-                            type="button"
-                            onClick={() => setDraft((d) => ({ ...d, [side]: null }))}
-                            aria-label={`${label} 사진 빼기`}
-                            className="absolute right-1 top-1 grid h-6 w-6 place-items-center rounded-full bg-white/90 text-slate-500 shadow ring-1 ring-slate-200 transition hover:bg-red-50 hover:text-red-600"
-                          >
-                            <TrashIcon className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      ) : (
-                        <label
-                          key={side}
-                          className={`flex aspect-[4/3] cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-1.5 text-center text-xs font-semibold text-slate-600 transition hover:border-indigo-400 hover:bg-indigo-50 ${
-                            addingSide ? "pointer-events-none opacity-60" : ""
-                          }`}
-                        >
-                          {addingSide === side ? <Spinner className="h-5 w-5" /> : <PlusIcon className="h-5 w-5" />}
-                          {label} 사진 추가
-                          <input
-                            type="file"
-                            accept="image/*"
-                            className="sr-only"
-                            onChange={(e) => {
-                              void readPhoto(side, e.target.files?.[0]);
-                              e.target.value = ""; // 같은 파일을 다시 골라도 반응하도록
-                            }}
-                          />
-                        </label>
-                      );
-                    })}
-                  </div>
-                  <input
-                    value={draftName}
-                    maxLength={12}
-                    placeholder="배경 이름"
-                    aria-label="배경 이름"
-                    onChange={(e) => setDraftName(e.target.value)}
-                    className={`mt-1.5 ${field}`}
-                  />
-                  <label className="mt-1.5 block">
-                    <span className="mb-1 block text-xs font-semibold text-slate-600">속지 색</span>
-                    <select value={draftPaper} onChange={(e) => setDraftPaper(e.target.value as PaperColor)} className={field}>
-                      {Object.keys(PAPER_COLORS).map((c) => (
-                        <option key={c}>{c}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => void registerSet()}
-                    disabled={!draft.front || !draft.back || !draftName.trim() || registering}
-                    className="mt-1.5 w-full rounded-lg bg-indigo-600 px-2 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
-                  >
-                    {registering ? "서버에 등록하는 중..." : "기본 배경으로 등록하기"}
-                  </button>
-                </>
-              )}
-                </div>
-              )}
+              {sets.length >= MAX_PHOTO_SETS && <p className="mt-1.5 text-xs text-slate-400">등록한 배경이 가득 찼어요. 안 쓰는 배경을 지워 주세요.</p>}
               {bgError && (
                 <p role="alert" className="mt-2 text-xs font-medium text-red-600">
                   {bgError}
@@ -580,21 +532,102 @@ export default function BankbookApp({ students }: { students: Student[] }) {
             </div>
           )}
 
-          <div className={`grid gap-4 sm:grid-cols-2 ${step === 3 ? "hidden" : ""}`}>
-            {[
-              { key: "cover", label: "앞면", fadeKey: cover },
-              { key: "info", label: "속지", fadeKey: previewPaper },
-              { key: "ledger-0", label: `거래 내역 (${ledgers}쪽)`, fadeKey: previewPaper },
-              { key: "back", label: "뒷면", fadeKey: back },
-            ].map((slot) => (
-              <figure key={slot.key} className="rounded-2xl border border-slate-200 bg-slate-100 p-3">
-                <figcaption className="mb-2 text-xs font-semibold text-slate-500">{slot.label}</figcaption>
-                <FadePage svg={pages.find((x) => x.key === slot.key)?.svg} fadeKey={slot.fadeKey} label={slot.label} />
-              </figure>
-            ))}
-          </div>
+          <div className={step === 3 ? "hidden" : ""}>{slotGrid}</div>
         </section>
       </div>
+      {customOpen && (
+        <div role="dialog" aria-modal="true" aria-label="내 사진 사용하기" className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/50 p-3 sm:p-6">
+          <div className="fade-up mx-auto max-w-5xl rounded-2xl bg-slate-50 p-5 shadow-xl sm:p-6">
+            <div className="mb-5 flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">내 사진 사용하기</h2>
+                <p className="mt-0.5 text-xs text-slate-500">앞면 · 뒷면 사진을 올리면 미리보기에 바로 보여요. 등록하면 서버에 저장돼 모두가 쓸 수 있어요.</p>
+              </div>
+              <button type="button" onClick={() => setCustomOpen(false)} className="shrink-0 rounded-xl px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-200">
+                닫기
+              </button>
+            </div>
+            <div className="grid gap-6 lg:grid-cols-[22rem_minmax(0,1fr)]">
+              <div className="h-fit rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              {sets.length < MAX_PHOTO_SETS && (
+                <>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {(["front", "back"] as const).map((side) => {
+                      const src = draft[side];
+                      const label = side === "front" ? "앞면" : "뒷면";
+                      return src ? (
+                        <div key={side} className="relative">
+                          {/* eslint-disable-next-line @next/next/no-img-element -- 직접 올린 사진(data: 주소) */}
+                          <img src={src} alt={`등록할 ${label} 사진`} className="aspect-[4/3] w-full rounded-lg border border-slate-200 object-cover" />
+                          <span className="absolute left-1 top-1 rounded bg-white/90 px-1.5 py-0.5 text-[11px] font-semibold text-slate-600 ring-1 ring-slate-200">{label}</span>
+                          <button
+                            type="button"
+                            onClick={() => setDraft((d) => ({ ...d, [side]: null }))}
+                            aria-label={`${label} 사진 빼기`}
+                            className="absolute right-1 top-1 grid h-6 w-6 place-items-center rounded-full bg-white/90 text-slate-500 shadow ring-1 ring-slate-200 transition hover:bg-red-50 hover:text-red-600"
+                          >
+                            <TrashIcon className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <label
+                          key={side}
+                          className={`flex aspect-[4/3] cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-1.5 text-center text-xs font-semibold text-slate-600 transition hover:border-indigo-400 hover:bg-indigo-50 ${
+                            addingSide ? "pointer-events-none opacity-60" : ""
+                          }`}
+                        >
+                          {addingSide === side ? <Spinner className="h-5 w-5" /> : <PlusIcon className="h-5 w-5" />}
+                          {label} 사진 추가
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="sr-only"
+                            onChange={(e) => {
+                              void readPhoto(side, e.target.files?.[0]);
+                              e.target.value = ""; // 같은 파일을 다시 골라도 반응하도록
+                            }}
+                          />
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <input
+                    value={draftName}
+                    maxLength={12}
+                    placeholder="배경 이름"
+                    aria-label="배경 이름"
+                    onChange={(e) => setDraftName(e.target.value)}
+                    className={`mt-1.5 ${field}`}
+                  />
+                  <label className="mt-1.5 block">
+                    <span className="mb-1 block text-xs font-semibold text-slate-600">속지 색</span>
+                    <select value={draftPaper} onChange={(e) => setDraftPaper(e.target.value as PaperColor)} className={field}>
+                      {Object.keys(PAPER_COLORS).map((c) => (
+                        <option key={c}>{c}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => void registerSet()}
+                    disabled={!draft.front || !draft.back || !draftName.trim() || registering}
+                    className="mt-1.5 w-full rounded-lg bg-indigo-600 px-2 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
+                  >
+                    {registering ? "서버에 등록하는 중..." : "기본 배경으로 등록하기"}
+                  </button>
+                </>
+              )}
+                {bgError && (
+                  <p role="alert" className="mt-2 text-xs font-medium text-red-600">
+                    {bgError}
+                  </p>
+                )}
+              </div>
+              <div className="min-w-0">{slotGrid}</div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
