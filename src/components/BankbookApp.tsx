@@ -68,6 +68,7 @@ const today = () => {
 
 export default function BankbookApp({ students }: { students: Student[] }) {
   const [step, setStep] = useState(0);
+  const [fading, setFading] = useState(false);
   const [name, setName] = useState("");
   const [bank, setBank] = useState("느티나무 은행");
   const [branch, setBranch] = useState("월계중학교");
@@ -118,6 +119,16 @@ export default function BankbookApp({ students }: { students: Student[] }) {
   }, [customOpen]);
 
   const pictureArt = art?.key === picture ? art : null;
+  /** 단계를 바꿀 때 화면이 서서히 사라졌다가 새 화면이 서서히 나타남 */
+  const goStep = (n: number) => {
+    if (n === step || fading) return;
+    setFading(true);
+    setTimeout(() => {
+      setStep(n);
+      setFading(false);
+    }, 200);
+  };
+  const fadeClass = `transition-[opacity,transform] ease-in-out motion-reduce:transition-none ${fading ? "translate-y-1 opacity-0 duration-200" : "translate-y-0 opacity-100 duration-300"}`;
   const ledgers = Math.min(MAX_LEDGERS, Math.max(1, parseInt(ledgersText, 10) || 1));
 
   /** 기본 그림을 고르면 그 그림에 어울리는 속지 색으로 바꿈 */
@@ -258,7 +269,7 @@ export default function BankbookApp({ students }: { students: Student[] }) {
               {[
                 { key: "cover", label: "앞면", fadeKey: cover },
                 { key: "info", label: "속지", fadeKey: previewPaper },
-                { key: "ledger-0", label: `거래 내역 (${ledgers}쪽)`, fadeKey: previewPaper },
+                { key: "ledger-0", label: `거래 내역 (${ledgers}쪽)`, fadeKey: "ledger" },
                 { key: "back", label: "뒷면", fadeKey: back },
               ].map((slot) => (
                 <figure key={slot.key} className="rounded-2xl border border-slate-200 bg-slate-100 p-3">
@@ -292,7 +303,7 @@ export default function BankbookApp({ students }: { students: Student[] }) {
               <li key={s.title} className="flex flex-1 items-center last:flex-none" aria-current={i === step ? "step" : undefined}>
                 <button
                   type="button"
-                  onClick={() => i <= step && setStep(i)}
+                  onClick={() => i <= step && goStep(i)}
                   disabled={i > step}
                   className="flex flex-col items-center gap-1 disabled:cursor-default"
                 >
@@ -310,6 +321,7 @@ export default function BankbookApp({ students }: { students: Student[] }) {
             ))}
           </ol>
 
+          <div className={`space-y-5 ${fadeClass}`}>
           <div>
             <h2 className="text-lg font-bold text-slate-900">{STEPS[step].heading}</h2>
             {STEPS[step].hint && <p className="mt-0.5 text-xs text-slate-500">{STEPS[step].hint}</p>}
@@ -416,14 +428,11 @@ export default function BankbookApp({ students }: { students: Student[] }) {
                   </select>
                 </Field>
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <Field label="속지 색">
-                  <select value={paper} onChange={(e) => setPaper(e.target.value as PaperColor)} className={field}>
-                    {Object.keys(PAPER_COLORS).map((c) => (
-                      <option key={c}>{c}</option>
-                    ))}
-                  </select>
-                </Field>
+              <div className="space-y-3">
+                <div>
+                  <span className="mb-1 block text-xs font-semibold text-slate-600">속지 색</span>
+                  <PaperPicker value={paper} onChange={setPaper} />
+                </div>
                 <Field label="거래 내역 쪽수">
                   <input
                     type="number"
@@ -487,11 +496,12 @@ export default function BankbookApp({ students }: { students: Student[] }) {
               )}
             </div>
           )}
+          </div>
 
           <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-4">
             <button
               type="button"
-              onClick={() => setStep((s) => s - 1)}
+              onClick={() => goStep(step - 1)}
               disabled={step === 0}
               className="inline-flex items-center gap-1.5 rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 disabled:invisible"
             >
@@ -501,7 +511,7 @@ export default function BankbookApp({ students }: { students: Student[] }) {
             {!last && (
               <button
                 type="button"
-                onClick={() => setStep((s) => s + 1)}
+                onClick={() => goStep(step + 1)}
                 disabled={!canNext}
                 className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
               >
@@ -513,7 +523,7 @@ export default function BankbookApp({ students }: { students: Student[] }) {
           {step === 1 && !trimmed && <p className="-mt-3 text-center text-xs text-slate-400">이름을 입력하면 다음으로 넘어갈 수 있어요</p>}
         </div>
 
-        <section aria-label="칭찬통장 미리보기" className="min-w-0 space-y-4">
+        <section aria-label="칭찬통장 미리보기" className={`min-w-0 space-y-4 ${fadeClass}`}>
           {/* 앞면 · 속지 · 거래 내역 · 뒷면 (거래 내역은 모든 쪽이 같음) */}
           {step === 3 && (
             <div className="space-y-4">
@@ -555,7 +565,6 @@ export default function BankbookApp({ students }: { students: Student[] }) {
             <div className="mb-5 flex items-center justify-between gap-3">
               <div>
                 <h2 className="text-lg font-bold text-slate-900">내 사진 사용하기</h2>
-                <p className="mt-0.5 text-xs text-slate-500">앞면 · 뒷면 사진을 올리면 미리보기에 바로 보여요. 등록하면 서버에 저장돼 모두가 쓸 수 있어요.</p>
               </div>
               <button type="button" onClick={() => setCustomOpen(false)} className="shrink-0 rounded-xl px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-200">
                 닫기
@@ -613,14 +622,10 @@ export default function BankbookApp({ students }: { students: Student[] }) {
                     onChange={(e) => setDraftName(e.target.value)}
                     className={`mt-1.5 ${field}`}
                   />
-                  <label className="mt-1.5 block">
+                  <div className="mt-1.5">
                     <span className="mb-1 block text-xs font-semibold text-slate-600">속지 색</span>
-                    <select value={draftPaper} onChange={(e) => setDraftPaper(e.target.value as PaperColor)} className={field}>
-                      {Object.keys(PAPER_COLORS).map((c) => (
-                        <option key={c}>{c}</option>
-                      ))}
-                    </select>
-                  </label>
+                    <PaperPicker value={draftPaper} onChange={setDraftPaper} />
+                  </div>
                   <button
                     type="button"
                     onClick={() => void registerSet()}
@@ -704,5 +709,28 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <span className="mb-1 block text-xs font-semibold text-slate-600">{label}</span>
       {children}
     </label>
+  );
+}
+
+/** 속지 색을 실제 색과 함께 고름 */
+function PaperPicker({ value, onChange }: { value: PaperColor; onChange: (c: PaperColor) => void }) {
+  return (
+    <div role="radiogroup" aria-label="속지 색" className="grid grid-cols-3 gap-1.5">
+      {(Object.keys(PAPER_COLORS) as PaperColor[]).map((c) => (
+        <button
+          key={c}
+          type="button"
+          role="radio"
+          aria-checked={value === c}
+          onClick={() => onChange(c)}
+          className={`flex items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-sm font-semibold ring-1 ring-inset transition ${
+            value === c ? "bg-indigo-50 text-indigo-700 ring-indigo-300" : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"
+          }`}
+        >
+          <span className="h-4 w-4 shrink-0 rounded-full ring-1 ring-black/15" style={{ background: PAPER_COLORS[c].fill }} />
+          {c}
+        </button>
+      ))}
+    </div>
   );
 }
