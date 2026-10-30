@@ -343,7 +343,7 @@ export default function BankbookApp({ students }: { students: Student[] }) {
                   <input
                     value={draftName}
                     maxLength={12}
-                    placeholder="배경 이름 (예: 우리 반)"
+                    placeholder="배경 이름"
                     aria-label="배경 이름"
                     onChange={(e) => setDraftName(e.target.value)}
                     className={`mt-1.5 ${field}`}
