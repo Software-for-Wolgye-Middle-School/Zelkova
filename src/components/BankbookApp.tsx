@@ -83,7 +83,7 @@ export default function BankbookApp({ students }: { students: Student[] }) {
   const [registering, setRegistering] = useState(false);
   const [draftName, setDraftName] = useState("");
   const [draftPaper, setDraftPaper] = useState<PaperColor>("노랑");
-  const [bgError,setBgError] = useState<string | null>(null);
+  const [bgError, setBgError] = useState<string | null>(null);
   const [addingSide, setAddingSide] = useState<"front" | "back" | null>(null);
   const savedNames = useMemo(() => [...new Set(students.map((s) => s.name))], [students]);
   const [busy, setBusy] = useState(false);
@@ -195,7 +195,6 @@ export default function BankbookApp({ students }: { students: Student[] }) {
       console.error(e);
       setBgError("지우지 못했어요. 잠시 뒤 다시 해 주세요.");
     }
-  };
   };
 
   /** 고른 크기 그대로 모든 쪽을 A4 한 장에 들어가는 만큼 놓고 자르는 점선을 그려 PDF 로 내려받음 */
