@@ -1,45 +1,28 @@
-import { PAPER_COLORS, type PaperColor } from "@/lib/bankbookSvg";
+import type { PaperColor } from "@/lib/bankbookSvg";
 
-/** 칭찬통장에 쓰려고 직접 올린 앞면 · 뒷면 사진 한 세트. 작게 줄여 브라우저에 저장 */
+/** 칭찬통장에 등록한 앞면 · 뒷면 사진 한 세트. 서버에 저장되어 모든 사용자가 같이 씀 */
 export type CustomPhotoSet = { id: string; label: string; /** data: 주소 */ front: string; back: string; paper: PaperColor };
 
-const STORAGE_KEY = "zelkova.bankbook.photosets.v3";
-export const MAX_PHOTO_SETS = 5;
+const API = "/api/bankbook/backgrounds";
+export const MAX_PHOTO_SETS = 20;
 export const MAX_BACKGROUND_FILE_BYTES = 15 * 1024 * 1024;
-/** 저장할 때 줄이는 너비 (표지를 A4 로 크게 인쇄해도 괜찮을 만큼) */
+/** 서버로 보내기 전에 줄이는 너비 (표지를 A4 로 크게 인쇄해도 괜찮을 만큼) */
 export const BACKGROUND_MAX_WIDTH = 1600;
 
-const isImage = (v: unknown): v is string => typeof v === "string" && v.startsWith("data:image/");
-
-export function loadPhotoSets(): CustomPhotoSet[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    const data = raw ? (JSON.parse(raw) as Partial<CustomPhotoSet>[]) : [];
-    if (!Array.isArray(data)) return [];
-    return data
-      .filter((d) => typeof d.id === "string" && isImage(d.front) && isImage(d.back))
-      .map((d) => ({
-        id: d.id!,
-        label: String(d.label ?? "내 사진").slice(0, 12),
-        front: d.front!,
-        back: d.back!,
-        paper: d.paper && d.paper in PAPER_COLORS ? d.paper : "노랑",
-      }))
-      .slice(0, MAX_PHOTO_SETS);
-  } catch {
-    return [];
-  }
+export async function fetchPhotoSets(): Promise<CustomPhotoSet[]> {
+  const res = await fetch(API, { cache: "no-store" });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
 }
 
-/** 저장 공간이 부족하면 false */
-export function savePhotoSets(list: CustomPhotoSet[]) {
-  try {
-    if (list.length) localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
-    else localStorage.removeItem(STORAGE_KEY);
-    return true;
-  } catch {
-    return false;
-  }
+/** 실패하면 서버가 알려 준 문장을 담은 Error 를 던짐 */
+export async function registerPhotoSet(set: Omit<CustomPhotoSet, "id">): Promise<CustomPhotoSet> {
+  const res = await fetch(API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(set) });
+  if (!res.ok) throw new Error((await res.text()) || "서버에 저장하지 못했어요.");
+  return res.json();
 }
 
-export const newPhotoSetId = () => `custom-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+export async function deletePhotoSet(id: string) {
+  const res = await fetch(`${API}?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!res.ok) throw new Error((await res.text()) || "지우지 못했어요.");
+}

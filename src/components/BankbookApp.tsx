@@ -19,11 +19,11 @@ import { embeddedFontCss, loadImageDataUrl, safeFileName, svgToPng, withFont } f
 import { ArrowLeftIcon, ArrowRightIcon, CheckIcon, DownloadIcon, PlusIcon, Spinner, TrashIcon } from "./icons";
 import {
   BACKGROUND_MAX_WIDTH,
-  loadPhotoSets,
+  deletePhotoSet,
+  fetchPhotoSets,
   MAX_BACKGROUND_FILE_BYTES,
   MAX_PHOTO_SETS,
-  newPhotoSetId,
-  savePhotoSets,
+  registerPhotoSet,
   type CustomPhotoSet,
 } from "./customBackgrounds";
 import type { Student } from "@/lib/timetable";
@@ -80,6 +80,7 @@ export default function BankbookApp({ students }: { students: Student[] }) {
   const [sets, setSets] = useState<CustomPhotoSet[]>([]);
   const [draft, setDraft] = useState<{ front: string | null; back: string | null }>({ front: null, back: null });
   const [customOpen, setCustomOpen] = useState(false);
+  const [registering, setRegistering] = useState(false);
   const [draftName, setDraftName] = useState("");
   const [draftPaper, setDraftPaper] = useState<PaperColor>("노랑");
   const [bgError,setBgError] = useState<string | null>(null);
@@ -89,8 +90,7 @@ export default function BankbookApp({ students }: { students: Student[] }) {
   const [exportError, setExportError] = useState<string | null>(null);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage 는 브라우저에서만 읽을 수 있음
-    setSets(loadPhotoSets());
+    fetchPhotoSets().then(setSets).catch((e) => console.error(e));
   }, []);
 
   useEffect(() => {
@@ -165,26 +165,37 @@ export default function BankbookApp({ students }: { students: Student[] }) {
     }
   };
 
-  /** 앞면 · 뒷면이 모두 있으면 한 세트로 등록하고 바로 선택 */
-  const registerSet = () => {
-    if (!draft.front || !draft.back || !draftName.trim()) return;
+  /** 앞면 · 뒷면이 모두 있으면 한 세트로 서버에 등록하고 바로 선택 */
+  const registerSet = async () => {
+    if (!draft.front || !draft.back || !draftName.trim() || registering) return;
     setBgError(null);
-    if (sets.length >= MAX_PHOTO_SETS) return setBgError(`내 사진은 ${MAX_PHOTO_SETS}세트까지 등록할 수 있어요. 안 쓰는 세트를 지워 주세요.`);
-    const set: CustomPhotoSet = { id: newPhotoSetId(), label: draftName.trim().slice(0, 12), front: draft.front, back: draft.back, paper: draftPaper };
-    const next = [...sets, set];
-    if (!savePhotoSets(next)) return setBgError("브라우저 저장 공간이 부족해서 등록하지 못했어요. 안 쓰는 세트를 지워 보세요.");
-    setSets(next);
-    setDraft({ front: null, back: null });
-    setDraftName("");
-    setCustomOpen(false);
-    pickSet(set);
+    setRegistering(true);
+    try {
+      const set = await registerPhotoSet({ label: draftName.trim().slice(0, 12), front: draft.front, back: draft.back, paper: draftPaper });
+      setSets((list) => [...list, set]);
+      setDraft({ front: null, back: null });
+      setDraftName("");
+      setCustomOpen(false);
+      pickSet(set);
+    } catch (e) {
+      console.error(e);
+      setBgError(e instanceof Error && e.message ? e.message : "서버에 저장하지 못했어요. 잠시 뒤 다시 해 주세요.");
+    } finally {
+      setRegistering(false);
+    }
   };
 
-  const removeSet = (id: string) => {
-    const next = sets.filter((c) => c.id !== id);
-    setSets(next);
-    savePhotoSets(next);
-    if (picture === id) choosePicture(PICTURES[0].key); // 지운 세트를 쓰고 있었다면 기본 그림으로
+  const removeSet = async (id: string) => {
+    setBgError(null);
+    try {
+      await deletePhotoSet(id);
+      setSets((list) => list.filter((c) => c.id !== id));
+      if (picture === id) choosePicture(PICTURES[0].key); // 지운 세트를 쓰고 있었다면 기본 그림으로
+    } catch (e) {
+      console.error(e);
+      setBgError("지우지 못했어요. 잠시 뒤 다시 해 주세요.");
+    }
+  };
   };
 
   /** 고른 크기 그대로 모든 쪽을 A4 한 장에 들어가는 만큼 놓고 자르는 점선을 그려 PDF 로 내려받음 */
@@ -288,7 +299,7 @@ export default function BankbookApp({ students }: { students: Student[] }) {
                     </button>
                     <button
                       type="button"
-                      onClick={() => removeSet(c.id)}
+                      onClick={() => void removeSet(c.id)}
                       aria-label={`${c.label} 지우기`}
                       className="absolute right-1 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center rounded-full text-slate-400 transition hover:bg-red-50 hover:text-red-600"
                     >
@@ -308,7 +319,7 @@ export default function BankbookApp({ students }: { students: Student[] }) {
               </button>
               {customOpen && (
                 <div className="mt-2 space-y-0">
-                  <p className="mb-1.5 text-xs text-slate-500">앞면 · 뒷면 사진을 올리면 미리보기에 바로 보여요. 등록하면 바로 저장돼요.</p>
+                  <p className="mb-1.5 text-xs text-slate-500">앞면 · 뒷면 사진을 올리면 미리보기에 바로 보여요. 등록하면 서버에 저장돼 모두가 쓸 수 있어요.</p>
               {sets.length < MAX_PHOTO_SETS && (
                 <>
                   <div className="grid grid-cols-2 gap-1.5">
@@ -369,11 +380,11 @@ export default function BankbookApp({ students }: { students: Student[] }) {
                   </label>
                   <button
                     type="button"
-                    onClick={registerSet}
-                    disabled={!draft.front || !draft.back || !draftName.trim()}
+                    onClick={() => void registerSet()}
+                    disabled={!draft.front || !draft.back || !draftName.trim() || registering}
                     className="mt-1.5 w-full rounded-lg bg-indigo-600 px-2 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
                   >
-                    기본 배경으로 등록하기
+                    {registering ? "서버에 등록하는 중..." : "기본 배경으로 등록하기"}
                   </button>
                 </>
               )}
