@@ -57,14 +57,15 @@ const STEPS = [
   { title: "이름", heading: "누구의 통장인가요?", hint: "" },
   { title: "통장 정보", heading: "통장에 들어갈 내용을 확인해 주세요", hint: "" },
   { title: "거래 내역", heading: "거래 내역은 몇 쪽으로 할까요?", hint: "" },
-  { title: "저장", heading: "크기를 정하고 저장해요", hint: "A4 종이에 놓을 크기를 정하고 PDF로 저장하세요." },
+  { title: "크기", heading: "크기를 정하세요", hint: "" },
+  { title: "다운받기", heading: "PDF로 내려받아요", hint: "" },
 ] as const;
 
 /** 쪽 크기 바로 고르기: A4 한 장에 n쪽이 들어가는 가장 큰 크기 */
 const SIZE_PRESETS = [1, 2, 4, 8].map((n) => ({ n, w: largestWidthFor(n) }));
 
 /** 단계별로 미리보기에 보이는 화면. 같은 화면이면 단계를 옮겨도 미리보기를 다시 불러오지 않음 */
-const previewView = (step: number) => (step === 1 || step === 2 ? "info" : step === 3 ? "ledger" : step === 4 ? "save" : "all");
+const previewView = (step: number) => (step === 1 || step === 2 ? "info" : step === 3 ? "ledger" : step === 4 ? "size" : step === 5 ? "download" : "all");
 
 const today = () => {
   const d = new Date();
@@ -265,7 +266,7 @@ export default function BankbookApp({ students }: { students: Student[] }) {
     }
   };
 
-  /** ì²´í¬ íìê° ê·¸ë ¤ì§ ë¤ì ë¤ì ë¨ê³ë¡ ëì´ê° */
+  /** 체크 표시가 그려진 뒤에 다음 단계로 넘어감 */
   const goNext = () => {
     if (checking || fading) return;
     setChecking(true);
@@ -276,7 +277,7 @@ export default function BankbookApp({ students }: { students: Student[] }) {
   };
 
   const curSheet = Math.min(sheetIdx, sheets - 1);
-  /** ì¤ë¥¸ìª½: ì§ê¸ ì¢ì´ê° ì¤ë¥¸ìª½ì¼ë¡ ë°ë ¤ëë©° ë¤ì ì¢ì´ê° ëë¬ë¨, ì¼ìª½: ì ì¢ì´ê° ì¤ë¥¸ìª½ìì ìì ë®ì */
+  /** 오른쪽: 지금 종이가 오른쪽으로 밀려나며 다음 종이가 드러남, 왼쪽: 앞 종이가 오른쪽에서 와서 덮음 */
   const flipSheet = (to: number) => {
     if (sheetAnim || to < 0 || to >= sheets) return;
     setSheetAnim({ from: curSheet, to, slid: false });
@@ -551,24 +552,25 @@ export default function BankbookApp({ students }: { students: Student[] }) {
                   </button>
                 ))}
               </div>
-              <p className="mt-2 text-xs text-slate-500">
-                표지 · 속지 · 거래 내역 {ledgers}쪽 · 뒤표지를 A4 {layout.orientation === "landscape" ? "가로" : "세로"} 한 장에 {layout.perSheet}쪽씩 놓아
-                모두 {sheets}장이에요.
+            </div>
+          )}
+
+          {step === 5 && (
+            <div>
+            <button
+              type="button"
+              onClick={savePdf}
+              disabled={!trimmed || busy || !book}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-[15px] font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
+            >
+              {busy ? <Spinner className="h-5 w-5" /> : <DownloadIcon className="h-5 w-5" />}
+              PDF 다운로드
+            </button>
+            {exportError && (
+              <p role="alert" className="mt-2 text-center text-xs font-medium text-red-600">
+                {exportError}
               </p>
-              <button
-                type="button"
-                onClick={savePdf}
-                disabled={!trimmed || busy || !book}
-                className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-[15px] font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
-              >
-                {busy ? <Spinner className="h-5 w-5" /> : <DownloadIcon className="h-5 w-5" />}
-                PDF로 저장하기
-              </button>
-              {exportError && (
-                <p role="alert" className="mt-2 text-center text-xs font-medium text-red-600">
-                  {exportError}
-                </p>
-              )}
+            )}
             </div>
           )}
           </div>
@@ -603,14 +605,14 @@ export default function BankbookApp({ students }: { students: Student[] }) {
           {step === 4 && (
             <figure className="rounded-2xl border border-slate-200 bg-slate-100 p-3 sm:p-5">
               <figcaption className="mb-2 text-xs font-semibold text-slate-500">
-                A4 {layout.orientation === "landscape" ? "ê°ë¡" : "ì¸ë¡"} {curSheet + 1}/{sheets}ì¥ ({layout.page.w} Ã {layout.page.h}mm)
+                A4 {layout.orientation === "landscape" ? "가로" : "세로"} {curSheet + 1}/{sheets}장 ({layout.page.w} × {layout.page.h}mm)
               </figcaption>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => flipSheet(curSheet - 1)}
                   disabled={curSheet === 0 || !!sheetAnim}
-                  aria-label="ì ì¥ ë³´ê¸°"
+                  aria-label="앞 장 보기"
                   className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white text-slate-600 shadow ring-1 ring-slate-200 transition hover:bg-indigo-50 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <ArrowLeftIcon className="h-4 w-4" />
@@ -629,7 +631,7 @@ export default function BankbookApp({ students }: { students: Student[] }) {
                   type="button"
                   onClick={() => flipSheet(curSheet + 1)}
                   disabled={curSheet >= sheets - 1 || !!sheetAnim}
-                  aria-label="ë¤ì ì¥ ë³´ê¸°"
+                  aria-label="다음 장 보기"
                   className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white text-slate-600 shadow ring-1 ring-slate-200 transition hover:bg-indigo-50 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <ArrowRightIcon className="h-4 w-4" />
@@ -638,7 +640,22 @@ export default function BankbookApp({ students }: { students: Student[] }) {
             </figure>
           )}
 
-          <div className={step === 4 ? "hidden" : ""}>{slotGrid}</div>
+          {step === 5 && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              {pages.map((p) => (
+                <figure key={p.key} className="rounded-2xl border border-slate-200 bg-slate-100 p-3">
+                  <figcaption className="mb-2 text-xs font-semibold text-slate-500">{p.label}</figcaption>
+                  <div
+                    className="overflow-hidden rounded-md bg-white shadow-md [&>svg]:block [&>svg]:h-auto [&>svg]:w-full"
+                    dangerouslySetInnerHTML={{ __html: p.svg }}
+                  />
+                </figure>
+              ))}
+            </div>
+          )}
+
+          <div className={step >= 4 ? "hidden" : ""}>{slotGrid}</div>
+
         </section>
       </div>
       {customOpen && (
