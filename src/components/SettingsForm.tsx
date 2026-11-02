@@ -139,10 +139,6 @@ export default function SettingsForm({ settings, loadError, onChange, errors }: 
           })}
         </ul>
       </fieldset>
-
-      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
-        <span>바꾼 내용은 이 브라우저에 자동 저장돼요.</span>
-      </div>
     </div>
   );
 }

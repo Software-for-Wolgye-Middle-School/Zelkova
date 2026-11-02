@@ -11,7 +11,7 @@ export const WIZARD_STEPS = [
   {
     title: "특수학생 정보",
     heading: "특수학생 정보를 입력해 주세요",
-    description: "특수학급에서 수업을 듣는 학생의 학년 · 반 · 이름과 수강 과목을 입력하세요.",
+    description: "특수학급에서 수업을 듣는 학생 정보와 수강 과목을 입력하세요.",
   },
   {
     title: "학급 시간표",

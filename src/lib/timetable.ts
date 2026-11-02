@@ -506,7 +506,6 @@ export async function fillTemplate(templateBuf: ArrayBuffer, schedule: Schedule,
   } else {
     plan.forEach(({ tr }) => setRowHeight(tr, rowHeight(tr)));
   }
-  if (compact) notes.push("한 페이지에 맞추기 위해 넓은 칸은 이름을 한 줄에 2명씩 배치했습니다.");
 
   return { blob: await saveDocx(zip, xml), notes };
 }
