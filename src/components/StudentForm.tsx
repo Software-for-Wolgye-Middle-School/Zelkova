@@ -65,8 +65,7 @@ export default function StudentForm({ rows, onChange, errors, showErrors, studen
     <div>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-slate-500">
-          입력한 학생 <span className="font-semibold text-slate-900">{studentCount}명</span>
-          <span className="mx-1.5 text-slate-300">·</span>이 브라우저에 자동 저장돼요
+          입력한 학생 <span className="font-semibold text-slate-900">{studentCount}명</span>
         </p>
         {confirmClear ? (
           <span className="flex items-center gap-1 text-sm">
