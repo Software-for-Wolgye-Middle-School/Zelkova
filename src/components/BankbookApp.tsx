@@ -53,8 +53,9 @@ const field =
 /** 통장을 만드는 순서 */
 const STEPS = [
   { title: "배경", heading: "표지에 쓸 그림을 골라 주세요", hint: "" },
-  { title: "이름", heading: "누구의 통장인가요?", hint: "등록된 학생을 누르거나 이름을 직접 적어 주세요." },
-  { title: "통장 정보", heading: "통장에 들어갈 내용을 확인해 주세요", hint: "바뀐 것이 없으면 그대로 다음으로 넘어가도 돼요." },
+  { title: "이름", heading: "누구의 통장인가요?", hint: "" },
+  { title: "통장 정보", heading: "통장에 들어갈 내용을 확인해 주세요", hint: "" },
+  { title: "거래 내역", heading: "거래 내역은 몇 쪽으로 할까요?", hint: "" },
   { title: "저장", heading: "크기를 정하고 저장해요", hint: "A4 종이에 놓을 크기를 정하고 PDF로 저장하세요." },
 ] as const;
 
@@ -264,14 +265,16 @@ export default function BankbookApp({ students }: { students: Student[] }) {
     }`;
 
   /** 앞면 · 속지 · 거래 내역 · 뒷면 (거래 내역은 모든 쪽이 같음). 화면과 내 사진 등록 창에서 같이 씀 */
+  // 이름 · 통장 정보 단계는 속지만, 거래 내역 단계는 거래 내역만 보여 줌 (등록 창은 모두)
+  const onlySlot = customOpen ? null : step === 1 || step === 2 ? "info" : step === 3 ? "ledger-0" : null;
   const slotGrid = (
-    <div className="grid gap-4 sm:grid-cols-2">
+    <div className={`grid gap-4 ${onlySlot ? "mx-auto max-w-md" : "sm:grid-cols-2"}`}>
               {[
                 { key: "cover", label: "앞면", fadeKey: cover },
                 { key: "info", label: "속지", fadeKey: previewPaper },
                 { key: "ledger-0", label: `거래 내역 (${ledgers}쪽)`, fadeKey: "ledger" },
                 { key: "back", label: "뒷면", fadeKey: back },
-              ].map((slot) => (
+              ].filter((slot) => !onlySlot || slot.key === onlySlot).map((slot) => (
                 <figure key={slot.key} className="rounded-2xl border border-slate-200 bg-slate-100 p-3">
                   <figcaption className="mb-2 text-xs font-semibold text-slate-500">{slot.label}</figcaption>
                   {customOpen && ((slot.key === "cover" && !draft.front) || (slot.key === "back" && !draft.back)) ? (
@@ -293,7 +296,6 @@ export default function BankbookApp({ students }: { students: Student[] }) {
     <div className="fade-up mx-auto max-w-5xl">
       <div className="mb-8 text-center">
         <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-[28px]">칭찬통장 만들기</h1>
-        <p className="mt-2 text-[15px] text-slate-500">배경 → 이름 → 통장 정보 → 저장, 네 단계로 차근차근 만들어요.</p>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[22rem_minmax(0,1fr)]">
@@ -439,23 +441,26 @@ export default function BankbookApp({ students }: { students: Student[] }) {
                   <span className="mb-1 block text-xs font-semibold text-slate-600">속지 색</span>
                   <PaperPicker value={paper} onChange={setPaper} />
                 </div>
-                <Field label="거래 내역 쪽수">
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    min={1}
-                    max={MAX_LEDGERS}
-                    value={ledgersText}
-                    onChange={(e) => setLedgersText(e.target.value)}
-                    onBlur={() => setLedgersText(String(ledgers))}
-                    className={field}
-                  />
-                </Field>
               </div>
             </div>
           )}
 
           {step === 3 && (
+            <Field label="거래 내역 쪽수">
+              <input
+                type="number"
+                inputMode="numeric"
+                min={1}
+                max={MAX_LEDGERS}
+                value={ledgersText}
+                onChange={(e) => setLedgersText(e.target.value)}
+                onBlur={() => setLedgersText(String(ledgers))}
+                className={field}
+              />
+            </Field>
+          )}
+
+          {step === 4 && (
             <div>
               <div className="flex items-baseline justify-between">
                 <label htmlFor="bb-size" className="text-sm font-semibold text-slate-800">
@@ -531,7 +536,7 @@ export default function BankbookApp({ students }: { students: Student[] }) {
 
         <section aria-label="칭찬통장 미리보기" className={`min-w-0 space-y-4 ${fadeClass}`}>
           {/* 앞면 · 속지 · 거래 내역 · 뒷면 (거래 내역은 모든 쪽이 같음) */}
-          {step === 3 && (
+          {step === 4 && (
             <div className="space-y-4">
               {Array.from({ length: Math.min(sheets, MAX_PREVIEW_SHEETS) }, (_, s) => (
                 <figure key={s} className="rounded-2xl border border-slate-200 bg-slate-100 p-3 sm:p-5">
@@ -562,7 +567,7 @@ export default function BankbookApp({ students }: { students: Student[] }) {
             </div>
           )}
 
-          <div className={step === 3 ? "hidden" : ""}>{slotGrid}</div>
+          <div className={step === 4 ? "hidden" : ""}>{slotGrid}</div>
         </section>
       </div>
       {customOpen && (
