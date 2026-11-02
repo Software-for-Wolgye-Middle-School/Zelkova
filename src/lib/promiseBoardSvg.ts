@@ -167,10 +167,10 @@ export function boardSvg({ name, year, month, promise = ["", ""] }: PromiseBoard
   <rect x="${x0 + 8}" y="1088" width="${x1 - x0 - 16}" height="102" rx="12" fill="#fffdf6"/>
   ${heart(66, 1098, 24, "#e8434f")}
   <g stroke="#dcc3a3" stroke-width="2" stroke-dasharray="2 5" stroke-linecap="round">
-    <line x1="96" y1="1122" x2="640" y2="1122"/><line x1="70" y1="1152" x2="640" y2="1152"/>
+    <line x1="96" y1="1122" x2="640" y2="1122"/><line x1="96" y1="1152" x2="640" y2="1152"/>
   </g>
   <text x="100" y="1116" font-size="22" fill="${INK}">${esc(promise[0])}</text>
-  <text x="74" y="1146" font-size="22" fill="${INK}">${esc(promise[1])}</text>
+  <text x="100" y="1146" font-size="22" fill="${INK}">${esc(promise[1])}</text>
   ${heart(654, 1108, 16, "#f37c93")}
   ${rainbow}
   ${cloud(700)}${cloud(780)}
