@@ -136,6 +136,7 @@ export default function BankbookApp({ students }: { students: Student[] }) {
     setFading(true);
     setTimeout(() => {
       setStep(n);
+      setChecking(false);
       setFading(false);
     }, 200);
   };
@@ -271,7 +272,6 @@ export default function BankbookApp({ students }: { students: Student[] }) {
     if (checking || fading) return;
     setChecking(true);
     setTimeout(() => {
-      setChecking(false);
       goStep(step + 1);
     }, CHECK_MS);
   };
@@ -371,7 +371,7 @@ export default function BankbookApp({ students }: { students: Student[] }) {
                       <CheckIcon className="h-4 w-4" />
                     ) : (
                       <>
-                        <span className={`transition-opacity duration-150 ${i === step && checking ? "opacity-0" : ""}`}>{i + 1}</span>
+                        <span className={i === step && checking ? "invisible" : ""}>{i + 1}</span>
                         {i === step && (
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="pointer-events-none absolute h-4 w-4" aria-hidden="true">
                             <path d="M5 12.5l4.5 4.5L19 7.5" strokeDasharray="22" strokeDashoffset={checking ? 0 : 22} style={{ transition: `stroke-dashoffset ${CHECK_MS - 150}ms ease-out 100ms` }} />
