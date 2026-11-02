@@ -1,7 +1,6 @@
 "use client";
 
 import { teacherLabel, titleFor, type TemplateSettings } from "@/lib/timetable";
-import { RefreshIcon } from "./icons";
 import type { SettingsErrors } from "./settings";
 
 type Props = {
@@ -15,7 +14,7 @@ type Props = {
 const field =
   "h-11 w-full rounded-lg border bg-white px-3 text-[15px] text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100";
 
-export default function SettingsForm({ settings, defaults, loadError, onChange, errors }: Props) {
+export default function SettingsForm({ settings, loadError, onChange, errors }: Props) {
   if (loadError) {
     return (
       <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
@@ -36,7 +35,6 @@ export default function SettingsForm({ settings, defaults, loadError, onChange, 
   const set = (patch: Partial<TemplateSettings>) => onChange({ ...settings, ...patch });
   const setTeacher = (i: number, patch: { name?: string; room?: string }) =>
     set({ teachers: settings.teachers.map((t, j) => (j === i ? { ...t, ...patch } : t)) });
-  const isDefault = defaults && JSON.stringify(defaults) === JSON.stringify(settings);
 
   return (
     <div className="space-y-7">
@@ -101,7 +99,6 @@ export default function SettingsForm({ settings, defaults, loadError, onChange, 
 
       <fieldset>
         <legend className="text-sm font-semibold text-slate-800">특수학급 선생님</legend>
-        <p className="mt-0.5 text-xs text-slate-500">색상은 시간표에서 각 선생님 수업을 구분하는 칸 색이에요.</p>
         <ul className="mt-3 space-y-3">
           {settings.teachers.map((t, i) => {
             const err = errors.get(`teacher-${i}`);
@@ -145,16 +142,6 @@ export default function SettingsForm({ settings, defaults, loadError, onChange, 
 
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
         <span>바꾼 내용은 이 브라우저에 자동 저장돼요.</span>
-        {defaults && !isDefault && (
-          <button
-            type="button"
-            onClick={() => onChange(defaults)}
-            className="inline-flex items-center gap-1 rounded-md px-2 py-1 font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-          >
-            <RefreshIcon className="h-3.5 w-3.5" />
-            양식 기본값으로
-          </button>
-        )}
       </div>
     </div>
   );

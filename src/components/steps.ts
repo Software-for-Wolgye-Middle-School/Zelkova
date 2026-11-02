@@ -6,7 +6,7 @@ export const WIZARD_STEPS = [
   {
     title: "기본 정보",
     heading: "학년도와 선생님을 확인해 주세요",
-    description: "시간표 제목과 선생님 칸에 들어갈 내용이에요. 바뀐 것이 없으면 그대로 다음으로 넘어가세요.",
+    description: "",
   },
   {
     title: "특수학생 정보",

@@ -154,7 +154,7 @@ export default function UploadWizard({
         <h2 id="step-title" className="mt-1 text-xl font-bold tracking-tight text-slate-900">
           {def.heading}
         </h2>
-        <p className="mt-1 text-[15px] text-slate-500">{def.description}</p>
+        {def.description && <p className="mt-1 text-[15px] text-slate-500">{def.description}</p>}
 
         <div className="mt-6">
           {step === 0 ? (
@@ -498,8 +498,8 @@ function ReviewList({
             <PencilIcon className="h-4 w-4" />
           </span>
           <div className="min-w-0 flex-1">
-            <p className="text-xs text-slate-400">2. 특수학생 정보</p>
-            <p className="truncate text-sm font-medium text-slate-800">직접 입력 · {studentCount}명</p>
+            <p className="text-xs text-slate-400">2. 특수학생 정보 ({studentCount}명)</p>
+            <p className="truncate text-sm font-medium text-slate-800">직접 입력</p>
           </div>
           <button
             type="button"
