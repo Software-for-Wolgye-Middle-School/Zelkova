@@ -45,7 +45,8 @@ type PictureKey = string;
 
 const BLANK_ART = "data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%271%27 height=%271%27%3E%3Crect width=%271%27 height=%271%27 fill=%27%23fff%27/%3E%3C/svg%3E";
 const MAX_LEDGERS = 99;
-const MAX_PREVIEW_SHEETS = 4;
+const SLIDE_MS = 450;
+const CHECK_MS = 600;
 
 const field =
   "h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-[15px] outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100";
@@ -74,6 +75,9 @@ export default function BankbookApp({ students }: { students: Student[] }) {
   const [step, setStep] = useState(0);
   const [fading, setFading] = useState(false);
   const [fadeTo, setFadeTo] = useState(0);
+  const [checking, setChecking] = useState(false);
+  const [sheetIdx, setSheetIdx] = useState(0);
+  const [sheetAnim, setSheetAnim] = useState<{ from: number; to: number; slid: boolean } | null>(null);
   const [name, setName] = useState("");
   const [bank, setBank] = useState("느티나무 은행");
   const [branch, setBranch] = useState("월계중학교");
@@ -261,6 +265,49 @@ export default function BankbookApp({ students }: { students: Student[] }) {
     }
   };
 
+  /** ì²´í¬ íìê° ê·¸ë ¤ì§ ë¤ì ë¤ì ë¨ê³ë¡ ëì´ê° */
+  const goNext = () => {
+    if (checking || fading) return;
+    setChecking(true);
+    setTimeout(() => {
+      setChecking(false);
+      goStep(step + 1);
+    }, CHECK_MS);
+  };
+
+  const curSheet = Math.min(sheetIdx, sheets - 1);
+  /** ì¤ë¥¸ìª½: ì§ê¸ ì¢ì´ê° ì¤ë¥¸ìª½ì¼ë¡ ë°ë ¤ëë©° ë¤ì ì¢ì´ê° ëë¬ë¨, ì¼ìª½: ì ì¢ì´ê° ì¤ë¥¸ìª½ìì ìì ë®ì */
+  const flipSheet = (to: number) => {
+    if (sheetAnim || to < 0 || to >= sheets) return;
+    setSheetAnim({ from: curSheet, to, slid: false });
+    requestAnimationFrame(() => requestAnimationFrame(() => setSheetAnim((a) => a && { ...a, slid: true })));
+    setTimeout(() => {
+      setSheetIdx(to);
+      setSheetAnim(null);
+    }, SLIDE_MS);
+  };
+  const sheetView = (s: number, offset: boolean) => (
+    <div
+      key={s}
+      className="absolute inset-0 bg-white shadow-md transition-transform ease-in-out motion-reduce:transition-none"
+      style={{ transform: offset ? "translateX(105%)" : "translateX(0)", transitionDuration: `${SLIDE_MS}ms` }}
+    >
+      {pages.slice(s * layout.perSheet, (s + 1) * layout.perSheet).map((p, slot) => (
+        <div
+          key={p.key}
+          className="absolute overflow-hidden outline-dashed outline-1 outline-slate-300 [&>svg]:block [&>svg]:h-full [&>svg]:w-full"
+          style={{
+            left: `${((layout.left + (slot % layout.cols) * layout.page.w) / layout.paper.w) * 100}%`,
+            top: `${((layout.top + Math.floor(slot / layout.cols) * layout.page.h) / layout.paper.h) * 100}%`,
+            width: `${(layout.page.w / layout.paper.w) * 100}%`,
+            height: `${(layout.page.h / layout.paper.h) * 100}%`,
+          }}
+          dangerouslySetInnerHTML={{ __html: p.svg }}
+        />
+      ))}
+    </div>
+  );
+
   const last = step === STEPS.length - 1;
   /** 이름을 적어야 이름 단계 다음으로 갈 수 있음 */
   const canNext = step === 0 ? !!pictureArt : step === 1 ? !!trimmed : true;
@@ -315,11 +362,23 @@ export default function BankbookApp({ students }: { students: Student[] }) {
                   className="flex flex-col items-center gap-1 disabled:cursor-default"
                 >
                   <span
-                    className={`grid h-8 w-8 place-items-center rounded-full text-sm font-bold transition ${
+                    className={`relative grid h-8 w-8 place-items-center rounded-full text-sm font-bold transition ${
                       i < step ? "bg-indigo-600 text-white" : i === step ? "bg-indigo-600 text-white ring-4 ring-indigo-100" : "bg-slate-100 text-slate-400"
                     }`}
                   >
-                    {i < step ? <CheckIcon className="h-4 w-4" /> : i + 1}
+                    {i < step ? (
+                      <CheckIcon className="h-4 w-4" />
+                    ) : (
+                      <>
+                        <span className={`transition-opacity duration-150 ${i === step && checking ? "opacity-0" : ""}`}>{i + 1}</span>
+                        {i === step && (
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="pointer-events-none absolute h-4 w-4" aria-hidden="true">
+                            <path d="M5 12.5l4.5 4.5L19 7.5" strokeDasharray="22" strokeDashoffset={checking ? 0 : 22} style={{ transition: `stroke-dashoffset ${CHECK_MS - 150}ms ease-out 100ms` }} />
+                          </svg>
+                        )}
+                      </>
+                    )}
+
                   </span>
                   <span className={`text-[11px] font-semibold ${i <= step ? "text-slate-800" : "text-slate-400"}`}>{s.title}</span>
                 </button>
@@ -527,8 +586,8 @@ export default function BankbookApp({ students }: { students: Student[] }) {
             {!last && (
               <button
                 type="button"
-                onClick={() => goStep(step + 1)}
-                disabled={!canNext}
+                onClick={goNext}
+                disabled={!canNext || checking}
                 className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
               >
                 다음
@@ -542,34 +601,41 @@ export default function BankbookApp({ students }: { students: Student[] }) {
         <section aria-label="칭찬통장 미리보기" className={`min-w-0 space-y-4 ${previewView(step) === previewView(fadeTo) ? "" : fadeClass}`}>
           {/* 앞면 · 속지 · 거래 내역 · 뒷면 (거래 내역은 모든 쪽이 같음) */}
           {step === 4 && (
-            <div className="space-y-4">
-              {Array.from({ length: Math.min(sheets, MAX_PREVIEW_SHEETS) }, (_, s) => (
-                <figure key={s} className="rounded-2xl border border-slate-200 bg-slate-100 p-3 sm:p-5">
-                  <figcaption className="mb-2 text-xs font-semibold text-slate-500">
-                    A4 {layout.orientation === "landscape" ? "가로" : "세로"} {s + 1}/{sheets}장 ({layout.page.w} × {layout.page.h}mm)
-                  </figcaption>
-                  <div
-                    className="relative mx-auto bg-white shadow-md"
-                    style={{ aspectRatio: `${layout.paper.w} / ${layout.paper.h}`, maxWidth: layout.orientation === "landscape" ? 640 : 452 }}
-                  >
-                    {pages.slice(s * layout.perSheet, (s + 1) * layout.perSheet).map((p, slot) => (
-                      <div
-                        key={p.key}
-                        className="absolute overflow-hidden outline-dashed outline-1 outline-slate-300 [&>svg]:block [&>svg]:h-full [&>svg]:w-full"
-                        style={{
-                          left: `${((layout.left + (slot % layout.cols) * layout.page.w) / layout.paper.w) * 100}%`,
-                          top: `${((layout.top + Math.floor(slot / layout.cols) * layout.page.h) / layout.paper.h) * 100}%`,
-                          width: `${(layout.page.w / layout.paper.w) * 100}%`,
-                          height: `${(layout.page.h / layout.paper.h) * 100}%`,
-                        }}
-                        dangerouslySetInnerHTML={{ __html: p.svg }}
-                      />
-                    ))}
-                  </div>
-                </figure>
-              ))}
-              {sheets > MAX_PREVIEW_SHEETS && <p className="text-center text-xs text-slate-400">미리보기는 처음 {MAX_PREVIEW_SHEETS}장까지만 보여 줘요. PDF에는 모두 들어가요.</p>}
-            </div>
+            <figure className="rounded-2xl border border-slate-200 bg-slate-100 p-3 sm:p-5">
+              <figcaption className="mb-2 text-xs font-semibold text-slate-500">
+                A4 {layout.orientation === "landscape" ? "ê°ë¡" : "ì¸ë¡"} {curSheet + 1}/{sheets}ì¥ ({layout.page.w} Ã {layout.page.h}mm)
+              </figcaption>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => flipSheet(curSheet - 1)}
+                  disabled={curSheet === 0 || !!sheetAnim}
+                  aria-label="ì ì¥ ë³´ê¸°"
+                  className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white text-slate-600 shadow ring-1 ring-slate-200 transition hover:bg-indigo-50 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <ArrowLeftIcon className="h-4 w-4" />
+                </button>
+                <div
+                  className="relative mx-auto min-w-0 flex-1 overflow-hidden"
+                  style={{ aspectRatio: `${layout.paper.w} / ${layout.paper.h}`, maxWidth: layout.orientation === "landscape" ? 640 : 452 }}
+                >
+                  {sheetAnim
+                    ? sheetAnim.to > sheetAnim.from
+                      ? [sheetView(sheetAnim.to, false), sheetView(sheetAnim.from, sheetAnim.slid)]
+                      : [sheetView(sheetAnim.from, false), sheetView(sheetAnim.to, !sheetAnim.slid)]
+                    : sheetView(curSheet, false)}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => flipSheet(curSheet + 1)}
+                  disabled={curSheet >= sheets - 1 || !!sheetAnim}
+                  aria-label="ë¤ì ì¥ ë³´ê¸°"
+                  className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white text-slate-600 shadow ring-1 ring-slate-200 transition hover:bg-indigo-50 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <ArrowRightIcon className="h-4 w-4" />
+                </button>
+              </div>
+            </figure>
           )}
 
           <div className={step === 4 ? "hidden" : ""}>{slotGrid}</div>
