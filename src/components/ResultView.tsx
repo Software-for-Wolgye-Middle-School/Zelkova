@@ -226,7 +226,7 @@ function StudentDocHeader({ doc }: { doc: StudentDoc }) {
         <p className="font-semibold text-slate-900">
           {doc.student.name}
           <span className="ml-2 text-sm font-normal text-slate-500">
-            {doc.student.grade}학년 {doc.student.cls}반 · {doc.student.subjects.join(", ")}
+            {doc.student.grade}학년 {doc.student.cls}반 ({doc.student.subjects.join(", ")})
           </span>
         </p>
         {doc.hours === 0 && (
