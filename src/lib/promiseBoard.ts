@@ -4,7 +4,8 @@
 
 export const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"] as const;
 
-export type PromiseBoardRequest = { name: string; year: number; month: number };
+/** promise: 하단 '이 달의 약속' 칸의 두 줄 (직접 입력) */
+export type PromiseBoardRequest = { name: string; year: number; month: number; promise?: [string, string] };
 
 /** 해당 월의 달력: 주마다 일~토 7칸, 날짜가 없는 칸은 null */
 export function monthWeeks(year: number, month: number): (number | null)[][] {

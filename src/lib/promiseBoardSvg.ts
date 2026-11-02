@@ -82,7 +82,7 @@ function puppy() {
 export type BoardOptions = { fontCss?: string };
 
 /** 약속판 SVG 문자열 (미리보기와 내려받기에 똑같이 사용) */
-export function boardSvg({ name, year, month }: PromiseBoardRequest, opts: BoardOptions = {}) {
+export function boardSvg({ name, year, month, promise = ["", ""] }: PromiseBoardRequest, opts: BoardOptions = {}) {
   const weeks = monthWeeks(year, month);
   const x0 = 36;
   const x1 = BOARD_W - 36;
@@ -169,6 +169,8 @@ export function boardSvg({ name, year, month }: PromiseBoardRequest, opts: Board
   <g stroke="#dcc3a3" stroke-width="2" stroke-dasharray="2 5" stroke-linecap="round">
     <line x1="96" y1="1122" x2="640" y2="1122"/><line x1="70" y1="1152" x2="640" y2="1152"/>
   </g>
+  <text x="100" y="1116" font-size="22" fill="${INK}">${esc(promise[0])}</text>
+  <text x="74" y="1146" font-size="22" fill="${INK}">${esc(promise[1])}</text>
   ${heart(654, 1108, 16, "#f37c93")}
   ${rainbow}
   ${cloud(700)}${cloud(780)}
@@ -180,7 +182,7 @@ export function boardSvg({ name, year, month }: PromiseBoardRequest, opts: Board
 // ---------------------------------------------------------------- 내려받기 · 인쇄 (브라우저 전용)
 
 const boardText = (req: PromiseBoardRequest) =>
-  [TITLE, RIBBON, ...BUBBLE, BOTTOM, WEEKDAYS.join(""), `${req.year}년 ${req.month}월`, `이름: ${req.name}`].join("");
+  [TITLE, RIBBON, ...BUBBLE, BOTTOM, WEEKDAYS.join(""), `${req.year}년 ${req.month}월`, `이름: ${req.name}`, ...(req.promise ?? [])].join("");
 
 /** A4 인쇄에 충분한 해상도의 PNG */
 export async function boardPng(req: PromiseBoardRequest, scale = 2.5): Promise<Blob> {

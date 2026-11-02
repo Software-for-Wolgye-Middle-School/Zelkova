@@ -22,6 +22,7 @@ const field =
 export default function PromiseBoardApp() {
   const [name, setName] = useState("");
   const [{ year, month }, setYm] = useState(defaultMonth);
+  const [promise, setPromise] = useState<[string, string]>(["", ""]);
   const [savedNames, setSavedNames] = useState<string[]>([]);
   const [busy, setBusy] = useState<"png" | "print" | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -34,8 +35,8 @@ export default function PromiseBoardApp() {
   }, []);
 
   const trimmed = name.trim().replace(/\s+/g, " ").slice(0, 12);
-  const req: PromiseBoardRequest = { name: trimmed || "○○○", year, month };
-  const svg = useMemo(() => boardSvg({ name: trimmed || "○○○", year, month }), [trimmed, year, month]);
+  const req: PromiseBoardRequest = { name: trimmed || "○○○", year, month, promise };
+  const svg = useMemo(() => boardSvg({ name: trimmed || "○○○", year, month, promise }), [trimmed, year, month, promise]);
 
   const downloadPng = async () => {
     setBusy("png");
@@ -130,6 +131,24 @@ export default function PromiseBoardApp() {
                   </option>
                 ))}
               </select>
+            </div>
+          </div>
+
+          <div>
+            <p className="text-sm font-semibold text-slate-800">이 달의 약속</p>
+            <div className="mt-2 space-y-2">
+              {[0, 1].map((i) => (
+                <input
+                  key={i}
+                  value={promise[i]}
+                  maxLength={24}
+                  autoComplete="off"
+                  aria-label={`이 달의 약속 ${i + 1}번째 줄`}
+                  placeholder={i === 0 ? "예: 매일 책 10쪽 읽기" : ""}
+                  onChange={(e) => setPromise((p) => (i === 0 ? [e.target.value, p[1]] : [p[0], e.target.value]))}
+                  className={field}
+                />
+              ))}
             </div>
           </div>
 
