@@ -62,6 +62,9 @@ const STEPS = [
 /** 쪽 크기 바로 고르기: A4 한 장에 n쪽이 들어가는 가장 큰 크기 */
 const SIZE_PRESETS = [1, 2, 4, 8].map((n) => ({ n, w: largestWidthFor(n) }));
 
+/** 단계별로 미리보기에 보이는 화면. 같은 화면이면 단계를 옮겨도 미리보기를 다시 불러오지 않음 */
+const previewView = (step: number) => (step === 1 || step === 2 ? "info" : step === 3 ? "ledger" : step === 4 ? "save" : "all");
+
 const today = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -70,6 +73,7 @@ const today = () => {
 export default function BankbookApp({ students }: { students: Student[] }) {
   const [step, setStep] = useState(0);
   const [fading, setFading] = useState(false);
+  const [fadeTo, setFadeTo] = useState(0);
   const [name, setName] = useState("");
   const [bank, setBank] = useState("느티나무 은행");
   const [branch, setBranch] = useState("월계중학교");
@@ -123,6 +127,7 @@ export default function BankbookApp({ students }: { students: Student[] }) {
   /** 단계를 바꿀 때 화면이 서서히 사라졌다가 새 화면이 서서히 나타남 */
   const goStep = (n: number) => {
     if (n === step || fading) return;
+    setFadeTo(n);
     setFading(true);
     setTimeout(() => {
       setStep(n);
@@ -534,14 +539,14 @@ export default function BankbookApp({ students }: { students: Student[] }) {
           {step === 1 && !trimmed && <p className="-mt-3 text-center text-xs text-slate-400">이름을 입력하면 다음으로 넘어갈 수 있어요</p>}
         </div>
 
-        <section aria-label="칭찬통장 미리보기" className={`min-w-0 space-y-4 ${fadeClass}`}>
+        <section aria-label="칭찬통장 미리보기" className={`min-w-0 space-y-4 ${previewView(step) === previewView(fadeTo) ? "" : fadeClass}`}>
           {/* 앞면 · 속지 · 거래 내역 · 뒷면 (거래 내역은 모든 쪽이 같음) */}
           {step === 4 && (
             <div className="space-y-4">
               {Array.from({ length: Math.min(sheets, MAX_PREVIEW_SHEETS) }, (_, s) => (
                 <figure key={s} className="rounded-2xl border border-slate-200 bg-slate-100 p-3 sm:p-5">
                   <figcaption className="mb-2 text-xs font-semibold text-slate-500">
-                    A4 {layout.orientation === "landscape" ? "가로" : "세로"} {s + 1}/{sheets}장 · 한 쪽 {layout.page.w} × {layout.page.h}mm
+                    A4 {layout.orientation === "landscape" ? "가로" : "세로"} {s + 1}/{sheets}장 ({layout.page.w} × {layout.page.h}mm)
                   </figcaption>
                   <div
                     className="relative mx-auto bg-white shadow-md"
@@ -700,6 +705,8 @@ function FadePage({ svg, fadeKey, label }: { svg: string | undefined; fadeKey: s
     }
     if (shown.key === fadeKey) {
       if (shown.svg !== svg) setShown({ svg, key: fadeKey });
+      // 처음 나타날 때 예약한 표시 동작이 다시 실행되며 취소되므로 여기서 보이게 함
+      setVisible(true);
       return;
     }
     setVisible(false);
