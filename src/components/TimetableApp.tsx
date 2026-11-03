@@ -159,6 +159,14 @@ export default function TimetableApp() {
     saveRows(next, TIMETABLE_KEY);
   }, []);
 
+  /** 시간표 만들기를 새로 시작하면 학생 목록을 다시 학생 정보 관리에서 가져옴 */
+  const resetTtRows = useCallback(() => {
+    const fresh = rows.filter((r) => r.name.trim() || r.cls.trim()).map((r) => ({ ...r, subjects: [...r.subjects] }));
+    const next = fresh.length ? fresh : INITIAL_ROWS;
+    setTtRows(next);
+    saveRows(next, TIMETABLE_KEY);
+  }, [rows]);
+
   const { students, errors: studentErrors } = useMemo(() => validateRows(ttRows), [ttRows]);
   const registeredStudents = useMemo(() => validateRows(rows).students, [rows]);
 
@@ -262,7 +270,10 @@ export default function TimetableApp() {
   }, [classSlot, students, studentErrors, settings, settingsErrors]);
 
   /** 시간표 메뉴: 만든 결과가 있으면 결과 화면으로, 없으면 입력 단계로 */
-  const openTimetable = useCallback(() => setPhase(result ? "result" : "upload"), [result]);
+  const openTimetable = useCallback(() => {
+    if (!result) resetTtRows();
+    setPhase(result ? "result" : "upload");
+  }, [result, resetTtRows]);
 
   /** 기본 정보와 학생 목록은 저장해 두고, 학급 시간표만 비운 채 처음 단계로 */
   const restart = useCallback(() => {
@@ -270,8 +281,9 @@ export default function TimetableApp() {
     setClassSlot({ status: "empty" });
     setResult(null);
     setStep(0);
+    resetTtRows();
     setPhase("upload");
-  }, []);
+  }, [resetTtRows]);
 
   return (
     <div className="flex min-h-full flex-1 flex-col">
