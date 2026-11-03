@@ -52,13 +52,13 @@ export default function StudentsApp({ rows, onRowsChange }: { rows: StudentRow[]
     onRowsChange(rest.length ? rest : [newRow()]);
   };
 
-  /** 이미 등록한 학생의 학년이나 과목을 고침 (이름 · 반은 그대로) */
-  const update = (id: string, patch: Partial<Pick<StudentRow, "grade" | "subjects">>) => {
+  /** 이미 등록한 학생의 학년 · 반 · 과목을 고침 (이름은 그대로) */
+  const update = (id: string, patch: Partial<Pick<StudentRow, "grade" | "cls" | "subjects">>) => {
     const target = registered.find((r) => r.id === id);
     if (!target) return;
     const next = { ...target, ...patch };
     if (registered.some((r) => r.id !== id && r.grade === next.grade && Number(r.cls) === Number(next.cls) && r.name.trim() === next.name.trim())) {
-      return setError(`${next.grade}학년 ${next.cls}반 ${next.name} 학생이 이미 있어서 학년을 바꿀 수 없어요`);
+      return setError(`${next.grade}학년 ${next.cls}반 ${next.name} 학생이 이미 있어서 바꿀 수 없어요`);
     }
     setError(null);
     onRowsChange(registered.map((r) => (r.id === id ? next : r)));
@@ -212,7 +212,18 @@ export default function StudentsApp({ rows, onRowsChange }: { rows: StudentRow[]
                       </option>
                     ))}
                   </select>
-                  <span className="shrink-0 text-sm font-semibold text-slate-600">{r.cls}반</span>
+                  <select
+                    value={r.cls}
+                    aria-label={`${r.name} 반`}
+                    onChange={(e) => update(r.id, { cls: e.target.value })}
+                    className="h-9 shrink-0 rounded-lg border border-slate-200 bg-white px-2 text-sm font-semibold text-slate-700 outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100"
+                  >
+                    {(CLASSES.includes(r.cls) ? CLASSES : [...CLASSES, r.cls]).map((c) => (
+                      <option key={c} value={c}>
+                        {c}반
+                      </option>
+                    ))}
+                  </select>
                   <span className="min-w-0 flex-1 truncate text-[15px] font-semibold text-slate-900">
                     {r.name}
                     {invalid.has(r.id) && <span className="ml-2 text-xs font-medium text-red-500">정보를 확인해 주세요</span>}

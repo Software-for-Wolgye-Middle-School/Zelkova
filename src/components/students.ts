@@ -36,12 +36,33 @@ export function validateRows(rows: StudentRow[]) {
   return { students, errors };
 }
 
-// ---------------------------------------------------------------- 브라우저에 자동 저장
-const STORAGE_KEY = "zelkova.students.v1";
+/** 학생 정보 관리 → 시간표 방향으로만 반영: 등록한 학생이 새로 생기면 시간표 목록에 더하고, 지우면 시간표 목록에서도 뺌 (반대 방향은 없음) */
+export function syncToTimetable(prevReg: StudentRow[], nextReg: StudentRow[], tt: StudentRow[]): StudentRow[] {
+  const key = (r: StudentRow) => `${r.grade}|${Number(r.cls)}|${r.name.trim()}`;
+  const map = (rows: StudentRow[]) => new Map(rows.filter((r) => !isBlank(r)).map((r) => [key(r), r]));
+  const prev = map(prevReg);
+  const next = map(nextReg);
+  let out = tt.filter((r) => !isBlank(r) && !(prev.has(key(r)) && !next.has(key(r))));
+  for (const [k, r] of next) {
+    const old = prev.get(k);
+    if (!old) {
+      if (!out.some((x) => key(x) === k)) out = [...out, { ...r, id: newId(), subjects: [...r.subjects] }];
+    } else if (old.subjects.join() !== r.subjects.join()) {
+      out = out.map((x) => (key(x) === k ? { ...x, subjects: [...r.subjects] } : x));
+    }
+  }
+  return out.length ? out : [newRow()];
+}
 
-export function loadRows(): StudentRow[] | null {
+// ---------------------------------------------------------------- 브라우저에 자동 저장
+/** 학생 정보 관리에 등록한 학생 */
+const STORAGE_KEY = "zelkova.students.v1";
+/** 시간표 만들기에서 쓰는 학생 목록 (여기서 지워도 학생 정보 관리의 학생은 그대로) */
+export const TIMETABLE_KEY = "zelkova.timetableStudents.v1";
+
+export function loadRows(storageKey = STORAGE_KEY): StudentRow[] | null {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey);
     if (!raw) return null;
     const data = JSON.parse(raw) as Partial<StudentRow>[];
     if (!Array.isArray(data) || data.length === 0) return null;
@@ -59,11 +80,11 @@ export function loadRows(): StudentRow[] | null {
   }
 }
 
-export function saveRows(rows: StudentRow[]) {
+export function saveRows(rows: StudentRow[], storageKey = STORAGE_KEY) {
   try {
     const data = rows.filter((r) => !isBlank(r)).map(({ grade, cls, name, subjects }) => ({ grade, cls, name, subjects }));
-    if (data.length) localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    else localStorage.removeItem(STORAGE_KEY);
+    if (data.length) localStorage.setItem(storageKey, JSON.stringify(data));
+    else localStorage.removeItem(storageKey);
   } catch {
     // 저장하지 못해도 입력은 계속할 수 있음
   }

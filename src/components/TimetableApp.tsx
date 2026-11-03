@@ -17,7 +17,7 @@ import {
   type TemplateSettings,
 } from "@/lib/timetable";
 import { DEFAULT_TEMPLATE_URL, type SlotState } from "./steps";
-import { DEFAULT_SUBJECTS, loadRows, saveRows, validateRows, type StudentRow } from "./students";
+import { DEFAULT_SUBJECTS, loadRows, saveRows, syncToTimetable, TIMETABLE_KEY, validateRows, type StudentRow } from "./students";
 import { cleanSettings, loadSettings, saveSettings, validateSettings } from "./settings";
 import UploadWizard from "./UploadWizard";
 import GeneratingScreen from "./GeneratingScreen";
@@ -99,7 +99,8 @@ function loadDefaultTemplate() {
 export default function TimetableApp() {
   const [phase, setPhase] = useState<Phase>("home");
   const [step, setStep] = useState(0);
-  const [rows, setRows] = useState<StudentRow[]>(INITIAL_ROWS);
+  const [rows, setRows] = useState<StudentRow[]>(INITIAL_ROWS); // 학생 정보 관리에 등록한 학생
+  const [ttRows, setTtRows] = useState<StudentRow[]>(INITIAL_ROWS); // 시간표에 쓸 학생
   const [settings, setSettings] = useState<TemplateSettings | null>(null);
   const [defaults, setDefaults] = useState<TemplateSettings | null>(null);
   const [settingsLoadError, setSettingsLoadError] = useState<string | null>(null);
@@ -114,6 +115,9 @@ export default function TimetableApp() {
     const saved = loadRows();
     // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage 는 브라우저에서만 읽을 수 있음
     if (saved) setRows(saved);
+    // 시간표 학생 목록이 따로 저장돼 있지 않으면 등록한 학생을 그대로 가져옴
+    const tt = loadRows(TIMETABLE_KEY) ?? saved?.map((r) => ({ ...r, subjects: [...r.subjects] }));
+    if (tt) setTtRows(tt);
   }, []);
 
   // 양식에서 학년도 · 학기 · 선생님 기본값을 읽고, 지난번 바꾼 값을 덮어씀
@@ -137,12 +141,26 @@ export default function TimetableApp() {
 
   const settingsErrors = useMemo(() => (settings ? validateSettings(settings) : new Map<string, string>()), [settings]);
 
-  const changeRows = useCallback((next: StudentRow[]) => {
-    setRows(next);
-    saveRows(next);
+  /** 학생 정보 관리에서 바꾸면 시간표 학생 목록에도 반영 */
+  const changeRows = useCallback(
+    (next: StudentRow[]) => {
+      const nextTt = syncToTimetable(rows, next, ttRows);
+      setRows(next);
+      saveRows(next);
+      setTtRows(nextTt);
+      saveRows(nextTt, TIMETABLE_KEY);
+    },
+    [rows, ttRows],
+  );
+
+  /** 시간표에서 바꾼 학생 목록은 학생 정보 관리에 영향을 주지 않음 */
+  const changeTtRows = useCallback((next: StudentRow[]) => {
+    setTtRows(next);
+    saveRows(next, TIMETABLE_KEY);
   }, []);
 
-  const { students, errors: studentErrors } = useMemo(() => validateRows(rows), [rows]);
+  const { students, errors: studentErrors } = useMemo(() => validateRows(ttRows), [ttRows]);
+  const registeredStudents = useMemo(() => validateRows(rows).students, [rows]);
 
   const handleFile = useCallback(async (file: File) => {
     const token = ++uploadToken.current;
@@ -298,8 +316,8 @@ export default function TimetableApp() {
                 settingsLoadError={settingsLoadError}
                 onSettingsChange={changeSettings}
                 settingsErrors={settingsErrors}
-                rows={rows}
-                onRowsChange={changeRows}
+                rows={ttRows}
+                onRowsChange={changeTtRows}
                 studentErrors={studentErrors}
                 studentCount={students.length}
                 classSlot={classSlot}
@@ -313,8 +331,8 @@ export default function TimetableApp() {
             {phase === "generating" && <GeneratingScreen stage={stage} />}
             {phase === "result" && result && <ResultView result={result} onRestart={restart} />}
             {phase === "promise" && <PromiseBoardApp />}
-            {phase === "bankbook" && <BankbookApp students={students} />}
-            {phase === "nametag" && <NameTagApp students={students} />}
+            {phase === "bankbook" && <BankbookApp students={registeredStudents} />}
+            {phase === "nametag" && <NameTagApp students={registeredStudents} />}
             {phase === "students" && <StudentsApp rows={rows} onRowsChange={changeRows} />}
             {phase === "handwriting" && <HandwritingApp />}
             {phase === "meal" && <MealApp />}
