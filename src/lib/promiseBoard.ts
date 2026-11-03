@@ -13,13 +13,11 @@ export const PROMISE_LINE_CHARS = 24;
 /** 입력한 글을 줄 수 · 줄 길이 제한에 맞게 다듬음 (A4 한 장을 넘지 않도록) */
 export function clampPromise(text: string): string {
   return text
-    .replace(//g, "")
-    .split("
-")
+    .replace(/\r/g, "")
+    .split("\n")
     .slice(0, PROMISE_MAX_LINES)
     .map((l) => l.slice(0, PROMISE_LINE_CHARS))
-    .join("
-");
+    .join("\n");
 }
 
 /** 해당 월의 달력: 주마다 일~토 7칸, 날짜가 없는 칸은 null */
