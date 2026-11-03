@@ -31,7 +31,7 @@ export default function PromiseBoardApp() {
   useEffect(() => {
     const rows = loadRows() ?? [];
     // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage 는 브라우저에서만 읽을 수 있음
-    setSavedNames([...new Set(rows.map((r) => r.name.trim()).filter(Boolean))]);
+    setSavedNames([...new Set(rows.map((r) => r.name.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ko")));
   }, []);
 
   const trimmed = name.trim().replace(/\s+/g, " ").slice(0, 12);
@@ -80,26 +80,19 @@ export default function PromiseBoardApp() {
               className={`mt-2 ${field}`}
             />
             {savedNames.length > 0 && (
-              <div className="mt-2.5">
-                <p className="text-xs text-slate-400">등록된 학생</p>
-                <div className="mt-1.5 flex flex-wrap gap-1.5">
-                  {savedNames.map((n) => (
-                    <button
-                      key={n}
-                      type="button"
-                      onClick={() => setName(n)}
-                      aria-pressed={trimmed === n}
-                      className={`rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset transition ${
-                        trimmed === n
-                          ? "bg-indigo-50 text-indigo-700 ring-indigo-300"
-                          : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"
-                      }`}
-                    >
-                      {n}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <select
+                aria-label="등록된 학생 선택"
+                value={savedNames.includes(trimmed) ? trimmed : ""}
+                onChange={(e) => e.target.value && setName(e.target.value)}
+                className={`mt-2 ${field}`}
+              >
+                <option value="">등록된 학생에서 고르기</option>
+                {savedNames.map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
             )}
           </div>
 
