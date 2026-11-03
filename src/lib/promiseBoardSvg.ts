@@ -82,14 +82,18 @@ function puppy() {
 export type BoardOptions = { fontCss?: string };
 
 /** 약속판 SVG 문자열 (미리보기와 내려받기에 똑같이 사용) */
-export function boardSvg({ name, year, month, promise = ["", ""] }: PromiseBoardRequest, opts: BoardOptions = {}) {
+export function boardSvg({ name, year, month, promise = [] }: PromiseBoardRequest, opts: BoardOptions = {}) {
   const weeks = monthWeeks(year, month);
   const x0 = 36;
   const x1 = BOARD_W - 36;
   const colW = (x1 - x0) / 7;
   const top = 214;
   const headH = 56;
-  const bottom = 1066;
+  // 약속 줄이 2줄을 넘으면 칸을 위로 늘리고 달력을 줄여, 항상 A4 한 장 안에 담음
+  const lines = Math.max(2, promise.length);
+  const boxH = 118 + (lines - 2) * 30;
+  const boxTop = 1198 - boxH;
+  const bottom = boxTop - 14;
   const rowH = (bottom - top - headH) / weeks.length;
 
   // 제목: 글자마다 다른 색, 진한 테두리
@@ -125,6 +129,11 @@ export function boardSvg({ name, year, month, promise = ["", ""] }: PromiseBoard
   }).join("");
   const gridH = [top + headH, ...Array.from({ length: weeks.length - 1 }, (_, i) => top + headH + (i + 1) * rowH)]
     .map((y) => `<line x1="${x0}" y1="${y}" x2="${x1}" y2="${y}"/>`)
+    .join("");
+
+  const promiseLines = Array.from({ length: lines }, (_, i) => `<line x1="96" y1="${boxTop + 42 + i * 30}" x2="640" y2="${boxTop + 42 + i * 30}"/>`).join("");
+  const promiseText = promise
+    .map((l, i) => (l ? `<text x="100" y="${boxTop + 36 + i * 30}" font-size="22" fill="${INK}">${esc(l)}</text>` : ""))
     .join("");
 
   const monthLabel = `${year}년 ${month}월`;
@@ -163,19 +172,16 @@ export function boardSvg({ name, year, month, promise = ["", ""] }: PromiseBoard
   <g stroke="${INK}" stroke-width="2.5">${gridV}${gridH}</g>
   <rect x="${x0}" y="${top}" width="${x1 - x0}" height="${bottom - top}" rx="16" fill="none" stroke="${INK}" stroke-width="3"/>
 
-  <rect x="${x0}" y="1080" width="${x1 - x0}" height="118" rx="16" fill="#fff8e3" stroke="${INK}" stroke-width="3"/>
-  <rect x="${x0 + 8}" y="1088" width="${x1 - x0 - 16}" height="102" rx="12" fill="#fffdf6"/>
-  ${heart(66, 1098, 24, "#e8434f")}
-  <g stroke="#dcc3a3" stroke-width="2" stroke-dasharray="2 5" stroke-linecap="round">
-    <line x1="96" y1="1122" x2="640" y2="1122"/><line x1="96" y1="1152" x2="640" y2="1152"/>
-  </g>
-  <text x="100" y="1116" font-size="22" fill="${INK}">${esc(promise[0])}</text>
-  <text x="100" y="1146" font-size="22" fill="${INK}">${esc(promise[1])}</text>
-  ${heart(654, 1108, 16, "#f37c93")}
+  <rect x="${x0}" y="${boxTop}" width="${x1 - x0}" height="${boxH}" rx="16" fill="#fff8e3" stroke="${INK}" stroke-width="3"/>
+  <rect x="${x0 + 8}" y="${boxTop + 8}" width="${x1 - x0 - 16}" height="${boxH - 16}" rx="12" fill="#fffdf6"/>
+  ${heart(66, boxTop + 18, 24, "#e8434f")}
+  <g stroke="#dcc3a3" stroke-width="2" stroke-dasharray="2 5" stroke-linecap="round">${promiseLines}</g>
+  ${promiseText}
+  ${heart(654, boxTop + 28, 16, "#f37c93")}
   ${rainbow}
   ${cloud(700)}${cloud(780)}
-  ${sparkle(808, 1104, 9)}${sparkle(744, 1190, 6)}
-  <text x="${BOARD_W / 2 - 40}" y="1186" text-anchor="middle" font-size="22" fill="${INK}">${BOTTOM}</text>
+  ${sparkle(808, boxTop + 24, 9)}${sparkle(744, 1190, 6)}
+  <text x="${BOARD_W / 2 - 40}" y="${boxTop + boxH - 12}" text-anchor="middle" font-size="22" fill="${INK}">${BOTTOM}</text>
 </svg>`;
 }
 

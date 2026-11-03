@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { promiseBoardFileName, type PromiseBoardRequest } from "@/lib/promiseBoard";
+import { clampPromise, promiseBoardFileName, PROMISE_LINE_CHARS, PROMISE_MAX_LINES, type PromiseBoardRequest } from "@/lib/promiseBoard";
 import { boardPng, boardSvg, printBoard } from "@/lib/promiseBoardSvg";
 import { DownloadIcon, Spinner } from "./icons";
 import { loadRows } from "./students";
@@ -22,7 +22,7 @@ const field =
 export default function PromiseBoardApp() {
   const [name, setName] = useState("");
   const [{ year, month }, setYm] = useState(defaultMonth);
-  const [promise, setPromise] = useState<[string, string]>(["", ""]);
+  const [promiseText, setPromiseText] = useState("");
   const [savedNames, setSavedNames] = useState<string[]>([]);
   const [busy, setBusy] = useState<"png" | "print" | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -35,6 +35,7 @@ export default function PromiseBoardApp() {
   }, []);
 
   const trimmed = name.trim().replace(/\s+/g, " ").slice(0, 12);
+  const promise = useMemo(() => (promiseText ? promiseText.split("\n") : []), [promiseText]);
   const req: PromiseBoardRequest = { name: trimmed || "○○○", year, month, promise };
   const svg = useMemo(() => boardSvg({ name: trimmed || "○○○", year, month, promise }), [trimmed, year, month, promise]);
 
@@ -92,7 +93,7 @@ export default function PromiseBoardApp() {
             />
             {savedNames.length > 0 && (
               <div className="mt-2.5">
-                <p className="text-xs text-slate-400">시간표에 입력한 학생</p>
+                <p className="text-xs text-slate-400">등록된 학생</p>
                 <div className="mt-1.5 flex flex-wrap gap-1.5">
                   {savedNames.map((n) => (
                     <button
@@ -136,20 +137,18 @@ export default function PromiseBoardApp() {
 
           <div>
             <p className="text-sm font-semibold text-slate-800">이 달의 약속</p>
-            <div className="mt-2 space-y-2">
-              {[0, 1].map((i) => (
-                <input
-                  key={i}
-                  value={promise[i]}
-                  maxLength={24}
-                  autoComplete="off"
-                  aria-label={`이 달의 약속 ${i + 1}번째 줄`}
-                  placeholder={i === 0 ? "예: 매일 책 10쪽 읽기" : ""}
-                  onChange={(e) => setPromise((p) => (i === 0 ? [e.target.value, p[1]] : [p[0], e.target.value]))}
-                  className={field}
-                />
-              ))}
-            </div>
+            <textarea
+              value={promiseText}
+              rows={Math.max(2, promise.length)}
+              autoComplete="off"
+              aria-label="이 달의 약속"
+              placeholder={"예: 매일 책 10쪽 읽기\n(Enter를 누르면 다음 줄에 쓸 수 있어요)"}
+              onChange={(e) => setPromiseText(clampPromise(e.target.value))}
+              className={`mt-2 w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-[15px] leading-6 outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100`}
+            />
+            <p className="mt-1 text-xs text-slate-400">
+              한 줄에 {PROMISE_LINE_CHARS}자까지, 최대 {PROMISE_MAX_LINES}줄까지 쓸 수 있어요. A4 한 장에 맞춰 약속판이 자동으로 조절돼요.
+            </p>
           </div>
 
           <div className="space-y-2 border-t border-slate-100 pt-5">
