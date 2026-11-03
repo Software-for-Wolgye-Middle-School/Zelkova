@@ -8,16 +8,16 @@ export const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;")
 
 export const safeFileName = (s: string) => s.replace(/[\\/:*?"<>|]/g, "").trim();
 
-/** 쓰인 글자만 담은 작은 Jua 글꼴을 받아 SVG 안에 넣을 @font-face 로 만듦 (실패하면 기본 글꼴 사용) */
-export async function embeddedFontCss(text: string) {
+/** 쓰인 글자만 담은 작은 글꼴(기본 Jua)을 받아 SVG 안에 넣을 @font-face 로 만듦 (실패하면 기본 글꼴 사용) */
+export async function embeddedFontCss(text: string, family = "Jua") {
   const chars = [...new Set((text + "0123456789").replace(/\s/g, ""))].join("");
   try {
-    const css = await (await fetch(`https://fonts.googleapis.com/css2?family=Jua&text=${encodeURIComponent(chars)}`)).text();
+    const css = await (await fetch(`https://fonts.googleapis.com/css2?family=${family.replace(/ /g, "+")}&text=${encodeURIComponent(chars)}`)).text();
     const url = css.match(/url\((https:[^)]+)\)/)?.[1];
     if (!url) return "";
     const buf = new Uint8Array(await (await fetch(url)).arrayBuffer());
     const format = url.includes(".woff2") ? "woff2" : url.includes(".woff") ? "woff" : "truetype";
-    return `@font-face{font-family:'Jua';src:url(data:font/${format};base64,${toBase64(buf)}) format('${format}');}`;
+    return `@font-face{font-family:'${family}';src:url(data:font/${format};base64,${toBase64(buf)}) format('${format}');}`;
   } catch {
     return "";
   }

@@ -191,10 +191,12 @@ function toMealTable(table: HwpTable): MealTable | null {
         });
       }
       weeks.push({ cells, nutrition: "" });
-    } else if (kind === "영양량" && weeks.length) {
-      weeks[weeks.length - 1].nutrition = rowCells(r)
+    } else if (weeks.length) {
+      const text = rowCells(r)
         .flatMap((c) => c.lines)
         .join(" ");
+      // 첫 칸의 '영양량' 글자가 빠진 달도 있음
+      if (kind === "영양량" || (kind === "" && text.includes("에너지"))) weeks[weeks.length - 1].nutrition = text;
     }
   }
 

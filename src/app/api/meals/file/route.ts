@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import { schoolFileUrl } from "@/lib/meal";
+import { keepMealPages } from "@/lib/mealPdf";
 
 const CONTENT_TYPES: Record<string, string> = {
   pdf: "application/pdf",
@@ -10,7 +11,7 @@ const CONTENT_TYPES: Record<string, string> = {
   jpeg: "image/jpeg",
 };
 
-/** 가정통신문 첨부 파일을 받아서 그대로 전달 (inline=1 이면 브라우저 안에서 열기) */
+/** 가정통신문 첨부 파일을 받아서 전달, PDF 는 식단표 쪽만 (inline=1 이면 브라우저 안에서 열기) */
 export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
   const url = schoolFileUrl(params.get("id") ?? "", params.get("sn") ?? "");
@@ -23,11 +24,22 @@ export async function GET(request: NextRequest) {
   if (!res?.ok || !res.body) return new Response("학교 홈페이지에서 파일을 받지 못했어요.", { status: 502 });
 
   const disposition = params.get("inline") === "1" ? "inline" : "attachment";
+  const headers = {
+    "Content-Type": CONTENT_TYPES[ext] ?? "application/octet-stream",
+    "Content-Disposition": `${disposition}; filename="meal.${ext}"; filename*=UTF-8''${encodeURIComponent(name)}`,
+    "Cache-Control": "public, max-age=3600",
+  };
+
+  if (ext === "pdf") {
+    const original = new Uint8Array(await res.arrayBuffer());
+    // 식단표 쪽을 못 찾으면 받지 못하는 것보다 나으므로 원본을 그대로 줌
+    const body = (await keepMealPages(original)) ?? original;
+    return new Response(body as Uint8Array<ArrayBuffer>, { headers: { ...headers, "Content-Length": String(body.length) } });
+  }
+
   return new Response(res.body, {
     headers: {
-      "Content-Type": CONTENT_TYPES[ext] ?? "application/octet-stream",
-      "Content-Disposition": `${disposition}; filename="meal.${ext}"; filename*=UTF-8''${encodeURIComponent(name)}`,
-      "Cache-Control": "public, max-age=3600",
+      ...headers,
       ...(res.headers.get("content-length") ? { "Content-Length": res.headers.get("content-length")! } : {}),
     },
   });

@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import { NOTICE_BOARD_URL, type MealCell, type MealFile, type MealNotice, type MealTable } from "@/lib/meal";
+import { mealSheetSvg, mealSheetText, SHEET_FONT_FAMILY, SHEET_H, SHEET_W } from "@/lib/mealSheetSvg";
+import { embeddedFontCss, safeFileName, svgToPng, withFont } from "@/lib/svgExport";
 import { AlertIcon, ArrowRightIcon, DownloadIcon, RefreshIcon, Spinner } from "./icons";
 
 type State = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; notices: MealNotice[] };
@@ -14,6 +16,58 @@ function noticeMonths(title: string) {
   const m = /(\d{4})\s*년\s*(.*\d\s*월)/.exec(title);
   if (!m) return { year: null, months: title };
   return { year: Number(m[1]), months: m[2].replace(/\d{4}\s*년\s*/g, "").trim() };
+}
+
+/** 버튼 · 저장 파일 이름에 쓸 달: '2026년 11월'. 읽은 표가 있으면 표의 달, 없으면 글 제목에서 */
+function sheetMonth(notice: MealNotice) {
+  const table = notice.tables[0];
+  if (table?.year && table.month) return `${table.year}년 ${table.month}월`;
+  return notice.title.replace(/\s*(급식|식단).*$/, "").trim() || notice.title;
+}
+
+const DOWNLOAD_BUTTON =
+  "inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700 disabled:cursor-wait disabled:opacity-70";
+
+/** 표로 읽은 식단표를 달마다 A4 한 장씩 그려 PDF 로 내려받음 */
+function MealSheetButton({ notice }: { notice: MealNotice }) {
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const month = sheetMonth(notice);
+
+  const save = async () => {
+    setBusy(true);
+    setFailed(false);
+    try {
+      const text = notice.tables.map((t) => mealSheetText(t, notice.title)).join("");
+      const [{ jsPDF }, css] = await Promise.all([import("jspdf"), embeddedFontCss(text, SHEET_FONT_FAMILY)]);
+      const doc = new jsPDF({ unit: "mm", format: "a4" });
+      for (const [i, table] of notice.tables.entries()) {
+        if (i > 0) doc.addPage();
+        const blob = await svgToPng(withFont(mealSheetSvg(table, notice.title), css), SHEET_W, SHEET_H, 2.5, "image/jpeg");
+        doc.addImage(new Uint8Array(await blob.arrayBuffer()), "JPEG", 0, 0, 210, 297, `meal-${i}`);
+      }
+      doc.save(`${safeFileName(month)} 식단표.pdf`);
+    } catch (e) {
+      console.error(e);
+      setFailed(true);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <button type="button" onClick={save} disabled={busy} className={DOWNLOAD_BUTTON}>
+        {busy ? <Spinner className="h-4 w-4 shrink-0" /> : <DownloadIcon className="h-4 w-4 shrink-0" />}
+        <span className="truncate">{month} 식단표 다운로드</span>
+      </button>
+      {failed && (
+        <p role="alert" className="text-sm font-medium text-red-600">
+          PDF로 저장하지 못했어요. 잠시 뒤 다시 해 주세요.
+        </p>
+      )}
+    </>
+  );
 }
 
 export default function MealApp() {
@@ -43,7 +97,7 @@ export default function MealApp() {
       <div className="mb-8 text-center">
         <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-[28px]">급식표 조회하기</h1>
         <p className="mt-2 text-[15px] text-slate-500">
-          월계중학교 가정통신문에 올라온 이번 달 급식 안내를 가져와요. 빠르게 볼 수 있도록 한 달치만 보여 드려요.
+          월계중학교 가정통신문에 올라온 이번 달 급식 안내를 가져와요.
         </p>
       </div>
 
@@ -129,17 +183,21 @@ function NoticePanel({ notice }: { notice: MealNotice }) {
           </p>
         </div>
         <div className="flex flex-col gap-2 sm:items-end">
-          {notice.files.map((f) => (
-            <a
-              key={`${f.id}-${f.sn}`}
-              href={fileUrl(f)}
-              download={f.name}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700"
-            >
-              <DownloadIcon className="h-4 w-4 shrink-0" />
-              <span className="truncate">{f.name}</span>
-            </a>
-          ))}
+          {notice.tables.length > 0 ? (
+            <MealSheetButton notice={notice} />
+          ) : (
+            notice.files.map((f) => {
+              // PDF 는 서버에서 식단표 쪽만 골라 주고, 표를 읽지 못한 다른 형식은 원본 그대로
+              const isPdf = f.ext === "pdf";
+              const file = isPdf ? { ...f, name: `${safeFileName(sheetMonth(notice))} 식단표.pdf` } : f;
+              return (
+                <a key={`${f.id}-${f.sn}`} href={fileUrl(file)} download={file.name} className={DOWNLOAD_BUTTON}>
+                  <DownloadIcon className="h-4 w-4 shrink-0" />
+                  <span className="truncate">{isPdf ? `${sheetMonth(notice)} 식단표 다운로드` : f.name}</span>
+                </a>
+              );
+            })
+          )}
         </div>
       </div>
 
