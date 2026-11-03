@@ -3,13 +3,10 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { PlusIcon, TrashIcon } from "./icons";
 import { SUBJECT_ON } from "./StudentForm";
-import { DEFAULT_SUBJECTS, GRADES, newRow, SUBJECTS, validateRows, type StudentRow } from "./students";
+import { CLASSES, DEFAULT_SUBJECTS, GRADES, newRow, SUBJECTS, validateRows, type StudentRow } from "./students";
 
 const field =
   "h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-[15px] outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100";
-
-/** 반은 1~4반 중에서 고름 */
-const CLASSES = ["1", "2", "3", "4"];
 
 const isBlank = (r: StudentRow) => !r.name.trim() && !r.cls.trim();
 

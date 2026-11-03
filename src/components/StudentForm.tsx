@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { PlusIcon, TrashIcon } from "./icons";
-import { GRADES, newRow, SUBJECTS, type RowErrors, type StudentRow } from "./students";
+import { CLASSES, GRADES, newRow, SUBJECTS, type RowErrors, type StudentRow } from "./students";
 
 export const SUBJECT_ON: Record<string, string> = {
   국어: "bg-rose-50 text-rose-700 ring-rose-300",
@@ -29,7 +29,7 @@ export default function StudentForm({ rows, onChange, errors, showErrors, studen
   // 새로 추가한 줄의 '반' 칸으로 바로 이동
   useEffect(() => {
     if (!focusId.current) return;
-    document.querySelector<HTMLInputElement>(`[data-row="${focusId.current}"] input[name="cls"]`)?.focus();
+    document.querySelector<HTMLSelectElement>(`[data-row="${focusId.current}"] select[name="cls"]`)?.focus();
     focusId.current = null;
   });
 
@@ -58,7 +58,7 @@ export default function StudentForm({ rows, onChange, errors, showErrors, studen
     if (e.key !== "Enter" || e.nativeEvent.isComposing) return; // 한글 조합 중 Enter 는 무시
     e.preventDefault();
     if (index === rows.length - 1) addRow();
-    else document.querySelector<HTMLInputElement>(`[data-row="${rows[index + 1].id}"] input[name="cls"]`)?.focus();
+    else document.querySelector<HTMLSelectElement>(`[data-row="${rows[index + 1].id}"] select[name="cls"]`)?.focus();
   };
 
   return (
@@ -135,22 +135,21 @@ export default function StudentForm({ rows, onChange, errors, showErrors, studen
                     ))}
                   </select>
                   <div className="relative">
-                    <input
+                    <select
                       name="cls"
                       aria-label={`${i + 1}번 학생 반`}
                       aria-invalid={!!e?.cls}
-                      inputMode="numeric"
-                      autoComplete="off"
-                      placeholder="반"
                       value={r.cls}
-                      onChange={(ev) => update(r.id, { cls: ev.target.value.replace(/[^0-9]/g, "").slice(0, 2) })}
-                      className={`${field} pr-7 ${e?.cls ? "border-red-300" : "border-slate-200"}`}
-                    />
-                    {r.cls && (
-                      <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-sm text-slate-400">
-                        반
-                      </span>
-                    )}
+                      onChange={(ev) => update(r.id, { cls: ev.target.value })}
+                      className={`${field} pr-1 ${e?.cls ? "border-red-300" : "border-slate-200"}`}
+                    >
+                      <option value="">반</option>
+                      {(!r.cls || CLASSES.includes(r.cls) ? CLASSES : [...CLASSES, r.cls]).map((c) => (
+                        <option key={c} value={c}>
+                          {c}반
+                        </option>
+                      ))}
+                    </select>
                   </div>
                   <input
                     name="name"

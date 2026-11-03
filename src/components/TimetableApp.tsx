@@ -17,7 +17,7 @@ import {
   type TemplateSettings,
 } from "@/lib/timetable";
 import { DEFAULT_TEMPLATE_URL, type SlotState } from "./steps";
-import { DEFAULT_SUBJECTS, loadRows, saveRows, syncToTimetable, TIMETABLE_KEY, validateRows, type StudentRow } from "./students";
+import { DEFAULT_SUBJECTS, fetchServerRows, loadRows, saveRows, saveServerRows, syncToTimetable, TIMETABLE_KEY, validateRows, type StudentRow } from "./students";
 import { cleanSettings, loadSettings, saveSettings, validateSettings } from "./settings";
 import UploadWizard from "./UploadWizard";
 import GeneratingScreen from "./GeneratingScreen";
@@ -109,6 +109,7 @@ export default function TimetableApp() {
   const [genError, setGenError] = useState<string | null>(null);
   const [result, setResult] = useState<GenerationResult | null>(null);
   const uploadToken = useRef(0);
+  const serverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 지난번에 입력한 학생 목록 불러오기
   useEffect(() => {
@@ -118,6 +119,24 @@ export default function TimetableApp() {
     // 시간표 학생 목록이 따로 저장돼 있지 않으면 등록한 학생을 그대로 가져옴
     const tt = loadRows(TIMETABLE_KEY) ?? saved?.map((r) => ({ ...r, subjects: [...r.subjects] }));
     if (tt) setTtRows(tt);
+
+    // 서버에 저장된 학생 목록이 있으면 그것을 쓰고, 아직 없으면 이 브라우저의 목록을 서버로 옮김
+    let cancelled = false;
+    fetchServerRows().then((server) => {
+      if (cancelled || !server) return;
+      if (server.length === 0) {
+        if (saved) void saveServerRows(saved);
+        return;
+      }
+      setRows(server);
+      saveRows(server);
+      const nextTt = syncToTimetable(saved ?? [], server, tt ?? []);
+      setTtRows(nextTt);
+      saveRows(nextTt, TIMETABLE_KEY);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // 양식에서 학년도 · 학기 · 선생님 기본값을 읽고, 지난번 바꾼 값을 덮어씀
@@ -147,6 +166,8 @@ export default function TimetableApp() {
       const nextTt = syncToTimetable(rows, next, ttRows);
       setRows(next);
       saveRows(next);
+      if (serverTimer.current) clearTimeout(serverTimer.current);
+      serverTimer.current = setTimeout(() => void saveServerRows(next), 400); // 연달아 고칠 때 한 번에 저장
       setTtRows(nextTt);
       saveRows(nextTt, TIMETABLE_KEY);
     },

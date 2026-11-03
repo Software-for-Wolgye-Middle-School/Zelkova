@@ -5,6 +5,8 @@ export const SUBJECTS = ["국어", "영어", "수학", "스포츠"] as const;
 /** 새 학생 줄에 미리 선택되는 과목 */
 export const DEFAULT_SUBJECTS: string[] = ["국어", "영어", "수학"];
 export const GRADES = ["1", "2", "3"];
+/** 반은 1~4반 중에서 고름 */
+export const CLASSES = ["1", "2", "3", "4"];
 
 export type StudentRow = { id: string; grade: string; cls: string; name: string; subjects: string[] };
 export type RowErrors = { cls?: string; name?: string; subjects?: string };
@@ -52,6 +54,33 @@ export function syncToTimetable(prevReg: StudentRow[], nextReg: StudentRow[], tt
     }
   }
   return out.length ? out : [newRow()];
+}
+
+// ---------------------------------------------------------------- 서버 저장 (모든 사용자가 같은 학생 목록을 씀)
+
+const toRows = (list: Partial<StudentRow>[]): StudentRow[] =>
+  list.map((d) => ({ id: newId(), grade: String(d.grade ?? "1"), cls: String(d.cls ?? ""), name: String(d.name ?? ""), subjects: [...(d.subjects ?? [])] }));
+
+/** 서버에 저장된 학생 목록. 서버에 닿지 못하면 null (비어 있는 것과 구분) */
+export async function fetchServerRows(): Promise<StudentRow[] | null> {
+  try {
+    const res = await fetch("/api/students", { cache: "no-store" });
+    if (!res.ok) return null;
+    return toRows(((await res.json()) as { students: Partial<StudentRow>[] }).students);
+  } catch {
+    return null;
+  }
+}
+
+/** 학생 목록 전체를 서버에 저장 (실패해도 이 브라우저에는 이미 저장돼 있음) */
+export async function saveServerRows(rows: StudentRow[]): Promise<boolean> {
+  try {
+    const students = rows.filter((r) => !isBlank(r)).map(({ grade, cls, name, subjects }) => ({ grade, cls, name, subjects }));
+    const res = await fetch("/api/students", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ students }) });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 // ---------------------------------------------------------------- 브라우저에 자동 저장
