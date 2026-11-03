@@ -416,13 +416,11 @@ export default function BankbookApp({ students }: { students: Student[] }) {
                 }}
                 className={field}
               >
-                <optgroup label="기본 배경">
-                  {PICTURES.map((p) => (
-                    <option key={p.key} value={p.key}>
-                      {p.label}
-                    </option>
-                  ))}
-                </optgroup>
+                {PICTURES.map((p) => (
+                  <option key={p.key} value={p.key}>
+                    {p.label}
+                  </option>
+                ))}
                 {sets.length > 0 && (
                   <optgroup label="내 사진">
                     {sets.map((c) => (
@@ -732,9 +730,6 @@ export default function BankbookApp({ students }: { students: Student[] }) {
                           <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
                         </svg>
                         <span className="sr-only">등록 중</span>
-                        <span aria-hidden="true" className="absolute inset-x-0 bottom-0 h-0.5 overflow-hidden bg-white/25">
-                          <span className="block h-full w-1/3 animate-[slide_1.1s_ease-in-out_infinite] rounded bg-white" />
-                        </span>
                       </>
                     ) : (
                       "기본 배경으로 등록하기"
