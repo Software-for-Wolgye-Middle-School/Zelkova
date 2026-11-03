@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { PlusIcon, TrashIcon } from "./icons";
 import { GRADES, newRow, SUBJECTS, type RowErrors, type StudentRow } from "./students";
 
-const SUBJECT_ON: Record<string, string> = {
+export const SUBJECT_ON: Record<string, string> = {
   국어: "bg-rose-50 text-rose-700 ring-rose-300",
   영어: "bg-sky-50 text-sky-700 ring-sky-300",
   수학: "bg-emerald-50 text-emerald-700 ring-emerald-300",
@@ -65,7 +65,7 @@ export default function StudentForm({ rows, onChange, errors, showErrors, studen
     <div>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-slate-500">
-          입력한 학생 <span className="font-semibold text-slate-900">{studentCount}명</span>
+          입력한 학생 <span className="font-semibold text-slate-900">{studentCount}명</span>
         </p>
         {confirmClear ? (
           <span className="flex items-center gap-1 text-sm">

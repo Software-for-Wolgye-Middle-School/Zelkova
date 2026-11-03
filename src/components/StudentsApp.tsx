@@ -2,17 +2,21 @@
 
 import { useMemo, useState, type FormEvent } from "react";
 import { PlusIcon, TrashIcon } from "./icons";
+import { SUBJECT_ON } from "./StudentForm";
 import { DEFAULT_SUBJECTS, GRADES, newRow, SUBJECTS, validateRows, type StudentRow } from "./students";
 
 const field =
   "h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-[15px] outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100";
+
+/** 반은 1~4반 중에서 고름 */
+const CLASSES = ["1", "2", "3", "4"];
 
 const isBlank = (r: StudentRow) => !r.name.trim() && !r.cls.trim();
 
 /** 학생 정보를 등록 · 삭제 · 조회하는 화면. 여기서 등록한 학생은 시간표 · 칭찬통장 · 이름표에서 바로 불러와 써요. */
 export default function StudentsApp({ rows, onRowsChange }: { rows: StudentRow[]; onRowsChange: (rows: StudentRow[]) => void }) {
   const [grade, setGrade] = useState("1");
-  const [cls, setCls] = useState("");
+  const [cls, setCls] = useState("1");
   const [name, setName] = useState("");
   const [subjects, setSubjects] = useState<string[]>([...DEFAULT_SUBJECTS]);
   const [error, setError] = useState<string | null>(null);
@@ -48,6 +52,23 @@ export default function StudentsApp({ rows, onRowsChange }: { rows: StudentRow[]
     onRowsChange(rest.length ? rest : [newRow()]);
   };
 
+  /** 이미 등록한 학생의 학년이나 과목을 고침 (이름 · 반은 그대로) */
+  const update = (id: string, patch: Partial<Pick<StudentRow, "grade" | "subjects">>) => {
+    const target = registered.find((r) => r.id === id);
+    if (!target) return;
+    const next = { ...target, ...patch };
+    if (registered.some((r) => r.id !== id && r.grade === next.grade && Number(r.cls) === Number(next.cls) && r.name.trim() === next.name.trim())) {
+      return setError(`${next.grade}학년 ${next.cls}반 ${next.name} 학생이 이미 있어서 학년을 바꿀 수 없어요`);
+    }
+    setError(null);
+    onRowsChange(registered.map((r) => (r.id === id ? next : r)));
+  };
+
+  const toggleRowSubject = (r: StudentRow, s: string) => {
+    if (r.subjects.includes(s) && r.subjects.length === 1) return setError("과목은 하나 이상 있어야 해요"); // 비우지 않도록
+    update(r.id, { subjects: r.subjects.includes(s) ? r.subjects.filter((x) => x !== s) : SUBJECTS.filter((x) => x === s || r.subjects.includes(x)) });
+  };
+
   const clearAll = () => {
     onRowsChange([newRow()]);
     setConfirmClear(false);
@@ -81,14 +102,13 @@ export default function StudentsApp({ rows, onRowsChange }: { rows: StudentRow[]
             </label>
             <label className="block">
               <span className="mb-1 block text-xs font-semibold text-slate-600">반</span>
-              <input
-                value={cls}
-                inputMode="numeric"
-                maxLength={2}
-                placeholder="예: 3"
-                onChange={(e) => setCls(e.target.value.replace(/\D/g, ""))}
-                className={field}
-              />
+              <select value={cls} onChange={(e) => setCls(e.target.value)} className={field}>
+                {CLASSES.map((c) => (
+                  <option key={c} value={c}>
+                    {c}반
+                  </option>
+                ))}
+              </select>
             </label>
           </div>
           <label className="block">
@@ -105,20 +125,23 @@ export default function StudentsApp({ rows, onRowsChange }: { rows: StudentRow[]
           </label>
           <div>
             <span className="mb-1 block text-xs font-semibold text-slate-600">수강 과목 (시간표에 쓰여요)</span>
-            <div className="flex flex-wrap gap-1.5">
-              {SUBJECTS.map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  aria-pressed={subjects.includes(s)}
-                  onClick={() => toggleSubject(s)}
-                  className={`rounded-full px-3 py-1.5 text-sm font-semibold ring-1 ring-inset transition ${
-                    subjects.includes(s) ? "bg-indigo-50 text-indigo-700 ring-indigo-300" : "bg-white text-slate-500 ring-slate-200 hover:bg-slate-50"
-                  }`}
-                >
-                  {s}
-                </button>
-              ))}
+            <div className="flex gap-1.5">
+              {SUBJECTS.map((s) => {
+                const on = subjects.includes(s);
+                return (
+                  <button
+                    key={s}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => toggleSubject(s)}
+                    className={`h-10 flex-1 rounded-lg px-3 text-sm font-semibold ring-1 ring-inset transition ${
+                      on ? SUBJECT_ON[s] : "bg-white text-slate-400 ring-slate-200 hover:text-slate-600"
+                    }`}
+                  >
+                    {s}
+                  </button>
+                );
+              })}
             </div>
           </div>
           {error && (
@@ -176,15 +199,42 @@ export default function StudentsApp({ rows, onRowsChange }: { rows: StudentRow[]
           ) : (
             <ul className="divide-y divide-slate-100">
               {shown.map((r) => (
-                <li key={r.id} className="flex items-center gap-3 py-2.5">
-                  <span className="w-16 shrink-0 rounded-full bg-slate-100 py-1 text-center text-xs font-bold text-slate-600">
-                    {r.grade}학년 {r.cls}반
-                  </span>
+                <li key={r.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 py-2.5">
+                  <select
+                    value={r.grade}
+                    aria-label={`${r.name} 학년`}
+                    onChange={(e) => update(r.id, { grade: e.target.value })}
+                    className="h-9 shrink-0 rounded-lg border border-slate-200 bg-white px-2 text-sm font-semibold text-slate-700 outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100"
+                  >
+                    {GRADES.map((g) => (
+                      <option key={g} value={g}>
+                        {g}학년
+                      </option>
+                    ))}
+                  </select>
+                  <span className="shrink-0 text-sm font-semibold text-slate-600">{r.cls}반</span>
                   <span className="min-w-0 flex-1 truncate text-[15px] font-semibold text-slate-900">
                     {r.name}
                     {invalid.has(r.id) && <span className="ml-2 text-xs font-medium text-red-500">정보를 확인해 주세요</span>}
                   </span>
-                  <span className="hidden text-xs text-slate-500 sm:block">{r.subjects.join(" · ") || "과목 없음"}</span>
+                  <div role="group" aria-label={`${r.name} 수강 과목`} className="flex gap-1.5">
+                    {SUBJECTS.map((s) => {
+                      const on = r.subjects.includes(s);
+                      return (
+                        <button
+                          key={s}
+                          type="button"
+                          aria-pressed={on}
+                          onClick={() => toggleRowSubject(r, s)}
+                          className={`h-9 rounded-lg px-2.5 text-sm font-semibold ring-1 ring-inset transition ${
+                            on ? SUBJECT_ON[s] : "bg-white text-slate-400 ring-slate-200 hover:text-slate-600"
+                          }`}
+                        >
+                          {s}
+                        </button>
+                      );
+                    })}
+                  </div>
                   <button
                     type="button"
                     onClick={() => remove(r.id)}
