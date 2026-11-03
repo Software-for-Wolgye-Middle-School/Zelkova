@@ -16,6 +16,7 @@ import {
   type PaperColor,
 } from "@/lib/bankbookSvg";
 import { embeddedFontCss, loadImageDataUrl, safeFileName, svgToPng, withFont } from "@/lib/svgExport";
+import NameCombobox from "./NameCombobox";
 import { ArrowLeftIcon, ArrowRightIcon, CheckIcon, DownloadIcon, PlusIcon, Spinner, TrashIcon } from "./icons";
 import {
   BACKGROUND_MAX_WIDTH,
@@ -98,7 +99,7 @@ export default function BankbookApp({ students }: { students: Student[] }) {
   const [draftPaper, setDraftPaper] = useState<PaperColor>("노랑");
   const [bgError, setBgError] = useState<string | null>(null);
   const [addingSide, setAddingSide] = useState<"front" | "back" | null>(null);
-  const savedNames = useMemo(() => [...new Set(students.map((s) => s.name))], [students]);
+  const savedNames = useMemo(() => [...new Set(students.map((s) => s.name))].sort((a, b) => a.localeCompare(b, "ko")), [students]);
   const [busy, setBusy] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
 
@@ -402,29 +403,46 @@ export default function BankbookApp({ students }: { students: Student[] }) {
 
           {step === 0 && (
             <div>
-              <p className="mb-1.5 text-xs font-semibold text-slate-600">기본 배경</p>
-              <div className="grid grid-cols-3 gap-1.5">
-                {PICTURES.map((p) => (
-                  <button key={p.key} type="button" onClick={() => choosePicture(p.key)} aria-pressed={picture === p.key} className={chip(picture === p.key)}>
-                    {p.label}
-                  </button>
-                ))}
-                {sets.map((c) => (
-                  <div key={c.id} className="relative">
-                    <button type="button" onClick={() => pickSet(c)} aria-pressed={picture === c.id} className={`w-full truncate pr-6 ${chip(picture === c.id)}`}>
-                      {c.label}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void removeSet(c.id)}
-                      aria-label={`${c.label} 지우기`}
-                      className="absolute right-1 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center rounded-full text-slate-400 transition hover:bg-red-50 hover:text-red-600"
-                    >
-                      <TrashIcon className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                ))}
-              </div>
+              <label className="mb-1.5 block text-xs font-semibold text-slate-600" htmlFor="bb-picture">
+                기본 배경
+              </label>
+              <select
+                id="bb-picture"
+                value={picture}
+                onChange={(e) => {
+                  const set = sets.find((c) => c.id === e.target.value);
+                  if (set) pickSet(set);
+                  else choosePicture(e.target.value);
+                }}
+                className={field}
+              >
+                <optgroup label="기본 배경">
+                  {PICTURES.map((p) => (
+                    <option key={p.key} value={p.key}>
+                      {p.label}
+                    </option>
+                  ))}
+                </optgroup>
+                {sets.length > 0 && (
+                  <optgroup label="내 사진">
+                    {sets.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.label}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
+              {sets.some((c) => c.id === picture) && (
+                <button
+                  type="button"
+                  onClick={() => void removeSet(picture)}
+                  className="mt-2 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-slate-500 transition hover:bg-red-50 hover:text-red-600"
+                >
+                  <TrashIcon className="h-3.5 w-3.5" />
+                  이 내 사진 지우기
+                </button>
+              )}
 
               <button
                 type="button"
@@ -448,34 +466,7 @@ export default function BankbookApp({ students }: { students: Student[] }) {
               <label className="mb-1 block text-xs font-semibold text-slate-600" htmlFor="bb-name">
                 이름
               </label>
-              <input
-                id="bb-name"
-                value={name}
-                maxLength={10}
-                autoComplete="off"
-                placeholder="예: 하초현"
-                onChange={(e) => setName(e.target.value)}
-                className={field}
-              />
-              {savedNames.length > 0 ? (
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {savedNames.map((n) => (
-                    <button
-                      key={n}
-                      type="button"
-                      onClick={() => setName(n)}
-                      aria-pressed={trimmed === n}
-                      className={`rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset transition ${
-                        trimmed === n ? "bg-indigo-50 text-indigo-700 ring-indigo-300" : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"
-                      }`}
-                    >
-                      {n}
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <p className="mt-2 text-xs text-slate-400">‘학생 정보 관리하기’에 학생을 등록해 두면 여기서 바로 고를 수 있어요.</p>
-              )}
+              <NameCombobox id="bb-name" value={name} onChange={setName} names={savedNames} maxLength={10} placeholder="예: 하초현" className={field} />
             </div>
           )}
 
