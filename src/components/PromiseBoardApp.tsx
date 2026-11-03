@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { clampPromise, promiseBoardFileName, PROMISE_LINE_CHARS, PROMISE_MAX_LINES, type PromiseBoardRequest } from "@/lib/promiseBoard";
-import { boardPng, boardSvg, printBoard } from "@/lib/promiseBoardSvg";
+import { boardPng, boardSvg } from "@/lib/promiseBoardSvg";
 import { DownloadIcon, Spinner } from "./icons";
 import { loadRows } from "./students";
 
@@ -24,7 +24,7 @@ export default function PromiseBoardApp() {
   const [{ year, month }, setYm] = useState(defaultMonth);
   const [promiseText, setPromiseText] = useState("");
   const [savedNames, setSavedNames] = useState<string[]>([]);
-  const [busy, setBusy] = useState<"png" | "print" | null>(null);
+  const [busy, setBusy] = useState<"png" | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
 
   // 시간표에서 입력해 둔 학생 이름을 빠르게 고를 수 있도록
@@ -52,18 +52,7 @@ export default function PromiseBoardApp() {
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (e) {
       console.error(e);
-      setExportError("그림 파일로 저장하지 못했어요. 인쇄 버튼으로 PDF 저장을 이용해 주세요.");
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const print = async () => {
-    const win = window.open("", "_blank"); // 팝업 차단을 피하려고 클릭하자마자 창을 엶
-    if (!win) return setExportError("팝업이 차단되어 인쇄 창을 열 수 없어요.");
-    setBusy("print");
-    try {
-      await printBoard(req, win);
+      setExportError("그림 파일로 저장하지 못했어요.");
     } finally {
       setBusy(null);
     }
@@ -73,7 +62,6 @@ export default function PromiseBoardApp() {
     <div className="fade-up mx-auto max-w-5xl">
       <div className="mb-8 text-center">
         <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-[28px]">나와의 약속판 만들기</h1>
-        <p className="mt-2 text-[15px] text-slate-500">이름과 달을 고르면 바로 약속판이 만들어져요. 무료로 바로 인쇄할 수 있어요.</p>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[20rem_minmax(0,1fr)]">
@@ -161,16 +149,6 @@ export default function PromiseBoardApp() {
               {busy === "png" ? <Spinner className="h-5 w-5" /> : <DownloadIcon className="h-5 w-5" />}
               그림 파일로 저장 (PNG)
             </button>
-            <button
-              type="button"
-              onClick={print}
-              disabled={!trimmed || busy !== null}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-3 text-[15px] font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
-            >
-              {busy === "print" && <Spinner className="h-5 w-5" />}
-              인쇄 · PDF로 저장
-            </button>
-            {!trimmed && <p className="text-center text-xs text-slate-400">이름을 입력하면 저장할 수 있어요</p>}
             {exportError && (
               <p role="alert" className="text-center text-xs font-medium text-red-600">
                 {exportError}

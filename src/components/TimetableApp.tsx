@@ -327,10 +327,8 @@ export default function TimetableApp() {
               ? "학생 정보는 이 컴퓨터의 브라우저 안에만 저장돼요. 밖으로 전송되지 않아요."
               : phase === "bankbook" || phase === "nametag"
               ? "AI 그림을 그릴 때 그림 설명만 Pollinations AI로 보내요. 학생 이름은 밖으로 전송되지 않아요."
-              : phase === "promise"
-                ? "약속판은 이 컴퓨터의 브라우저 안에서만 만들어져요."
-                : phase === "meal"
-                  ? "급식 안내는 월계중학교 홈페이지 가정통신문 게시판에서 가져와요."
+              : phase === "meal"
+                ? "급식 안내는 월계중학교 홈페이지 가정통신문 게시판에서 가져와요."
                 : ""}
           </footer>
         </>
