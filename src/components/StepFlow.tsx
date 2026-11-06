@@ -192,8 +192,8 @@ const arrowClass =
   "grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white text-slate-600 shadow ring-1 ring-slate-200 transition hover:bg-indigo-50 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-40";
 
 /**
- * 좌우 화살표로 넘기는 미리보기. 오른쪽: 지금 종이가 오른쪽으로 밀려나며 다음 종이가 드러남,
- * 왼쪽: 앞 종이가 오른쪽에서 와서 덮음. render(i) 는 i 번째 종이 안에 들어갈 내용
+ * 좌우 화살표로 넘기는 미리보기. 오른쪽 화살표: 다음 종이가 오른쪽에서 와서 지금 종이를 덮음,
+ * 왼쪽 화살표: 앞 종이가 왼쪽에서 와서 덮음. render(i) 는 i 번째 종이 안에 들어갈 내용
  */
 export function SlideCarousel({
   count,
@@ -223,11 +223,12 @@ export function SlideCarousel({
       setAnim(null);
     }, SLIDE_MS);
   };
-  const slide = (i: number, offset: boolean) => (
+  /** x: 종이의 가로 위치 (0 이면 제자리) */
+  const slide = (i: number, x: string) => (
     <div
       key={i}
-      className={`absolute inset-0 transition-transform ease-in-out motion-reduce:transition-none ${slideClassName}`}
-      style={{ transform: offset ? "translateX(105%)" : "translateX(0)", transitionDuration: `${SLIDE_MS}ms` }}
+      className={`absolute inset-0 transition-transform ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none ${slideClassName}`}
+      style={{ transform: `translateX(${x})`, transitionDuration: `${SLIDE_MS}ms` }}
     >
       {render(i)}
     </div>
@@ -241,11 +242,8 @@ export function SlideCarousel({
           <ArrowLeftIcon className="h-4 w-4" />
         </button>
         <div className="relative mx-auto min-w-0 flex-1 overflow-hidden" style={{ aspectRatio, maxWidth }}>
-          {anim
-            ? anim.to > anim.from
-              ? [slide(anim.to, false), slide(anim.from, anim.slid)]
-              : [slide(anim.from, false), slide(anim.to, !anim.slid)]
-            : slide(cur, false)}
+          {/* 지금 종이는 제자리에 두고, 넘어갈 종이가 그 위로 들어와 덮음 */}
+          {anim ? [slide(anim.from, "0"), slide(anim.to, anim.slid ? "0" : anim.to > anim.from ? "105%" : "-105%")] : slide(cur, "0")}
         </div>
         <button type="button" onClick={() => flip(cur + 1)} disabled={cur >= count - 1 || !!anim} aria-label="다음 장 보기" className={arrowClass}>
           <ArrowRightIcon className="h-4 w-4" />

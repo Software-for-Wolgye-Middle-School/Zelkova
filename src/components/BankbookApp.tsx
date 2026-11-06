@@ -83,6 +83,10 @@ type Draft = {
 };
 /** 다 만든 통장 */
 type SavedBook = { id: number; draft: Draft; book: Bankbook; ledgers: number; pictureLabel: string };
+/** 내려받을 통장 목록의 한 줄: 다 만든 통장 또는 지금 만드는 통장 */
+type Entry = { kind: "saved"; saved: SavedBook } | { kind: "current" };
+/** 지금 만드는 통장을 목록 맨 끝에 둠 */
+const AT_END = Number.MAX_SAFE_INTEGER;
 
 const today = () => {
   const d = new Date();
@@ -113,6 +117,11 @@ export default function BankbookApp({ students }: { students: Student[] }) {
   const [busy, setBusy] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [saved, setSaved] = useState<SavedBook[]>([]);
+  /** 지금 만드는 통장이 목록에서 놓인 자리 (그 앞에 있는 다 만든 통장 수) */
+  const [currentAt, setCurrentAt] = useState(AT_END);
+  /** 마지막으로 '더 만들기'를 눌러 넣은 통장 ('추가 그만하기'로 되돌릴 때) */
+  const lastAddedId = useRef<number | null>(null);
+  const [drag, setDrag] = useState<{ from: number; over: number } | null>(null);
   const nextId = useRef(0);
 
   useEffect(() => {
@@ -174,10 +183,19 @@ export default function BankbookApp({ students }: { students: Student[] }) {
   const pages = useMemo(() => (book ? bankbookPages(book, ledgers) : []), [book, ledgers]);
 
   const pictureLabel = sets.find((c) => c.id === picture)?.label ?? PICTURES.find((p) => p.key === picture)?.label ?? "";
-  /** 내려받을 통장: 다 만든 통장들 + 지금 만든 통장 */
+  /** 내려받을 통장 목록 (끌어서 바꾼 순서 그대로) */
+  const entries = useMemo<Entry[]>(() => {
+    const list: Entry[] = saved.map((b) => ({ kind: "saved", saved: b }));
+    list.splice(Math.min(currentAt, saved.length), 0, { kind: "current" });
+    return list;
+  }, [saved, currentAt]);
+  /** 내려받을 통장: 목록 순서대로 (지금 만드는 통장은 그림을 불러온 뒤에) */
   const books = useMemo(
-    () => [...saved.map((b) => ({ name: b.draft.name, book: b.book, ledgers: b.ledgers })), ...(book ? [{ name: trimmed, book, ledgers }] : [])],
-    [saved, book, trimmed, ledgers],
+    () =>
+      entries.flatMap((e) =>
+        e.kind === "saved" ? [{ name: e.saved.draft.name, book: e.saved.book, ledgers: e.saved.ledgers }] : book ? [{ name: trimmed, book, ledgers }] : [],
+      ),
+    [entries, book, trimmed, ledgers],
   );
   /** 미리보기 · PDF 의 A4 장들. 학생마다 새 장에서 시작 */
   const sheetList = useMemo(
@@ -206,8 +224,11 @@ export default function BankbookApp({ students }: { students: Student[] }) {
   const addAnother = () => {
     if (!book) return;
     const done: SavedBook = { id: nextId.current++, draft: snapshot(), book, ledgers, pictureLabel };
+    lastAddedId.current = done.id;
     goStep(0, () => {
-      setSaved((list) => [...list, done]);
+      // 지금 통장이 놓였던 자리에 그대로 넣고, 새로 만들 통장은 맨 끝에
+      setSaved((list) => [...list.slice(0, currentAt), done, ...list.slice(currentAt)]);
+      setCurrentAt(AT_END);
       setName("");
       setAccount(nextAccount(account));
       setExportError(null);
@@ -215,14 +236,30 @@ export default function BankbookApp({ students }: { students: Student[] }) {
   };
   /** 다음 학생 추가를 그만두고 마지막으로 만든 통장으로 돌아가 완료 단계로 */
   const cancelAdd = () => {
-    const lastBook = saved[saved.length - 1];
+    const lastBook = saved.find((b) => b.id === lastAddedId.current) ?? saved[saved.length - 1];
     if (!lastBook) return;
+    const at = saved.indexOf(lastBook);
     goStep(DONE_STEP, () => {
-      setSaved((list) => list.slice(0, -1));
+      // 되돌린 통장은 목록에서 원래 있던 자리로
+      setSaved((list) => list.filter((b) => b.id !== lastBook.id));
+      setCurrentAt(at);
       restore(lastBook.draft);
     });
   };
-  const removeSaved = (id: number) => setSaved((list) => list.filter((b) => b.id !== id));
+  const removeSaved = (id: number) => {
+    const index = saved.findIndex((b) => b.id === id);
+    setSaved((list) => list.filter((b) => b.id !== id));
+    if (index >= 0 && index < currentAt) setCurrentAt((at) => (at === AT_END ? at : at - 1));
+  };
+  /** 목록에서 from 번째 줄을 to 번째 자리로 옮김 */
+  const moveEntry = (from: number, to: number) => {
+    if (from === to || to < 0 || to >= entries.length) return;
+    const list = [...entries];
+    const [moved] = list.splice(from, 1);
+    list.splice(to, 0, moved);
+    setSaved(list.flatMap((e) => (e.kind === "saved" ? [e.saved] : [])));
+    setCurrentAt(list.findIndex((e) => e.kind === "current"));
+  };
   const duplicate = !!trimmed && saved.some((b) => b.draft.name === trimmed);
 
   /** 사진 파일을 골라 크기를 줄인 뒤 등록하려는 세트의 앞면 또는 뒷면에 넣음 */
@@ -523,33 +560,84 @@ export default function BankbookApp({ students }: { students: Student[] }) {
             <div className="space-y-4">
               <div>
                 <p className="mb-1.5 text-xs font-semibold text-slate-600">내려받을 통장 {books.length}개</p>
-                <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200">
-                  {saved.map((b, i) => (
-                    <li key={b.id} className="flex items-center gap-2 px-3 py-2 text-sm">
-                      <span className="w-5 shrink-0 text-xs font-bold text-slate-400">{i + 1}</span>
-                      <span className="min-w-0 flex-1 truncate font-semibold text-slate-800">{b.draft.name}</span>
-                      <span className="shrink-0 text-xs text-slate-500">
-                        {b.pictureLabel} · 거래 {b.ledgers}쪽
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => removeSaved(b.id)}
-                        aria-label={`${b.draft.name} 통장 빼기`}
-                        className="grid h-6 w-6 shrink-0 place-items-center rounded-full text-slate-400 transition hover:bg-red-50 hover:text-red-600"
+                <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200" onDragLeave={(e) => !e.currentTarget.contains(e.relatedTarget as Node) && setDrag((d) => d && { ...d, over: -1 })}>
+                  {entries.map((entry, i) => {
+                    const isCurrent = entry.kind === "current";
+                    const label = isCurrent ? trimmed : entry.saved.draft.name;
+                    // 끌어서 놓을 자리를 위 · 아래 선으로 보여 줌
+                    const line =
+                      drag && drag.over === i && drag.from !== i && drag.from !== i - 1
+                        ? "shadow-[inset_0_2px_0_0_#6366f1]"
+                        : drag && drag.over === entries.length && i === entries.length - 1 && drag.from !== i
+                          ? "shadow-[inset_0_-2px_0_0_#6366f1]"
+                          : "";
+                    return (
+                      <li
+                        key={isCurrent ? "current" : entry.saved.id}
+                        draggable={entries.length > 1}
+                        onDragStart={(e) => {
+                          e.dataTransfer.effectAllowed = "move";
+                          e.dataTransfer.setData("text/plain", label);
+                          setDrag({ from: i, over: i });
+                        }}
+                        onDragOver={(e) => {
+                          if (!drag) return;
+                          e.preventDefault();
+                          const r = e.currentTarget.getBoundingClientRect();
+                          const over = e.clientY < r.top + r.height / 2 ? i : i + 1;
+                          if (over !== drag.over) setDrag({ ...drag, over });
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          if (drag && drag.over >= 0) moveEntry(drag.from, drag.over > drag.from ? drag.over - 1 : drag.over);
+                          setDrag(null);
+                        }}
+                        onDragEnd={() => setDrag(null)}
+                        className={`flex items-center gap-2 bg-white px-2 py-2 text-sm transition-opacity first:rounded-t-xl last:rounded-b-xl ${line} ${
+                          drag?.from === i ? "opacity-40" : ""
+                        }`}
                       >
-                        <XIcon className="h-3.5 w-3.5" />
-                      </button>
-                    </li>
-                  ))}
-                  <li className="flex items-center gap-2 px-3 py-2 text-sm">
-                    <span className="w-5 shrink-0 text-xs font-bold text-slate-400">{saved.length + 1}</span>
-                    <span className="min-w-0 flex-1 truncate font-semibold text-slate-800">{trimmed}</span>
-                    <span className="shrink-0 text-xs text-slate-500">
-                      {pictureLabel} · 거래 {ledgers}쪽
-                    </span>
-                    <span className="w-6 shrink-0" />
-                  </li>
+                        {entries.length > 1 ? (
+                          <button
+                            type="button"
+                            aria-label={`${label} 순서 바꾸기 (위아래 화살표)`}
+                            title="끌어서 순서 바꾸기"
+                            onKeyDown={(e) => {
+                              if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+                              e.preventDefault();
+                              moveEntry(i, e.key === "ArrowUp" ? i - 1 : i + 1);
+                            }}
+                            className="grid h-6 w-5 shrink-0 cursor-grab place-items-center rounded text-slate-300 transition hover:bg-slate-100 hover:text-slate-500 active:cursor-grabbing"
+                          >
+                            <svg viewBox="0 0 10 16" className="h-3.5 w-2.5" fill="currentColor" aria-hidden="true">
+                              {[2, 8, 14].flatMap((y) => [2, 8].map((x) => <circle key={`${x}-${y}`} cx={x} cy={y} r="1.5" />))}
+                            </svg>
+                          </button>
+                        ) : (
+                          <span className="w-5 shrink-0" />
+                        )}
+                        <span className="w-4 shrink-0 text-xs font-bold text-slate-400">{i + 1}</span>
+                        <span className="min-w-0 flex-1 truncate font-semibold text-slate-800">{label}</span>
+                        <span className="shrink-0 text-xs text-slate-500">
+                          {isCurrent ? pictureLabel : entry.saved.pictureLabel} · 거래 {isCurrent ? ledgers : entry.saved.ledgers}쪽
+                        </span>
+                        {isCurrent ? (
+                          <span className="w-6 shrink-0" />
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => removeSaved(entry.saved.id)}
+                            aria-label={`${label} 통장 빼기`}
+                            className="grid h-6 w-6 shrink-0 place-items-center rounded-full text-slate-400 transition hover:bg-red-50 hover:text-red-600"
+                          >
+                            <XIcon className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </li>
+                    );
+                  })}
                 </ul>
+                {entries.length > 1 && <p className="mt-1.5 text-xs text-slate-400">왼쪽 점을 끌어서 순서를 바꿀 수 있어요. 이 순서대로 PDF에 담겨요.</p>}
               </div>
               <div className="space-y-2">
                 <button
@@ -590,9 +678,7 @@ export default function BankbookApp({ students }: { students: Student[] }) {
             <SlideCarousel
               count={sheetList.length}
               render={sheetContent}
-              caption={(i) =>
-                sheetList[i] ? `${sheetList[i].name} · ${sheetList[i].no}/${sheetList[i].count}장 (전체 ${i + 1}/${sheetList.length}장, A4 한 장에 4쪽)` : ""
-              }
+              caption={(i) => (sheetList[i] ? `${sheetList[i].name} (${i + 1}/${sheetList.length}장)` : "")}
               aspectRatio={`${layout.paper.w} / ${layout.paper.h}`}
               maxWidth={layout.orientation === "landscape" ? 640 : 452}
             />
