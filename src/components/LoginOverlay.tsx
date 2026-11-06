@@ -3,7 +3,7 @@
 import { useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { login } from "./auth";
-import { LockIcon, Spinner } from "./icons";
+import { EyeIcon, EyeOffIcon, LockIcon, Spinner } from "./icons";
 
 const field =
   "h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-[15px] outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100";
@@ -22,6 +22,7 @@ export default function LoginOverlay({
 }) {
   const [id, setId] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -63,10 +64,31 @@ export default function LoginOverlay({
               <span className="mb-1 block text-xs font-semibold text-slate-600">아이디</span>
               <input value={id} autoFocus autoComplete="username" onChange={(e) => setId(e.target.value)} className={field} />
             </label>
-            <label className="block">
-              <span className="mb-1 block text-xs font-semibold text-slate-600">비밀번호</span>
-              <input type="password" value={password} autoComplete="current-password" onChange={(e) => setPassword(e.target.value)} className={field} />
-            </label>
+            <div>
+              <label htmlFor="login-password" className="mb-1 block text-xs font-semibold text-slate-600">
+                비밀번호
+              </label>
+              <div className="relative">
+                <input
+                  id="login-password"
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  autoComplete="current-password"
+                  onChange={(e) => setPassword(e.target.value)}
+                  className={`${field} pr-11`}
+                />
+                {/* 눈 모양을 누르면 입력한 비밀번호를 보거나 다시 가림 */}
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  aria-label={showPassword ? "비밀번호 가리기" : "비밀번호 보기"}
+                  aria-pressed={showPassword}
+                  className="absolute right-1 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                >
+                  {showPassword ? <EyeOffIcon className="h-5 w-5" /> : <EyeIcon className="h-5 w-5" />}
+                </button>
+              </div>
+            </div>
           </fieldset>
           {error && (
             <p id="login-error" role="alert" className="mt-3 text-sm font-medium text-red-600">
