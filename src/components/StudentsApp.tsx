@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { createPortal } from "react-dom";
 import { PlusIcon, TrashIcon } from "./icons";
 import { SUBJECT_ON } from "./StudentForm";
 import { CLASSES, DEFAULT_SUBJECTS, GRADES, newRow, SUBJECTS, validateRows, type StudentRow } from "./students";
@@ -9,6 +10,13 @@ const field =
   "h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-[15px] outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100";
 
 const isBlank = (r: StudentRow) => !r.name.trim() && !r.cls.trim();
+
+/** 목록 순서: 최근 등록한 학생이 위 · 이름 가나다순 */
+type Sort = "recent" | "name";
+const SORTS: [Sort, string][] = [
+  ["recent", "최근 등록순"],
+  ["name", "이름순"],
+];
 
 /** 학생 정보를 등록 · 삭제 · 조회하는 화면. 여기서 등록한 학생은 시간표 · 칭찬통장 · 이름표에서 바로 불러와 써요. */
 export default function StudentsApp({ rows, onRowsChange }: { rows: StudentRow[]; onRowsChange: (rows: StudentRow[]) => void }) {
@@ -19,15 +27,37 @@ export default function StudentsApp({ rows, onRowsChange }: { rows: StudentRow[]
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [confirmClear, setConfirmClear] = useState(false);
+  const [sort, setSort] = useState<Sort>("recent");
+  /** 방금 등록한 학생 (목록에서 색칠해 보여 줌) */
+  const [justAdded, setJustAdded] = useState<string | null>(null);
+  const cancelClear = useRef<HTMLButtonElement>(null);
 
   const registered = useMemo(() => rows.filter((r) => !isBlank(r)), [rows]);
   const invalid = useMemo(() => validateRows(registered).errors, [registered]);
 
   const shown = useMemo(() => {
     const q = query.trim().replace(/\s+/g, "");
-    const list = [...registered].sort((a, b) => Number(a.grade) - Number(b.grade) || Number(a.cls) - Number(b.cls) || a.name.localeCompare(b.name, "ko"));
+    // 등록한 학생은 목록 끝에 붙으므로, 거꾸로 하면 최근에 등록한 학생이 위로 옴
+    const list =
+      sort === "recent"
+        ? [...registered].reverse()
+        : [...registered].sort((a, b) => a.name.localeCompare(b.name, "ko") || Number(a.grade) - Number(b.grade) || Number(a.cls) - Number(b.cls));
     return q ? list.filter((r) => `${r.grade}학년${r.cls}반${r.grade}-${r.cls}${r.name}`.includes(q)) : list;
-  }, [registered, query]);
+  }, [registered, query, sort]);
+
+  // 방금 등록한 학생이 목록에서 보이도록
+  useEffect(() => {
+    if (justAdded) document.getElementById(`st-row-${justAdded}`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [justAdded]);
+
+  // 전체 삭제 확인 창: 취소에 먼저 초점, Esc 로 닫기
+  useEffect(() => {
+    if (!confirmClear) return;
+    cancelClear.current?.focus();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setConfirmClear(false);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [confirmClear]);
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -40,6 +70,8 @@ export default function StudentsApp({ rows, onRowsChange }: { rows: StudentRow[]
     }
     setError(null);
     onRowsChange([...registered, row]);
+    setJustAdded(row.id);
+    setQuery(""); // 찾기로 걸러져 방금 등록한 학생이 안 보이는 일이 없도록
     setName(""); // 같은 반 학생을 이어서 등록하기 쉽도록 학년 · 반 · 과목은 그대로 둠
     document.getElementById("st-name")?.focus();
   };
@@ -68,6 +100,7 @@ export default function StudentsApp({ rows, onRowsChange }: { rows: StudentRow[]
 
   const clearAll = () => {
     onRowsChange([newRow()]);
+    setJustAdded(null);
     setConfirmClear(false);
   };
 
@@ -160,33 +193,40 @@ export default function StudentsApp({ rows, onRowsChange }: { rows: StudentRow[]
             <h2 className="text-base font-bold text-slate-900">
               등록된 학생 <span className="text-indigo-600">{registered.length}명</span>
             </h2>
-            {registered.length > 0 &&
-              (confirmClear ? (
-                <span className="flex items-center gap-2 text-sm">
-                  <span className="text-slate-600">모두 삭제할까요?</span>
-                  <button type="button" onClick={clearAll} className="rounded-lg bg-red-600 px-3 py-1.5 font-semibold text-white hover:bg-red-700">
-                    삭제
-                  </button>
-                  <button type="button" onClick={() => setConfirmClear(false)} className="rounded-lg px-3 py-1.5 font-semibold text-slate-600 hover:bg-slate-100">
-                    취소
-                  </button>
-                </span>
-              ) : (
-                <button type="button" onClick={() => setConfirmClear(true)} className="text-sm font-semibold text-slate-500 hover:text-red-600">
-                  전체 삭제
-                </button>
-              ))}
+            {registered.length > 0 && (
+              <button type="button" onClick={() => setConfirmClear(true)} className="text-sm font-semibold text-slate-500 hover:text-red-600">
+                전체 삭제
+              </button>
+            )}
           </div>
 
           {registered.length > 0 && (
-            <input
-              type="search"
-              value={query}
-              aria-label="학생 찾기"
-              placeholder="이름 · 학년 · 반으로 찾기 (예: 2-3, 하초현)"
-              onChange={(e) => setQuery(e.target.value)}
-              className={`${field} mb-3`}
-            />
+            <div className="mb-3 flex flex-col gap-2 sm:flex-row">
+              <input
+                type="search"
+                value={query}
+                aria-label="학생 찾기"
+                placeholder="이름 · 학년 · 반으로 찾기 (예: 2-3, 하초현)"
+                onChange={(e) => setQuery(e.target.value)}
+                className={`${field} sm:flex-1`}
+              />
+              <div role="radiogroup" aria-label="목록 순서" className="inline-flex h-11 shrink-0 rounded-lg bg-slate-100 p-1">
+                {SORTS.map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    role="radio"
+                    aria-checked={sort === id}
+                    onClick={() => setSort(id)}
+                    className={`flex-1 whitespace-nowrap rounded-md px-3 text-sm font-semibold transition ${
+                      sort === id ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
           )}
 
           {registered.length === 0 ? (
@@ -196,7 +236,13 @@ export default function StudentsApp({ rows, onRowsChange }: { rows: StudentRow[]
           ) : (
             <ul className="divide-y divide-slate-100">
               {shown.map((r) => (
-                <li key={r.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 py-2.5">
+                <li
+                  key={r.id}
+                  id={`st-row-${r.id}`}
+                  className={`-mx-2 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg px-2 py-2.5 transition-colors duration-500 ${
+                    r.id === justAdded ? "bg-emerald-50 ring-1 ring-inset ring-emerald-200" : ""
+                  }`}
+                >
                   <select
                     value={r.grade}
                     aria-label={`${r.name} 학년`}
@@ -223,6 +269,9 @@ export default function StudentsApp({ rows, onRowsChange }: { rows: StudentRow[]
                   </select>
                   <span className="min-w-0 flex-1 truncate text-[15px] font-semibold text-slate-900">
                     {r.name}
+                    {r.id === justAdded && (
+                      <span className="ml-2 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[11px] font-bold text-emerald-700">방금 등록</span>
+                    )}
                     {invalid.has(r.id) && <span className="ml-2 text-xs font-medium text-red-500">정보를 확인해 주세요</span>}
                   </span>
                   <div role="group" aria-label={`${r.name} 수강 과목`} className="flex gap-1.5">
@@ -257,6 +306,47 @@ export default function StudentsApp({ rows, onRowsChange }: { rows: StudentRow[]
           )}
         </section>
       </div>
+
+      {/* 페이지의 등장 애니메이션 안에 있으면 창이 화면 전체를 덮지 못하므로 body 에 바로 그림 */}
+      {confirmClear &&
+        createPortal(
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-slate-900/50 p-4"
+          onMouseDown={(e) => e.target === e.currentTarget && setConfirmClear(false)}
+        >
+          <div
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="clear-title"
+            aria-describedby="clear-desc"
+            className="fade-up w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl"
+          >
+            <span className="grid h-11 w-11 place-items-center rounded-full bg-red-50 text-red-600">
+              <TrashIcon className="h-5 w-5" />
+            </span>
+            <h2 id="clear-title" className="mt-4 text-lg font-bold text-slate-900">
+              정말 전체 삭제할까요?
+            </h2>
+            <p id="clear-desc" className="mt-1.5 text-sm text-slate-600">
+              등록된 학생 {registered.length}명이 모두 지워져요. 지운 뒤에는 되돌릴 수 없어요.
+            </p>
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                ref={cancelClear}
+                type="button"
+                onClick={() => setConfirmClear(false)}
+                className="rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-100"
+              >
+                취소
+              </button>
+              <button type="button" onClick={clearAll} className="rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-red-700">
+                전체 삭제
+              </button>
+            </div>
+          </div>
+        </div>,
+          document.body,
+        )}
     </div>
   );
 }
