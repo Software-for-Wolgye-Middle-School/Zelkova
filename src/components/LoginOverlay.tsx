@@ -85,7 +85,8 @@ export default function LoginOverlay({
                   aria-pressed={showPassword}
                   className="absolute right-1 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
                 >
-                  {showPassword ? <EyeOffIcon className="h-5 w-5" /> : <EyeIcon className="h-5 w-5" />}
+                  {/* 지금 상태를 보여 줌: 가려져 있으면 빗금 친 눈, 보이면 뜬 눈 */}
+                  {showPassword ? <EyeIcon className="h-5 w-5" /> : <EyeOffIcon className="h-5 w-5" />}
                 </button>
               </div>
             </div>
