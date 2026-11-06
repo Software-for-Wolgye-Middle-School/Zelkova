@@ -16,7 +16,9 @@ import {
   type TagBorder,
 } from "@/lib/nameTagSvg";
 import { downloadBlob, embeddedFontCss, loadImageDataUrl, printSheets, svgToPng, withFont } from "@/lib/svgExport";
-import { DownloadIcon, PlusIcon, Spinner, TrashIcon } from "./icons";
+import NameCombobox from "./NameCombobox";
+import { DownloadIcon, PlusIcon, Spinner, TrashIcon, XIcon } from "./icons";
+import { StepHeading, StepNav, StepProgress, useStepFlow } from "./StepFlow";
 import {
   loadCustomIcons,
   MAX_CUSTOM_ICONS,
@@ -32,12 +34,20 @@ const DEFAULT_ICON = "clover";
 const field =
   "h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-[15px] outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100";
 
-/** 줄마다 이름 하나 (쉼표로 구분해도 됨) */
-const parseNames = (text: string) =>
-  [...new Set(text.split(/[\n,]/).map((s) => s.trim().replace(/\s+/g, " ").slice(0, 10)).filter(Boolean))];
+/** 쉼표나 줄바꿈으로 여러 명을 한 번에 붙여 넣어도 됨 */
+const parseNames = (text: string) => text.split(/[\n,]/).map((s) => s.trim().replace(/\s+/g, " ").slice(0, 10)).filter(Boolean);
+
+/** 이름표를 만드는 순서 */
+const STEPS = [
+  { title: "이름", heading: "누구의 이름표인가요?", hint: "이름을 쓰고 Enter를 누르거나 목록에서 고르면 추가돼요. 여러 명을 넣을 수 있어요." },
+  { title: "반 이름", heading: "반 이름을 적어 주세요", hint: "적지 않아도 돼요. 비워 두면 이름만 들어가요." },
+  { title: "꾸미기", heading: "아이콘과 테두리를 골라 주세요", hint: "" },
+] as const;
 
 export default function NameTagApp({ students }: { students: Student[] }) {
-  const [namesText, setNamesText] = useState("");
+  const { step, checking, goStep, goNext, fadeClass } = useStepFlow();
+  const [names, setNames] = useState<string[]>([]);
+  const [pending, setPending] = useState("");
   const [label, setLabel] = useState("");
   const [defaultIcon, setDefaultIcon] = useState(DEFAULT_ICON);
   /** 학생마다 따로 고른 아이콘 (이름 → 아이콘) */
@@ -52,13 +62,18 @@ export default function NameTagApp({ students }: { students: Student[] }) {
   const [busy, setBusy] = useState<"png" | "print" | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
 
-  // 학생 정보 관리에 등록해 둔 학생들을 처음 목록으로 사용
-  const savedNames = useMemo(() => [...new Set(students.map((s) => s.name))], [students]);
-  const [prefilled, setPrefilled] = useState(false);
-  if (!prefilled && savedNames.length) {
-    setPrefilled(true);
-    setNamesText((t) => t || savedNames.join("\n"));
-  }
+  // 학생 정보 관리에 등록해 둔 학생 이름으로 자동완성 (이미 넣은 이름은 빼고)
+  const savedNames = useMemo(
+    () => [...new Set(students.map((s) => s.name))].filter((n) => !names.includes(n)).sort((a, b) => a.localeCompare(b, "ko")),
+    [students, names],
+  );
+  /** 입력칸의 이름(들)을 목록에 넣고 입력칸을 비움 */
+  const addNames = (text: string) => {
+    const added = parseNames(text);
+    if (added.length) setNames((list) => [...new Set([...list, ...added])]);
+    setPending("");
+  };
+  const removeName = (n: string) => setNames((list) => list.filter((x) => x !== n));
 
   useEffect(() => {
     for (const o of ICON_OPTIONS) {
@@ -115,7 +130,6 @@ export default function NameTagApp({ students }: { students: Student[] }) {
     setIconFor((m) => Object.fromEntries(Object.entries(m).filter(([, v]) => v !== id)));
   };
 
-  const names = useMemo(() => parseNames(namesText), [namesText]);
   const tags = useMemo<NameTag[]>(
     () =>
       (names.length ? names : [""]).map((name) => {
@@ -181,8 +195,13 @@ export default function NameTagApp({ students }: { students: Student[] }) {
     }
   };
 
-  const toggleName = (n: string) =>
-    setNamesText(names.includes(n) ? names.filter((x) => x !== n).join("\n") : [...names, n].join("\n"));
+  const last = step === STEPS.length - 1;
+  // 입력칸에 쓰고 아직 추가하지 않은 이름도 '다음'을 누르면 넣음
+  const canNext = step === 0 ? names.length > 0 || !!pending.trim() : true;
+  const next = () => {
+    if (step === 0 && pending.trim()) addNames(pending);
+    goNext();
+  };
 
   return (
     <div className="fade-up mx-auto max-w-5xl">
@@ -195,45 +214,71 @@ export default function NameTagApp({ students }: { students: Student[] }) {
 
       <div className="grid gap-6 lg:grid-cols-[22rem_minmax(0,1fr)]">
         <div className="h-fit space-y-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-          <div>
-            <label className="block text-sm font-semibold text-slate-800" htmlFor="nt-names">
-              이름 <span className="font-normal text-slate-400">· 한 줄에 한 명</span>
-            </label>
-            <textarea
-              id="nt-names"
-              value={namesText}
-              rows={5}
-              placeholder={"강동아\n하초현"}
-              onChange={(e) => setNamesText(e.target.value)}
-              className="mt-2 w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-[15px] outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100"
-            />
-            {savedNames.length > 0 && (
-              <div className="mt-1.5">
-                <p className="text-xs text-slate-400">등록된 학생 (눌러서 넣고 빼기)</p>
-                <div className="mt-1.5 flex flex-wrap gap-1.5">
-                  {savedNames.map((n) => (
-                    <button
-                      key={n}
-                      type="button"
-                      onClick={() => toggleName(n)}
-                      aria-pressed={names.includes(n)}
-                      className={`rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset transition ${
-                        names.includes(n) ? "bg-indigo-50 text-indigo-700 ring-indigo-300" : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"
-                      }`}
-                    >
-                      {n}
-                    </button>
-                  ))}
+          <StepProgress steps={STEPS} step={step} checking={checking} onGo={goStep} />
+
+          <div className={`space-y-5 ${fadeClass}`}>
+          <StepHeading step={STEPS[step]} />
+
+          {step === 0 && (
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-600" htmlFor="nt-name">
+                이름
+              </label>
+              <div className="flex gap-2">
+                <div className="min-w-0 flex-1">
+                  <NameCombobox
+                    id="nt-name"
+                    value={pending}
+                    onChange={setPending}
+                    onSubmit={addNames}
+                    names={savedNames}
+                    maxLength={60}
+                    placeholder="예: 강동아"
+                    className={field}
+                  />
                 </div>
+                <button
+                  type="button"
+                  onClick={() => addNames(pending)}
+                  disabled={!pending.trim()}
+                  className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
+                >
+                  <PlusIcon className="h-4 w-4" />
+                  추가
+                </button>
               </div>
-            )}
-          </div>
+              {names.length > 0 && (
+                <div className="mt-3">
+                  <p className="mb-1.5 text-xs font-semibold text-slate-600">넣은 이름 {names.length}명</p>
+                  <ul className="flex flex-wrap gap-1.5" aria-label="넣은 이름">
+                    {names.map((n) => (
+                      <li key={n} className="inline-flex items-center gap-0.5 rounded-full bg-indigo-50 py-1 pl-2.5 pr-1 text-xs font-semibold text-indigo-700 ring-1 ring-inset ring-indigo-200">
+                        {n}
+                        <button
+                          type="button"
+                          onClick={() => removeName(n)}
+                          aria-label={`${n} 빼기`}
+                          className="grid h-4 w-4 place-items-center rounded-full text-indigo-400 transition hover:bg-indigo-100 hover:text-indigo-700"
+                        >
+                          <XIcon className="h-3 w-3" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
 
-          <label className="block">
-            <span className="mb-1 block text-sm font-semibold text-slate-800">반 이름</span>
-            <input value={label} maxLength={12} placeholder="비워도 돼요" onChange={(e) => setLabel(e.target.value)} className={field} />
-          </label>
+          {step === 1 && (
+            <label className="block">
+              <span className="mb-1 block text-xs font-semibold text-slate-600">반 이름</span>
+              <input value={label} maxLength={12} placeholder="예: 느티나무반 (비워도 돼요)" onChange={(e) => setLabel(e.target.value)} className={field} />
+            </label>
+          )}
 
+          {step === 2 && (
+          <>
           <div>
             <p className="text-sm font-semibold text-slate-800">테두리</p>
             <div className="mt-2 flex flex-wrap items-center gap-2" role="radiogroup" aria-label="테두리">
@@ -335,7 +380,7 @@ export default function NameTagApp({ students }: { students: Student[] }) {
             )}
           </div>
 
-          <div className="space-y-2 border-t border-slate-100 pt-5">
+          <div className="space-y-2">
             <button
               type="button"
               onClick={print}
@@ -354,13 +399,18 @@ export default function NameTagApp({ students }: { students: Student[] }) {
               {busy === "png" ? <Spinner className="h-5 w-5" /> : <DownloadIcon className="h-5 w-5" />}
               전체 그림 파일로 저장 (PNG)
             </button>
-            {names.length === 0 && <p className="text-center text-xs text-slate-400">이름을 입력하면 저장할 수 있어요</p>}
             {exportError && (
               <p role="alert" className="text-center text-xs font-medium text-red-600">
                 {exportError}
               </p>
             )}
           </div>
+          </>
+          )}
+          </div>
+
+          <StepNav step={step} last={last} canNext={canNext} checking={checking} onPrev={() => goStep(step - 1)} onNext={next} />
+          {step === 0 && !canNext && <p className="-mt-3 text-center text-xs text-slate-400">이름을 넣으면 다음으로 넘어갈 수 있어요</p>}
         </div>
 
         <section aria-label="이름표 미리보기" className="min-w-0">
@@ -375,7 +425,7 @@ export default function NameTagApp({ students }: { students: Student[] }) {
                   // nameTagSvg 는 입력값을 XML 이스케이프한 뒤 직접 만든 SVG 문자열
                   dangerouslySetInnerHTML={{ __html: svgs[i] }}
                 />
-                {t.name && (
+                {t.name && step === 2 && (
                   <select
                     aria-label={`${t.name} 아이콘`}
                     value={t.icon}

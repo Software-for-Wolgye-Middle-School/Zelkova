@@ -41,7 +41,10 @@ function suggest(names: string[], typed: string) {
   return [...starts, ...contains].filter((n) => n !== q).slice(0, MAX_SUGGESTIONS);
 }
 
-/** 이름을 쓰면 등록된 학생 이름을 자동완성으로 보여 주는 입력칸 (↑↓ 로 고르고 Enter) */
+/**
+ * 이름을 쓰면 등록된 학생 이름을 자동완성으로 보여 주는 입력칸 (↑↓ 로 고르고 Enter).
+ * onSubmit 을 주면 이름을 고르거나 목록 없이 Enter 를 눌렀을 때 그 이름으로 불림 (여러 명을 차례로 넣을 때)
+ */
 export default function NameCombobox({
   id,
   value,
@@ -50,6 +53,7 @@ export default function NameCombobox({
   maxLength,
   placeholder,
   className,
+  onSubmit,
 }: {
   id: string;
   value: string;
@@ -58,6 +62,7 @@ export default function NameCombobox({
   maxLength: number;
   placeholder?: string;
   className: string;
+  onSubmit?: (name: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
@@ -74,7 +79,8 @@ export default function NameCombobox({
   }, [open]);
 
   const pick = (name: string) => {
-    onChange(name);
+    if (onSubmit) onSubmit(name);
+    else onChange(name);
     setOpen(false);
   };
 
@@ -97,7 +103,14 @@ export default function NameCombobox({
           setActive(0);
         }}
         onKeyDown={(e) => {
-          if (!matches.length || e.nativeEvent.isComposing) return;
+          if (e.nativeEvent.isComposing) return;
+          if (!matches.length) {
+            if (e.key === "Enter" && onSubmit) {
+              e.preventDefault();
+              onSubmit(value);
+            }
+            return;
+          }
           if (e.key === "ArrowDown" || e.key === "ArrowUp") {
             e.preventDefault();
             setActive((a) => (a + (e.key === "ArrowDown" ? 1 : matches.length - 1)) % matches.length);
