@@ -286,12 +286,7 @@ export default function TimetableApp() {
   }, [classSlot, students, studentErrors, settings, settingsErrors]);
 
   /** 시간표 메뉴: 만든 결과가 있으면 결과 화면으로, 없으면 입력 단계로 */
-  const openTimetable = useCallback(() => {
-    if (!result) resetTtRows();
-    setPhase(result ? "result" : "upload");
-  }, [result, resetTtRows]);
-
-  /** 기본 정보와 학생 목록은 저장해 두고, 학급 시간표만 비운 채 처음 단계로 */
+  /** 기본 정보와 학생 목록은 저장해 두고, 지난 결과와 학급 시간표는 비운 채 처음 단계로 */
   const restart = useCallback(() => {
     uploadToken.current++;
     setClassSlot({ status: "empty" });
@@ -324,7 +319,7 @@ export default function TimetableApp() {
 
       {phase === "home" ? (
         <Landing
-          onStartTimetable={openTimetable}
+          onStartTimetable={restart} // 메인 화면에서 다시 열면 지난 결과 없이 항상 처음 단계부터
           onStartPromise={() => setPhase("promise")}
           onStartBankbook={() => setPhase("bankbook")}
           onStartNameTag={() => setPhase("nametag")}

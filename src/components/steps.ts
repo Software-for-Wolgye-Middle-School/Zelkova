@@ -23,7 +23,6 @@ export const WIZARD_STEPS = [
 export const CLASS_FILE = {
   accept: ".xlsx,.xls",
   formats: "Excel (.xlsx)",
-  hints: ["A열에 '1 - 1' 형식의 학급 제목", "각 칸은 과목 다음 줄에 선생님 (예: 국어A ↵ 미숙)"],
 };
 
 export type SlotState =

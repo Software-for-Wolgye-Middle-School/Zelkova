@@ -179,17 +179,6 @@ export default function UploadWizard({
           ) : (
             <>
               <DropArea slot={classSlot} onFile={onFile} onClear={onClear} />
-              <div className="mt-5 rounded-xl bg-slate-50 px-4 py-3.5">
-                <p className="text-xs font-semibold text-slate-500">이런 파일이에요</p>
-                <ul className="mt-1.5 space-y-1 text-sm text-slate-600">
-                  {CLASS_FILE.hints.map((h) => (
-                    <li key={h} className="flex gap-2">
-                      <span className="mt-[7px] h-1 w-1 shrink-0 rounded-full bg-slate-400" aria-hidden="true" />
-                      {h}
-                    </li>
-                  ))}
-                </ul>
-              </div>
               {classSlot.status === "ready" && (
                 <ReviewList
                   settings={settings}
