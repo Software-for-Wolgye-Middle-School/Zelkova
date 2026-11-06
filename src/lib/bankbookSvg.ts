@@ -129,13 +129,13 @@ function infoSvg(b: Bankbook) {
 </svg>`;
 }
 
-/** 거래 내역 한 쪽 (10줄) */
+/** 거래 내역 한 쪽 (6줄) */
 function ledgerSvg() {
   const x0 = 40;
   const x1 = BOOK_W - 40;
   const top = 62;
   const bottom = BOOK_H - 28;
-  const rows = 10;
+  const rows = 6;
   const headH = 54;
   const rowH = (bottom - top - headH) / rows;
   const cols: [string, number][] = [

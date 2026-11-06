@@ -1,12 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   a4Layout,
   BOOK_H,
   BOOK_MM,
-  BOOK_MM_MAX,
-  BOOK_MM_MIN,
   BOOK_W,
   bankbookPages,
   bankbookText,
@@ -17,7 +15,7 @@ import {
 } from "@/lib/bankbookSvg";
 import { embeddedFontCss, loadImageDataUrl, safeFileName, svgToPng, withFont } from "@/lib/svgExport";
 import NameCombobox from "./NameCombobox";
-import { DownloadIcon, PlusIcon, Spinner, TrashIcon } from "./icons";
+import { CheckIcon, DownloadIcon, PlusIcon, Spinner, TrashIcon, XIcon } from "./icons";
 import { SlideCarousel, StepHeading, StepNav, StepProgress, useStepFlow } from "./StepFlow";
 import {
   BACKGROUND_MAX_WIDTH,
@@ -57,15 +55,34 @@ const STEPS = [
   { title: "이름", heading: "누구의 통장인가요?", hint: "" },
   { title: "통장 정보", heading: "통장에 들어갈 내용을 확인해 주세요", hint: "" },
   { title: "거래 내역", heading: "거래 내역은 몇 쪽으로 할까요?", hint: "" },
-  { title: "크기", heading: "크기를 정하세요", hint: "" },
-  { title: "다운받기", heading: "PDF로 내려받아요", hint: "" },
+  { title: "완료", heading: "통장을 더 만들까요?", hint: "다른 학생 통장을 더 만들거나, 지금까지 만든 통장을 PDF 파일 하나로 내려받아요." },
 ] as const;
+const DONE_STEP = STEPS.length - 1;
 
-/** 쪽 크기 바로 고르기: A4 한 장에 n쪽이 들어가는 가장 큰 크기 */
-const SIZE_PRESETS = [1, 2, 4, 8].map((n) => ({ n, w: largestWidthFor(n) }));
+/** 쪽 크기는 A4 한 장에 4쪽이 들어가는 크기로 고정 */
+const LAYOUT = a4Layout(largestWidthFor(4));
 
 /** 단계별로 미리보기에 보이는 화면. 같은 화면이면 단계를 옮겨도 미리보기를 다시 불러오지 않음 */
-const previewView = (step: number) => (step === 1 || step === 2 ? "info" : step === 3 ? "ledger" : step === 4 ? "size" : step === 5 ? "download" : "all");
+const previewView = (step: number) => (step === 1 || step === 2 ? "info" : step === 3 ? "ledger" : step === DONE_STEP ? "download" : "all");
+
+/** 다른 학생 통장을 만들 때 계좌번호 끝 숫자를 하나 올림 (…-01 → …-02) */
+const nextAccount = (account: string) =>
+  account.replace(/(\d+)$/, (n) => String(Number(n) + 1).padStart(n.length, "0"));
+
+/** 한 학생 통장을 만들 때 고른 값들 (다른 학생을 추가했다가 취소하면 되돌림) */
+type Draft = {
+  name: string;
+  bank: string;
+  branch: string;
+  issued: string;
+  account: string;
+  kind: Bankbook["kind"];
+  paper: PaperColor;
+  ledgersText: string;
+  picture: PictureKey;
+};
+/** 다 만든 통장 */
+type SavedBook = { id: number; draft: Draft; book: Bankbook; ledgers: number; pictureLabel: string };
 
 const today = () => {
   const d = new Date();
@@ -82,7 +99,6 @@ export default function BankbookApp({ students }: { students: Student[] }) {
   const [kind, setKind] = useState<Bankbook["kind"]>("신규");
   const [paper, setPaper] = useState<PaperColor>("분홍");
   const [ledgersText, setLedgersText] = useState("5");
-  const [pageW, setPageW] = useState<number>(BOOK_MM.w);
   const [picture, setPicture] = useState<PictureKey>("hello_kitty");
   const [art, setArt] = useState<{ key: PictureKey; front: string; back: string } | null>(null);
   const [sets, setSets] = useState<CustomPhotoSet[]>([]);
@@ -96,6 +112,8 @@ export default function BankbookApp({ students }: { students: Student[] }) {
   const savedNames = useMemo(() => [...new Set(students.map((s) => s.name))].sort((a, b) => a.localeCompare(b, "ko")), [students]);
   const [busy, setBusy] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [saved, setSaved] = useState<SavedBook[]>([]);
+  const nextId = useRef(0);
 
   useEffect(() => {
     fetchPhotoSets().then(setSets).catch((e) => console.error(e));
@@ -143,9 +161,7 @@ export default function BankbookApp({ students }: { students: Student[] }) {
   const previewPaper = customOpen ? draftPaper : paper;
   // 등록 창에서는 사진을 아직 안 올린 쪽도 속지 · 거래 내역을 먼저 보여 주려고 빈 그림으로 채움
   const blankArt = customOpen ? BLANK_ART : undefined;
-  const layout = useMemo(() => a4Layout(pageW), [pageW]);
-  // 표지 · 속지 · 거래 내역 · 뒤표지
-  const sheets = Math.ceil((ledgers + 3) / layout.perSheet);
+  const layout = LAYOUT;
 
   const trimmed = name.trim().replace(/\s+/g, " ").slice(0, 10);
   const book = useMemo<Bankbook | null>(
@@ -156,7 +172,58 @@ export default function BankbookApp({ students }: { students: Student[] }) {
     [trimmed, bank, branch, account, issued, kind, previewPaper, cover, back, blankArt],
   );
   const pages = useMemo(() => (book ? bankbookPages(book, ledgers) : []), [book, ledgers]);
-  const baseName = `${safeFileName(trimmed)} 칭찬통장`;
+
+  const pictureLabel = sets.find((c) => c.id === picture)?.label ?? PICTURES.find((p) => p.key === picture)?.label ?? "";
+  /** 내려받을 통장: 다 만든 통장들 + 지금 만든 통장 */
+  const books = useMemo(
+    () => [...saved.map((b) => ({ name: b.draft.name, book: b.book, ledgers: b.ledgers })), ...(book ? [{ name: trimmed, book, ledgers }] : [])],
+    [saved, book, trimmed, ledgers],
+  );
+  /** 미리보기 · PDF 의 A4 장들. 학생마다 새 장에서 시작 */
+  const sheetList = useMemo(
+    () =>
+      books.flatMap((b) => {
+        const all = bankbookPages(b.book, b.ledgers);
+        const count = Math.ceil(all.length / layout.perSheet);
+        return Array.from({ length: count }, (_, i) => ({ name: b.name, no: i + 1, count, pages: all.slice(i * layout.perSheet, (i + 1) * layout.perSheet) }));
+      }),
+    [books, layout],
+  );
+
+  const snapshot = (): Draft => ({ name: trimmed, bank, branch, issued, account, kind, paper, ledgersText, picture });
+  const restore = (d: Draft) => {
+    setName(d.name);
+    setBank(d.bank);
+    setBranch(d.branch);
+    setIssued(d.issued);
+    setAccount(d.account);
+    setKind(d.kind);
+    setPaper(d.paper);
+    setLedgersText(d.ledgersText);
+    setPicture(d.picture);
+  };
+  /** 지금 통장을 다 만든 통장에 넣고, 이름만 비운 채 배경 단계부터 다음 학생 통장을 만듦 */
+  const addAnother = () => {
+    if (!book) return;
+    const done: SavedBook = { id: nextId.current++, draft: snapshot(), book, ledgers, pictureLabel };
+    goStep(0, () => {
+      setSaved((list) => [...list, done]);
+      setName("");
+      setAccount(nextAccount(account));
+      setExportError(null);
+    });
+  };
+  /** 다음 학생 추가를 그만두고 마지막으로 만든 통장으로 돌아가 완료 단계로 */
+  const cancelAdd = () => {
+    const lastBook = saved[saved.length - 1];
+    if (!lastBook) return;
+    goStep(DONE_STEP, () => {
+      setSaved((list) => list.slice(0, -1));
+      restore(lastBook.draft);
+    });
+  };
+  const removeSaved = (id: number) => setSaved((list) => list.filter((b) => b.id !== id));
+  const duplicate = !!trimmed && saved.some((b) => b.draft.name === trimmed);
 
   /** 사진 파일을 골라 크기를 줄인 뒤 등록하려는 세트의 앞면 또는 뒷면에 넣음 */
   const readPhoto = async (side: "front" | "back", file: File | undefined) => {
@@ -210,14 +277,14 @@ export default function BankbookApp({ students }: { students: Student[] }) {
     }
   };
 
-  /** 고른 크기 그대로 모든 쪽을 A4 한 장에 들어가는 만큼 놓고 자르는 점선을 그려 PDF 로 내려받음 */
+  /** 모든 학생 통장을 PDF 하나로: A4 한 장에 4쪽씩 놓고 자르는 점선을 그림. 학생마다 새 장에서 시작 */
   const savePdf = async () => {
-    if (!book) return;
+    if (!books.length) return;
     setBusy(true);
     setExportError(null);
     try {
-      const [{ jsPDF }, css] = await Promise.all([import("jspdf"), embeddedFontCss(bankbookText(book))]);
-      const { orientation, page, cols, perSheet, left, top } = layout;
+      const [{ jsPDF }, css] = await Promise.all([import("jspdf"), embeddedFontCss(books.map((b) => bankbookText(b.book)).join(""))]);
+      const { orientation, page, cols, left, top } = layout;
       const doc = new jsPDF({ orientation, unit: "mm", format: "a4" });
       const { w, h } = page;
       // 크게 인쇄할수록 그림을 더 촘촘하게 만듦
@@ -227,21 +294,22 @@ export default function BankbookApp({ students }: { students: Student[] }) {
       doc.setDrawColor(187);
       // 거래 내역 쪽은 모두 같으므로 그림을 한 번만 만들어 다시 씀
       const images = new Map<string, { data: Uint8Array; alias: string }>();
-      for (const [i, p] of pages.entries()) {
-        const slot = i % perSheet;
-        if (i > 0 && slot === 0) doc.addPage();
-        let img = images.get(p.svg);
-        if (!img) {
-          const blob = await svgToPng(withFont(p.svg, css), BOOK_W, BOOK_H, scale, "image/jpeg");
-          img = { data: new Uint8Array(await blob.arrayBuffer()), alias: `page-${images.size}` };
-          images.set(p.svg, img);
+      for (const [si, sheet] of sheetList.entries()) {
+        if (si > 0) doc.addPage();
+        for (const [slot, p] of sheet.pages.entries()) {
+          let img = images.get(p.svg);
+          if (!img) {
+            const blob = await svgToPng(withFont(p.svg, css), BOOK_W, BOOK_H, scale, "image/jpeg");
+            img = { data: new Uint8Array(await blob.arrayBuffer()), alias: `page-${images.size}` };
+            images.set(p.svg, img);
+          }
+          const x = left + (slot % cols) * w;
+          const y = top + Math.floor(slot / cols) * h;
+          doc.addImage(img.data, "JPEG", x, y, w, h, img.alias);
+          doc.rect(x, y, w, h);
         }
-        const x = left + (slot % cols) * w;
-        const y = top + Math.floor(slot / cols) * h;
-        doc.addImage(img.data, "JPEG", x, y, w, h, img.alias);
-        doc.rect(x, y, w, h);
       }
-      doc.save(`${baseName}.pdf`);
+      doc.save(books.length === 1 ? `${safeFileName(books[0].name)} 칭찬통장.pdf` : `칭찬통장 ${books.length}명.pdf`);
     } catch (e) {
       console.error(e);
       setExportError("PDF로 저장하지 못했어요. 잠시 뒤 다시 해 주세요.");
@@ -252,7 +320,7 @@ export default function BankbookApp({ students }: { students: Student[] }) {
 
   /** A4 한 장에 놓이는 쪽들 (자르는 점선 포함) */
   const sheetContent = (s: number) =>
-    pages.slice(s * layout.perSheet, (s + 1) * layout.perSheet).map((p, slot) => (
+    (sheetList[s]?.pages ?? []).map((p, slot) => (
       <div
         key={p.key}
         className="absolute overflow-hidden outline-dashed outline-1 outline-slate-300 [&>svg]:block [&>svg]:h-full [&>svg]:w-full"
@@ -313,7 +381,29 @@ export default function BankbookApp({ students }: { students: Student[] }) {
           <StepProgress steps={STEPS} step={step} checking={checking} onGo={goStep} />
 
           <div className={`space-y-5 ${fadeClass}`}>
-          <StepHeading step={STEPS[step]} />
+          {saved.length > 0 && step !== DONE_STEP && (
+            // 다음 학생 통장을 만드는 동안 이미 만든 학생을 늘 보여 줌
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 px-3.5 py-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-bold text-emerald-800">다 만든 통장 {saved.length}개</p>
+                <button type="button" onClick={cancelAdd} className="rounded-md px-1.5 py-0.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100">
+                  추가 그만하기
+                </button>
+              </div>
+              <ul className="mt-2 flex flex-wrap gap-1.5" aria-label="다 만든 통장">
+                {saved.map((b, i) => (
+                  <li key={b.id} className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-emerald-800 ring-1 ring-inset ring-emerald-200">
+                    <CheckIcon className="h-3 w-3" strokeWidth={3} />
+                    {i + 1}. {b.draft.name}
+                  </li>
+                ))}
+                <li className="rounded-full border border-dashed border-indigo-300 bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700" aria-current="true">
+                  {saved.length + 1}. {trimmed || "지금 만드는 통장"}
+                </li>
+              </ul>
+            </div>
+          )}
+          <StepHeading step={saved.length > 0 && step < DONE_STEP ? { ...STEPS[step], hint: `${saved.length + 1}번째 학생의 통장이에요.` } : STEPS[step]} />
 
           {step === 0 && (
             <div>
@@ -379,6 +469,7 @@ export default function BankbookApp({ students }: { students: Student[] }) {
                 이름
               </label>
               <NameCombobox id="bb-name" value={name} onChange={setName} names={savedNames} maxLength={10} placeholder="예: 하초현" className={field} />
+              {duplicate && <p className="mt-1.5 text-xs font-medium text-amber-700">이미 통장을 만든 학생이에요. 같은 학생 통장을 하나 더 만들어요.</p>}
             </div>
           )}
 
@@ -428,52 +519,63 @@ export default function BankbookApp({ students }: { students: Student[] }) {
             </Field>
           )}
 
-          {step === 4 && (
-            <div>
-              <div className="flex items-baseline justify-between">
-                <label htmlFor="bb-size" className="text-sm font-semibold text-slate-800">
-                  쪽 크기
-                </label>
-                <span className="text-xs font-semibold text-indigo-700">
-                  {layout.page.w} × {layout.page.h}mm
-                </span>
+          {step === DONE_STEP && (
+            <div className="space-y-4">
+              <div>
+                <p className="mb-1.5 text-xs font-semibold text-slate-600">내려받을 통장 {books.length}개</p>
+                <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200">
+                  {saved.map((b, i) => (
+                    <li key={b.id} className="flex items-center gap-2 px-3 py-2 text-sm">
+                      <span className="w-5 shrink-0 text-xs font-bold text-slate-400">{i + 1}</span>
+                      <span className="min-w-0 flex-1 truncate font-semibold text-slate-800">{b.draft.name}</span>
+                      <span className="shrink-0 text-xs text-slate-500">
+                        {b.pictureLabel} · 거래 {b.ledgers}쪽
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => removeSaved(b.id)}
+                        aria-label={`${b.draft.name} 통장 빼기`}
+                        className="grid h-6 w-6 shrink-0 place-items-center rounded-full text-slate-400 transition hover:bg-red-50 hover:text-red-600"
+                      >
+                        <XIcon className="h-3.5 w-3.5" />
+                      </button>
+                    </li>
+                  ))}
+                  <li className="flex items-center gap-2 px-3 py-2 text-sm">
+                    <span className="w-5 shrink-0 text-xs font-bold text-slate-400">{saved.length + 1}</span>
+                    <span className="min-w-0 flex-1 truncate font-semibold text-slate-800">{trimmed}</span>
+                    <span className="shrink-0 text-xs text-slate-500">
+                      {pictureLabel} · 거래 {ledgers}쪽
+                    </span>
+                    <span className="w-6 shrink-0" />
+                  </li>
+                </ul>
               </div>
-              <input
-                id="bb-size"
-                type="range"
-                min={BOOK_MM_MIN}
-                max={BOOK_MM_MAX}
-                step={1}
-                value={pageW}
-                onChange={(e) => setPageW(Number(e.target.value))}
-                className="mt-3 w-full accent-indigo-600"
-              />
-              <div className="mt-2 grid grid-cols-4 gap-1.5">
-                {SIZE_PRESETS.map((p) => (
-                  <button key={p.n} type="button" onClick={() => setPageW(p.w)} aria-pressed={pageW === p.w} className={chip(pageW === p.w)}>
-                    {p.n}쪽
-                  </button>
-                ))}
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={addAnother}
+                  disabled={!book}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-indigo-300 bg-indigo-50/50 px-5 py-3 text-[15px] font-semibold text-indigo-700 transition hover:border-indigo-400 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <PlusIcon className="h-5 w-5" />
+                  다른 학생 통장 더 만들기
+                </button>
+                <button
+                  type="button"
+                  onClick={savePdf}
+                  disabled={busy || !book}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-[15px] font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
+                >
+                  {busy ? <Spinner className="h-5 w-5" /> : <DownloadIcon className="h-5 w-5" />}
+                  모두 다운로드 (PDF 1개)
+                </button>
               </div>
-            </div>
-          )}
-
-          {step === 5 && (
-            <div>
-            <button
-              type="button"
-              onClick={savePdf}
-              disabled={!trimmed || busy || !book}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-[15px] font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
-            >
-              {busy ? <Spinner className="h-5 w-5" /> : <DownloadIcon className="h-5 w-5" />}
-              PDF 다운로드
-            </button>
-            {exportError && (
-              <p role="alert" className="mt-2 text-center text-xs font-medium text-red-600">
-                {exportError}
-              </p>
-            )}
+              {exportError && (
+                <p role="alert" className="text-center text-xs font-medium text-red-600">
+                  {exportError}
+                </p>
+              )}
             </div>
           )}
           </div>
@@ -484,31 +586,19 @@ export default function BankbookApp({ students }: { students: Student[] }) {
 
         <section aria-label="칭찬통장 미리보기" className={`min-w-0 space-y-4 ${previewView(step) === previewView(fadeTo) ? "" : fadeClass}`}>
           {/* 앞면 · 속지 · 거래 내역 · 뒷면 (거래 내역은 모든 쪽이 같음) */}
-          {step === 4 && (
+          {step === DONE_STEP && (
             <SlideCarousel
-              count={sheets}
+              count={sheetList.length}
               render={sheetContent}
-              caption={(i) => `A4 ${layout.orientation === "landscape" ? "가로" : "세로"} ${i + 1}/${sheets}장 (${layout.page.w} × ${layout.page.h}mm)`}
+              caption={(i) =>
+                sheetList[i] ? `${sheetList[i].name} · ${sheetList[i].no}/${sheetList[i].count}장 (전체 ${i + 1}/${sheetList.length}장, A4 한 장에 4쪽)` : ""
+              }
               aspectRatio={`${layout.paper.w} / ${layout.paper.h}`}
               maxWidth={layout.orientation === "landscape" ? 640 : 452}
             />
           )}
 
-          {step === 5 && (
-            <div className="grid gap-4 sm:grid-cols-2">
-              {pages.map((p) => (
-                <figure key={p.key} className="rounded-2xl border border-slate-200 bg-slate-100 p-3">
-                  <figcaption className="mb-2 text-xs font-semibold text-slate-500">{p.label}</figcaption>
-                  <div
-                    className="overflow-hidden rounded-md bg-white shadow-md [&>svg]:block [&>svg]:h-auto [&>svg]:w-full"
-                    dangerouslySetInnerHTML={{ __html: p.svg }}
-                  />
-                </figure>
-              ))}
-            </div>
-          )}
-
-          <div className={step >= 4 ? "hidden" : ""}>{slotGrid}</div>
+          <div className={step === DONE_STEP ? "hidden" : ""}>{slotGrid}</div>
 
         </section>
       </div>
