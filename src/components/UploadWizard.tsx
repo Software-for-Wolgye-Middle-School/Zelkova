@@ -142,11 +142,8 @@ export default function UploadWizard({
 
       <Stepper statuses={statuses} current={step} onSelect={selectStep} />
 
-      <section
-        key={step}
-        aria-labelledby="step-title"
-        className={`${track.step === step && track.dir === "prev" ? "step-in-prev" : "step-in-next"} mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8`}
-      >
+      {/* 흰 카드는 그대로 두고, 단계가 바뀌면 안의 내용만 옆으로 밀려 들어옴 (이전 · 다음 버튼 줄도 그대로) */}
+      <section aria-labelledby="step-title" className="mt-6 overflow-x-clip rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8">
         {error && (
           <div
             role="alert"
@@ -168,6 +165,7 @@ export default function UploadWizard({
           </div>
         )}
 
+        <div key={step} className={track.step === step && track.dir === "prev" ? "step-in-prev" : "step-in-next"}>
         <p className="text-sm font-semibold text-indigo-600">
           {step + 1}단계 <span className="font-normal text-slate-400">/ {WIZARD_STEPS.length}</span>
         </p>
@@ -207,6 +205,7 @@ export default function UploadWizard({
               )}
             </>
           )}
+        </div>
         </div>
 
         <div className="mt-8 flex items-center justify-between gap-3 border-t border-slate-100 pt-6">
