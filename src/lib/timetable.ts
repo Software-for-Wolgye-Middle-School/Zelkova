@@ -496,6 +496,40 @@ function titleParagraph(body: Element) {
   return kids(body, "p").find((p) => TITLE_YEAR.test(cellText(p))) ?? null;
 }
 
+const NAME_FONT_SIZE_HALF_PT = 24; // 학생별 시간표 제목 아래 이름 12pt
+
+/**
+ * 제목 바로 아래에 가운데 정렬로 학생 이름을 씀. 양식의 제목 아래 빈 줄이 있으면 그 줄을 쓰고(쪽 높이가 늘지 않게),
+ * 없으면 새 줄을 끼워 넣음
+ */
+function addNameLine(body: Element, name: string) {
+  const title = titleParagraph(body);
+  if (!title) return;
+  const doc = body.ownerDocument;
+  let next = title.nextSibling;
+  while (next && next.nodeType !== 1) next = next.nextSibling;
+  const blank = next && (next as Element).localName === "p" && !cellText(next as Element) ? (next as Element) : null;
+  const p = blank ?? body.insertBefore(mk(doc, "p"), title.nextSibling);
+  for (const r of kids(p, "r")) p.removeChild(r);
+  const pPr = kid(p, "pPr") ?? p.insertBefore(mk(doc, "pPr"), p.firstChild);
+  setW(ensureChild(pPr, "jc", PPR_AFTER_SPACING.slice(PPR_AFTER_SPACING.indexOf("jc") + 1)), "val", "center");
+
+  const r = mk(doc, "r");
+  const rPr = mk(doc, "rPr");
+  const fonts = mk(doc, "rFonts");
+  for (const k of ["ascii", "hAnsi", "eastAsia"]) setW(fonts, k, FONT);
+  const size = mk(doc, "sz");
+  setW(size, "val", String(NAME_FONT_SIZE_HALF_PT));
+  rPr.appendChild(fonts);
+  rPr.appendChild(size);
+  const t = mk(doc, "t");
+  t.setAttributeNS(XML_NS, "xml:space", "preserve");
+  t.textContent = name;
+  r.appendChild(rPr);
+  r.appendChild(t);
+  p.appendChild(r);
+}
+
 /** 시간표 표가 아닌 표에서 '○○○ 선생님(교실)' 칸과 그 왼쪽 색상 칸 찾기 */
 function teacherCells(body: Element, timetable: Element) {
   const out: { tc: Element; color: string }[] = [];
@@ -560,12 +594,14 @@ function applySettings(body: Element, timetable: Element, settings: TemplateSett
 
 // ---------------------------------------------------------------- 템플릿 채우기
 /** 템플릿을 열고 교시 행마다 요일별 칸 목록을 준비 */
-async function openTimetable(templateBuf: ArrayBuffer, settings?: TemplateSettings) {
+async function openTimetable(templateBuf: ArrayBuffer, settings?: TemplateSettings, studentName?: string) {
   const { zip, xml, body } = await openDocx(templateBuf);
   const styles = await readStyles(zip);
   fixFonts(body);
   const { tbl, header } = findTimetable(body);
   if (settings) applySettings(body, tbl, settings);
+  // 쪽 높이를 계산하기 전에 이름 줄을 넣어 한 페이지 맞추기에 포함되게 함
+  if (studentName) addNameLine(body, studentName);
 
   // 머리행에서 요일별 grid 범위 계산
   const dayRanges = new Map<number, [number, number]>();
@@ -676,6 +712,7 @@ export function studentSlots(classTt: ClassTimetables, st: Student): Map<string,
 /**
  * 학생 개인 시간표: 템플릿의 칸 색상(선생님 구분)과 행 높이는 그대로 두고, 수업하는 칸에 과목명만 채움.
  * 한 페이지를 넘을 것 같으면 과목명 글씨와 행 높이를 줄여 항상 한 페이지에 맞춤.
+ * studentName 을 주면 제목 아래에 학생 이름을 써서 어느 학생 시간표인지 알 수 있게 함.
  * 나뉜 칸은 하나로 합치되, 전체 시간표에서 그 학생의 과목이 놓인 칸의 색상을 따름.
  */
 export async function fillStudentTemplate(
@@ -683,8 +720,9 @@ export async function fillStudentTemplate(
   schedule: Schedule,
   slots: Map<string, string>,
   settings?: TemplateSettings,
+  studentName?: string,
 ) {
-  const { zip, xml, rows, budget, labelNeed } = await openTimetable(templateBuf, settings);
+  const { zip, xml, rows, budget, labelNeed } = await openTimetable(templateBuf, settings, studentName);
   const plan = rows.map(({ tr, period, dayCells: byDay }) => {
     const cells: { tc: Element; subject: string }[] = [];
     for (const [d, dayCells] of byDay) {

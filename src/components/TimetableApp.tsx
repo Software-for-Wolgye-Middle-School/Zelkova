@@ -250,7 +250,7 @@ export default function TimetableApp() {
           docs.push({
             key: `${student.grade}-${student.cls}-${student.name}-${i}`,
             student,
-            blob: await fillStudentTemplate(template, schedule, slots, info),
+            blob: await fillStudentTemplate(template, schedule, slots, info, student.name),
             fileName: names[i],
             hours: slots.size,
             subjectHours: subjectHours(student.subjects, slots),
