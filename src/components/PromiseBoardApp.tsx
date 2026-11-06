@@ -188,7 +188,7 @@ export default function PromiseBoardApp({ students }: { students: Student[] }) {
                     className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-slate-500 transition hover:bg-red-50 hover:text-red-600"
                   >
                     <TrashIcon className="h-3.5 w-3.5" />
-                    학생 {current + 1} 빼기
+                    학생 {current + 1} 제거
                   </button>
                 )}
               </div>
