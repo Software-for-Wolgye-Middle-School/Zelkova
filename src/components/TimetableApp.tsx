@@ -17,7 +17,7 @@ import {
   type TemplateSettings,
 } from "@/lib/timetable";
 import { DEFAULT_TEMPLATE_URL, type SlotState } from "./steps";
-import { DEFAULT_SUBJECTS, fetchServerRows, loadRows, saveRows, saveServerRows, syncToTimetable, TIMETABLE_KEY, validateRows, type StudentRow } from "./students";
+import { DEFAULT_SUBJECTS, fetchServerRows, isBlank, loadRows, saveRows, saveServerRows, syncToTimetable, TIMETABLE_KEY, validateRows, type StudentRow } from "./students";
 import { cleanSettings, loadSettings, saveSettings, validateSettings } from "./settings";
 import UploadWizard from "./UploadWizard";
 import GeneratingScreen from "./GeneratingScreen";
@@ -75,7 +75,7 @@ const MIN_STAGE_MS = 600;
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** 서버에서 미리 그린 화면과 맞도록 첫 줄은 고정된 id 로 시작 */
-const INITIAL_ROWS: StudentRow[] = [{ id: "initial", grade: "1", cls: "", name: "", subjects: [...DEFAULT_SUBJECTS] }];
+const INITIAL_ROWS: StudentRow[] = [{ id: "initial", grade: "1", cls: "1", name: "", subjects: [...DEFAULT_SUBJECTS] }];
 
 let templateRequest: Promise<ArrayBuffer> | null = null;
 
@@ -184,13 +184,11 @@ export default function TimetableApp() {
     saveRows(next, TIMETABLE_KEY);
   }, []);
 
-  /** 시간표 만들기를 새로 시작하면 학생 목록을 다시 학생 정보 관리에서 가져옴 */
+  /** 시간표 만들기를 새로 시작하면 학생 목록을 비움 (등록된 학생은 '등록된 학생 정보 불러오기'로 가져옴) */
   const resetTtRows = useCallback(() => {
-    const fresh = rows.filter((r) => r.name.trim() || r.cls.trim()).map((r) => ({ ...r, subjects: [...r.subjects] }));
-    const next = fresh.length ? fresh : INITIAL_ROWS;
-    setTtRows(next);
-    saveRows(next, TIMETABLE_KEY);
-  }, [rows]);
+    setTtRows(INITIAL_ROWS);
+    saveRows(INITIAL_ROWS, TIMETABLE_KEY);
+  }, []);
 
   /**
    * 학생 정보 관리(서버)에 등록한 학생 중 시간표 목록에 아직 없는 학생을 더함.
@@ -202,7 +200,7 @@ export default function TimetableApp() {
     setRows(server);
     saveRows(server);
     const key = (r: StudentRow) => `${r.grade}|${Number(r.cls)}|${r.name.trim()}`;
-    const current = ttRows.filter((r) => r.name.trim() || r.cls.trim());
+    const current = ttRows.filter((r) => !isBlank(r));
     const have = new Set(current.map(key));
     const added = server.filter((r) => !have.has(key(r))).map((r) => ({ ...r, subjects: [...r.subjects] }));
     const next = [...current, ...added];

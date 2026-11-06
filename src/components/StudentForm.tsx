@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { DownloadIcon, PlusIcon, Spinner, TrashIcon } from "./icons";
+import ConfirmDialog from "./ConfirmDialog";
 import LoginOverlay from "./LoginOverlay";
 import { CLASSES, GRADES, newRow, SUBJECTS, type RowErrors, type StudentRow } from "./students";
 
@@ -91,7 +92,7 @@ export default function StudentForm({ rows, onChange, onImport, errors, showErro
             className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-wait disabled:opacity-70"
           >
             {importing ? <Spinner className="h-4 w-4" /> : <DownloadIcon className="h-4 w-4" />}
-            등록된 학생 불러오기
+            등록된 학생 정보 불러오기
           </button>
           {importNote && (
             <span role="status" className="text-xs font-medium text-emerald-700">
@@ -99,37 +100,29 @@ export default function StudentForm({ rows, onChange, onImport, errors, showErro
             </span>
           )}
         </div>
-        {confirmClear ? (
-          <span className="flex items-center gap-1 text-sm">
-            <span className="text-slate-600">모두 지울까요?</span>
-            <button
-              type="button"
-              onClick={() => {
-                onChange([newRow()]);
-                setConfirmClear(false);
-              }}
-              className="rounded-md px-2 py-1 font-semibold text-red-600 hover:bg-red-50"
-            >
-              지우기
-            </button>
-            <button
-              type="button"
-              onClick={() => setConfirmClear(false)}
-              className="rounded-md px-2 py-1 font-semibold text-slate-500 hover:bg-slate-100"
-            >
-              취소
-            </button>
-          </span>
-        ) : (
-          studentCount > 0 && (
-            <button
-              type="button"
-              onClick={() => setConfirmClear(true)}
-              className="rounded-md px-2 py-1 text-sm font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-            >
-              모두 지우기
-            </button>
-          )
+        {studentCount > 0 && (
+          <button
+            type="button"
+            onClick={() => setConfirmClear(true)}
+            className="rounded-md px-2 py-1 text-sm font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+          >
+            모두 지우기
+          </button>
+        )}
+        {confirmClear && (
+          <ConfirmDialog
+            title="입력한 학생을 모두 지울까요?"
+            confirmLabel="모두 지우기"
+            onConfirm={() => {
+              onChange([newRow()]);
+              setConfirmClear(false);
+            }}
+            onCancel={() => setConfirmClear(false)}
+          >
+            시간표에 넣으려고 입력한 학생 {studentCount}명이 지워져요.
+            <br />
+            학생 정보 관리에 등록한 학생은 그대로 남아요.
+          </ConfirmDialog>
         )}
       </div>
 
@@ -171,11 +164,10 @@ export default function StudentForm({ rows, onChange, onImport, errors, showErro
                       name="cls"
                       aria-label={`${i + 1}번 학생 반`}
                       aria-invalid={!!e?.cls}
-                      value={r.cls}
+                      value={r.cls || CLASSES[0]}
                       onChange={(ev) => update(r.id, { cls: ev.target.value })}
                       className={`${field} pr-1 ${e?.cls ? "border-red-300" : "border-slate-200"}`}
                     >
-                      <option value="">반</option>
                       {(!r.cls || CLASSES.includes(r.cls) ? CLASSES : [...CLASSES, r.cls]).map((c) => (
                         <option key={c} value={c}>
                           {c}반

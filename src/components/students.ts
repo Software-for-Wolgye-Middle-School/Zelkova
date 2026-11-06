@@ -14,12 +14,13 @@ export type RowErrors = { cls?: string; name?: string; subjects?: string };
 let seq = 0;
 const newId = () => `s${Date.now().toString(36)}${(seq++).toString(36)}`;
 
-/** 새 줄은 바로 위 학생의 학년을 이어받고, 과목은 국어 · 영어 · 수학이 선택된 상태로 시작 */
+/** 새 줄은 바로 위 학생의 학년 · 반을 이어받고, 과목은 국어 · 영어 · 수학이 선택된 상태로 시작 */
 export function newRow(prev?: StudentRow): StudentRow {
-  return { id: newId(), grade: prev?.grade ?? "1", cls: "", name: "", subjects: [...DEFAULT_SUBJECTS] };
+  return { id: newId(), grade: prev?.grade ?? "1", cls: prev?.cls || CLASSES[0], name: "", subjects: [...DEFAULT_SUBJECTS] };
 }
 
-const isBlank = (r: StudentRow) => !r.name.trim() && !r.cls.trim();
+/** 이름을 쓰지 않은 줄은 비어 있는 줄 (반은 늘 1~4반 중 하나가 골라져 있음) */
+export const isBlank = (r: StudentRow) => !r.name.trim();
 
 export function validateRows(rows: StudentRow[]) {
   const students: Student[] = [];
@@ -27,10 +28,9 @@ export function validateRows(rows: StudentRow[]) {
   for (const r of rows) {
     if (isBlank(r)) continue; // 비어 있는 줄은 무시
     const e: RowErrors = {};
-    const cls = Number(r.cls);
-    if (!r.cls.trim()) e.cls = "반을 입력해 주세요";
-    else if (!Number.isInteger(cls) || cls < 1 || cls > 30) e.cls = "반은 숫자로 입력해 주세요";
-    if (!r.name.trim()) e.name = "이름을 입력해 주세요";
+    // 예전에 반을 비워 두고 저장한 학생은 1반으로 봄
+    const cls = Number(r.cls.trim() || CLASSES[0]);
+    if (!Number.isInteger(cls) || cls < 1 || cls > 30) e.cls = "반은 숫자로 입력해 주세요";
     if (r.subjects.length === 0) e.subjects = "과목을 하나 이상 골라 주세요";
     if (Object.keys(e).length) errors.set(r.id, e);
     else students.push({ grade: Number(r.grade), cls, name: r.name.trim(), subjects: [...r.subjects] });

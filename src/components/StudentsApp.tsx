@@ -1,17 +1,16 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { createPortal } from "react-dom";
+import { Fragment, useEffect, useMemo, useState, type FormEvent } from "react";
 import { checkAuth, logout } from "./auth";
 import { LockIcon, PlusIcon, TrashIcon } from "./icons";
+import ConfirmDialog from "./ConfirmDialog";
 import LoginOverlay from "./LoginOverlay";
 import { SUBJECT_ON } from "./StudentForm";
-import { CLASSES, DEFAULT_SUBJECTS, GRADES, newRow, SUBJECTS, validateRows, type StudentRow } from "./students";
+import { CLASSES, DEFAULT_SUBJECTS, GRADES, isBlank, newRow, SUBJECTS, validateRows, type StudentRow } from "./students";
 
 const field =
   "h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-[15px] outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100";
 
-const isBlank = (r: StudentRow) => !r.name.trim() && !r.cls.trim();
 
 /** 목록 순서: 최근 등록한 학생이 위 · 이름 가나다순 · 학년 · 반마다 묶어서 */
 type Sort = "recent" | "name" | "class";
@@ -75,7 +74,6 @@ function StudentsPanel({ rows, onRowsChange, onLock }: Props & { onLock?: () => 
   const [sort, setSort] = useState<Sort>("recent");
   /** 방금 등록한 학생 (목록에서 색칠해 보여 줌) */
   const [justAdded, setJustAdded] = useState<string | null>(null);
-  const cancelClear = useRef<HTMLButtonElement>(null);
 
   const registered = useMemo(() => rows.filter((r) => !isBlank(r)), [rows]);
   const invalid = useMemo(() => validateRows(registered).errors, [registered]);
@@ -98,15 +96,6 @@ function StudentsPanel({ rows, onRowsChange, onLock }: Props & { onLock?: () => 
   useEffect(() => {
     if (justAdded) document.getElementById(`st-row-${justAdded}`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [justAdded]);
-
-  // 전체 삭제 확인 창: 취소에 먼저 초점, Esc 로 닫기
-  useEffect(() => {
-    if (!confirmClear) return;
-    cancelClear.current?.focus();
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setConfirmClear(false);
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [confirmClear]);
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -372,47 +361,13 @@ function StudentsPanel({ rows, onRowsChange, onLock }: Props & { onLock?: () => 
       </div>
 
       {/* 페이지의 등장 애니메이션 안에 있으면 창이 화면 전체를 덮지 못하므로 body 에 바로 그림 */}
-      {confirmClear &&
-        createPortal(
-        <div
-          className="fixed inset-0 z-50 grid place-items-center bg-slate-900/50 p-4"
-          onMouseDown={(e) => e.target === e.currentTarget && setConfirmClear(false)}
-        >
-          <div
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="clear-title"
-            aria-describedby="clear-desc"
-            className="fade-up w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl"
-          >
-            <span className="grid h-11 w-11 place-items-center rounded-full bg-red-50 text-red-600">
-              <TrashIcon className="h-5 w-5" />
-            </span>
-            <h2 id="clear-title" className="mt-4 text-lg font-bold text-slate-900">
-              정말 전체 삭제할까요?
-            </h2>
-            <p id="clear-desc" className="mt-1.5 text-sm text-slate-600">
-              등록된 학생 {registered.length}명이 모두 지워져요.
-              <br />
-              지운 뒤에는 되돌릴 수 없어요.
-            </p>
-            <div className="mt-6 flex justify-end gap-2">
-              <button
-                ref={cancelClear}
-                type="button"
-                onClick={() => setConfirmClear(false)}
-                className="rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-100"
-              >
-                취소
-              </button>
-              <button type="button" onClick={clearAll} className="rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-red-700">
-                전체 삭제
-              </button>
-            </div>
-          </div>
-        </div>,
-          document.body,
-        )}
+      {confirmClear && (
+        <ConfirmDialog title="정말 전체 삭제할까요?" confirmLabel="전체 삭제" onConfirm={clearAll} onCancel={() => setConfirmClear(false)}>
+          등록된 학생 {registered.length}명이 모두 지워져요.
+          <br />
+          지운 뒤에는 되돌릴 수 없어요.
+        </ConfirmDialog>
+      )}
     </div>
   );
 }
