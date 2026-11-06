@@ -192,6 +192,25 @@ export default function TimetableApp() {
     saveRows(next, TIMETABLE_KEY);
   }, [rows]);
 
+  /**
+   * 학생 정보 관리(서버)에 등록한 학생 중 시간표 목록에 아직 없는 학생을 더함.
+   * 더한 학생 수를 돌려주고, 로그인하지 않아 서버 목록을 받지 못하면 null
+   */
+  const importRegistered = useCallback(async (): Promise<number | null> => {
+    const server = await fetchServerRows();
+    if (!server) return null;
+    setRows(server);
+    saveRows(server);
+    const key = (r: StudentRow) => `${r.grade}|${Number(r.cls)}|${r.name.trim()}`;
+    const current = ttRows.filter((r) => r.name.trim() || r.cls.trim());
+    const have = new Set(current.map(key));
+    const added = server.filter((r) => !have.has(key(r))).map((r) => ({ ...r, subjects: [...r.subjects] }));
+    const next = [...current, ...added];
+    setTtRows(next.length ? next : INITIAL_ROWS);
+    saveRows(next.length ? next : INITIAL_ROWS, TIMETABLE_KEY);
+    return added.length;
+  }, [ttRows]);
+
   const { students, errors: studentErrors } = useMemo(() => validateRows(ttRows), [ttRows]);
   const registeredStudents = useMemo(() => validateRows(rows).students, [rows]);
 
@@ -344,6 +363,7 @@ export default function TimetableApp() {
                 settingsErrors={settingsErrors}
                 rows={ttRows}
                 onRowsChange={changeTtRows}
+                onImportStudents={importRegistered}
                 studentErrors={studentErrors}
                 studentCount={students.length}
                 classSlot={classSlot}

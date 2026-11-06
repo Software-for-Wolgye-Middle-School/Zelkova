@@ -30,6 +30,8 @@ type Props = {
   settingsErrors: SettingsErrors;
   rows: StudentRow[];
   onRowsChange: (rows: StudentRow[]) => void;
+  /** 학생 정보 관리에 등록한 학생 불러오기 (더한 학생 수, 로그인이 필요하면 null) */
+  onImportStudents: () => Promise<number | null>;
   studentErrors: Map<string, RowErrors>;
   studentCount: number;
   classSlot: SlotState;
@@ -52,6 +54,7 @@ export default function UploadWizard({
   settingsErrors,
   rows,
   onRowsChange,
+  onImportStudents,
   studentErrors,
   studentCount,
   classSlot,
@@ -172,6 +175,7 @@ export default function UploadWizard({
             <StudentForm
               rows={rows}
               onChange={onRowsChange}
+              onImport={onImportStudents}
               errors={studentErrors}
               showErrors={showErrors}
               studentCount={studentCount}
@@ -228,9 +232,6 @@ export default function UploadWizard({
           <p role="alert" className="mt-3 text-right text-sm font-medium text-red-600">
             {studentErrors.size === 0 ? "학생을 한 명 이상 입력해 주세요" : "빨간색으로 표시된 칸을 확인해 주세요"}
           </p>
-        )}
-        {isLast && !classDone && (
-          <p className="mt-3 text-right text-xs text-slate-400">학급 시간표를 올리면 시간표를 만들 수 있어요</p>
         )}
       </section>
     </div>
