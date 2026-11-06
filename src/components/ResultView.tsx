@@ -16,7 +16,7 @@ function useObjectUrl(blob: Blob) {
 
 export default function ResultView({ result, onRestart }: { result: GenerationResult; onRestart: () => void }) {
   const [tab, setTab] = useState<Tab>("document");
-  const [selectedKey, setSelectedKey] = useState(result.studentDocs[0]?.key ?? "");
+  const [selectedKey, setSelectedKey] = useState(""); // 비어 있으면 목록 맨 위 학생
   const masterUrl = useObjectUrl(result.blob);
   const allUrl = useObjectUrl(result.allBlob);
 
@@ -67,7 +67,7 @@ export default function ResultView({ result, onRestart }: { result: GenerationRe
             className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
           >
             <DownloadIcon className="h-4 w-4" />
-            모두 다운로드 (한 파일)
+            모두 다운로드
           </a>
         </div>
       </div>
@@ -155,7 +155,18 @@ function StudentDocs({
   selectedKey: string;
   onSelect: (key: string) => void;
 }) {
-  const selected = docs.find((d) => d.key === selectedKey) ?? docs[0];
+  // 학년별로 묶고, 학년 안에서는 반 · 이름 순서로
+  const grades = useMemo(() => {
+    const byGrade = new Map<number, StudentDoc[]>();
+    for (const d of docs) byGrade.set(d.student.grade, [...(byGrade.get(d.student.grade) ?? []), d]);
+    return [...byGrade]
+      .sort(([a], [b]) => a - b)
+      .map(([grade, list]) => ({
+        grade,
+        docs: [...list].sort((a, b) => a.student.cls - b.student.cls || a.student.name.localeCompare(b.student.name, "ko")),
+      }));
+  }, [docs]);
+  const selected = docs.find((d) => d.key === selectedKey) ?? grades[0]?.docs[0];
   if (!selected) {
     return (
       <p className="rounded-2xl border border-slate-200 bg-white py-16 text-center text-sm text-slate-500">
@@ -165,11 +176,18 @@ function StudentDocs({
   }
   return (
     <div className="grid gap-4 lg:grid-cols-[15rem_minmax(0,1fr)]">
-      <ul
+      <div
         aria-label="학생 목록"
-        className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:px-0 lg:flex-col lg:overflow-visible lg:pb-0"
+        className="-mx-4 flex gap-4 overflow-x-auto px-4 pb-1 sm:mx-0 sm:px-0 lg:flex-col lg:overflow-visible lg:pb-0"
       >
-        {docs.map((d) => {
+        {grades.map((g) => (
+          <section key={g.grade} aria-labelledby={`grade-${g.grade}`} className="shrink-0">
+            <h3 id={`grade-${g.grade}`} className="mb-1.5 flex items-baseline gap-1.5 px-1 text-xs font-bold text-slate-700">
+              {g.grade}학년
+              <span className="font-medium text-slate-400">{g.docs.length}명</span>
+            </h3>
+            <ul className="flex gap-2 lg:flex-col">
+        {g.docs.map((d) => {
           const active = d.key === selected.key;
           return (
             <li key={d.key} className="shrink-0">
@@ -185,9 +203,7 @@ function StudentDocs({
               >
                 <span className="min-w-0">
                   <span className="block font-semibold text-slate-900">{d.student.name}</span>
-                  <span className="block text-xs text-slate-500">
-                    {d.student.grade}학년 {d.student.cls}반
-                  </span>
+                  <span className="block text-xs text-slate-500">{d.student.cls}반</span>
                 </span>
                 {/* 과목별 시간은 마우스를 올리거나 키보드로 고르면 말풍선으로 보여 줌 */}
                 <span
@@ -209,7 +225,10 @@ function StudentDocs({
             </li>
           );
         })}
-      </ul>
+            </ul>
+          </section>
+        ))}
+      </div>
 
       <div className="min-w-0">
         <StudentDocHeader doc={selected} />
