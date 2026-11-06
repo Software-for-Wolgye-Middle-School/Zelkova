@@ -18,7 +18,7 @@ export default function ResultView({ result, onRestart }: { result: GenerationRe
   const [tab, setTab] = useState<Tab>("document");
   const [selectedKey, setSelectedKey] = useState(result.studentDocs[0]?.key ?? "");
   const masterUrl = useObjectUrl(result.blob);
-  const zipUrl = useObjectUrl(result.zipBlob);
+  const allUrl = useObjectUrl(result.allBlob);
 
   const messages = [
     ...result.warnings.map((text) => ({ text, level: "warn" as const })),
@@ -61,12 +61,13 @@ export default function ResultView({ result, onRestart }: { result: GenerationRe
             전체 시간표만
           </a>
           <a
-            href={zipUrl}
-            download={result.zipFileName}
+            href={allUrl}
+            download={result.allFileName}
+            title="전체 시간표와 학생별 시간표를 한 워드 파일에 쪽마다 담아요"
             className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
           >
             <DownloadIcon className="h-4 w-4" />
-            모두 다운로드 (ZIP)
+            모두 다운로드 (한 파일)
           </a>
         </div>
       </div>

@@ -14,14 +14,15 @@ import * as XLSX from "xlsx";
 export const DAYS = ["월", "화", "수", "목", "금"] as const;
 const SUBJECT_ORDER = ["국어", "영어", "수학", "스포츠"];
 const FONT = "맑은 고딕";
-const FONT_SIZE_HALF_PT = 18; // 9pt
-const PERSONAL_FONT_SIZE_HALF_PT = 26; // 학생별 시간표의 과목명 13pt
+/** 글자 크기는 반 포인트 단위 (18 = 9pt). 한 페이지를 넘으면 큰 크기부터 차례로 줄여 봄 */
+const FONT_SIZES_HALF_PT = [18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8]; // 전체 시간표 이름: 9pt ~ 4pt
+const PERSONAL_FONT_SIZES_HALF_PT = [26, 24, 22, 20, 18, 16, 14]; // 학생별 시간표 과목명: 13pt ~ 7pt
 
-const LINE_TW = 240; // 9pt 한 줄 높이(twip)
-const GAP_TW = 80; // 과목 묶음 사이 간격
+const LINE_FACTOR = 1.3; // 채우는 칸의 줄 높이 = 글자 크기 × 1.3 (고정 줄 간격)
+const FONT_LINE_FACTOR = 1.33; // 맑은 고딕 '1줄' 간격의 줄 높이 (양식의 다른 문단 높이를 어림할 때)
 const PAD_TW = 120; // 칸 위아래 여백
-const PAGE_SLACK_TW = 1000; // 템플릿 아래쪽 여유 공간(대략)
-const WIDE_CELL_TW = 1500; // 이 너비 이상인 칸은 공간이 부족할 때 이름을 한 줄에 2명씩
+const CELL_SIDE_TW = 204; // 칸 왼쪽 + 오른쪽 안쪽 여백
+const PAGE_SAFETY_TW = 900; // 어림 오차 여유 (Word 로 확인: 이 양식은 700 이상이어야 한 쪽에 들어감)
 
 const W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 const XML_NS = "http://www.w3.org/XML/1998/namespace";
@@ -217,15 +218,165 @@ function setRowHeight(tr: Element, twips: number) {
   if (!kid(trPr, "cantSplit")) trPr.insertBefore(mk(doc, "cantSplit"), trPr.firstChild);
 }
 
-function nameLines(names: string[], perLine: number) {
+// ---------------------------------------------------------------- 한 페이지 맞추기 (높이 어림)
+const lineTw = (sizeHalfPt: number) => Math.round(sizeHalfPt * 10 * LINE_FACTOR);
+const gapTw = (sizeHalfPt: number) => Math.round(sizeHalfPt * 4.5); // 과목 묶음 사이 간격 (9pt 에서 80)
+const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
+
+/** 한글 · 한자 · 전각 문자 */
+const FULL_WIDTH = /[ᄀ-ᇿ　-鿿가-힯＀-￯]/;
+
+/** 굵은 글씨로 쓴 글자의 대략 너비 (한글 1글자 = 글자 크기, 영문 · 숫자 0.6, 빈칸 0.3) */
+function textWidthTw(text: string, sizeHalfPt: number) {
+  let em = 0;
+  for (const ch of text) em += FULL_WIDTH.test(ch) ? 1 : ch === " " ? 0.3 : 0.6;
+  return em * sizeHalfPt * 10 * 1.05;
+}
+
+/** 칸 너비 안에서 몇 줄로 나뉘는지 */
+const wrapCount = (text: string, sizeHalfPt: number, widthTw: number) =>
+  Math.max(1, Math.ceil(textWidthTw(text, sizeHalfPt) / Math.max(widthTw, 1)));
+
+/**
+ * 칸에 이름을 놓는 방식 (공간이 모자랄수록 뒤의 방식)
+ *  - column: [과목] 아래에 이름을 한 줄에 한 명씩
+ *  - packed: [과목] 아래에 칸 너비에 들어가는 만큼 한 줄에 여러 명
+ *  - inline: [과목] 바로 옆부터 이어서 여러 명
+ */
+type Packing = "column" | "packed" | "inline";
+const PACKINGS: Packing[] = ["column", "packed", "inline"];
+
+/** 낱말들을 칸 너비에 들어가는 만큼 한 줄에 이어 붙임 */
+function packWords(words: string[], sizeHalfPt: number, widthTw: number) {
   const out: string[] = [];
-  for (let i = 0; i < names.length; i += perLine) out.push(names.slice(i, i + perLine).join(" "));
+  for (const word of words) {
+    const last = out[out.length - 1];
+    if (last !== undefined && textWidthTw(`${last} ${word}`, sizeHalfPt) <= widthTw) out[out.length - 1] = `${last} ${word}`;
+    else out.push(word);
+  }
   return out;
 }
 
-function neededHeight(groups: SubjectGroup[], perLine = 1) {
-  const lines = groups.reduce((n, g) => n + 1 + nameLines(g.names, perLine).length, 0);
-  return lines * LINE_TW + Math.max(0, groups.length - 1) * GAP_TW + PAD_TW;
+function groupLines(groups: SubjectGroup[], sizeHalfPt: number, widthTw: number, packing: Packing): CellLine[] {
+  return groups.flatMap((g, i) => {
+    const head = `[${g.subject}]`;
+    const lines =
+      packing === "column"
+        ? [head, ...g.names]
+        : packing === "packed"
+          ? [head, ...packWords(g.names, sizeHalfPt, widthTw)]
+          : packWords([head, ...g.names], sizeHalfPt, widthTw);
+    return lines.map((text, j) => ({ text, beforeTw: i && !j ? gapTw(sizeHalfPt) : 0 })); // 과목 묶음 사이 작은 간격
+  });
+}
+
+function linesHeight(lines: CellLine[], sizeHalfPt: number, widthTw: number) {
+  return sum(lines.map((l) => wrapCount(l.text, sizeHalfPt, widthTw) * lineTw(sizeHalfPt) + (l.beforeTw ?? 0))) + PAD_TW;
+}
+
+const contentWidth = (tc: Element) => cellWidth(tc) - CELL_SIDE_TW;
+
+type ParaStyle = { size: number; line: number; rule: string; before: number; after: number };
+type Styles = { byId: Map<string, ParaStyle>; fallback: ParaStyle };
+
+const intAttr = (el: Element | null, name: string) => {
+  const v = wAttr(el, name);
+  return v ? parseInt(v, 10) : undefined;
+};
+
+/** styles.xml 의 문단 스타일별 글자 크기 · 줄 간격 (basedOn 을 따라 올라가며 채움) */
+async function readStyles(zip: JSZip): Promise<Styles> {
+  const text = await zip.file("word/styles.xml")?.async("string");
+  const doc = text ? new DOMParser().parseFromString(text, "application/xml") : null;
+  const defaults = doc?.getElementsByTagNameNS(W, "docDefaults")[0];
+  const defaultSize = intAttr(defaults?.getElementsByTagNameNS(W, "sz")[0] ?? null, "val") ?? 24;
+  const raw = new Map<string, { based?: string; size?: number; spacing: Element | null; isDefault: boolean }>();
+  for (const st of Array.from(doc?.getElementsByTagNameNS(W, "style") ?? [])) {
+    if (wAttr(st, "type") !== "paragraph") continue;
+    raw.set(wAttr(st, "styleId") ?? "", {
+      based: wAttr(kid(st, "basedOn"), "val") ?? undefined,
+      size: intAttr(kid(kid(st, "rPr"), "sz"), "val"),
+      spacing: kid(kid(st, "pPr"), "spacing"),
+      isDefault: wAttr(st, "default") === "1",
+    });
+  }
+  const resolve = (id: string | undefined, depth = 0): ParaStyle => {
+    const st = id === undefined ? undefined : raw.get(id);
+    const base =
+      st?.based && depth < 10 ? resolve(st.based, depth + 1) : { size: defaultSize, line: 240, rule: "auto", before: 0, after: 0 };
+    if (!st) return base;
+    return {
+      size: st.size ?? base.size,
+      line: intAttr(st.spacing, "line") ?? base.line,
+      rule: wAttr(st.spacing, "lineRule") ?? base.rule,
+      before: intAttr(st.spacing, "before") ?? base.before,
+      after: intAttr(st.spacing, "after") ?? base.after,
+    };
+  };
+  const byId = new Map([...raw.keys()].map((id) => [id, resolve(id)]));
+  const defaultId = [...raw].find(([, st]) => st.isDefault)?.[0] ?? "Normal";
+  return { byId, fallback: byId.get(defaultId) ?? resolve(undefined) };
+}
+
+/** 양식에 원래 있던 문단 높이 어림 (가장 큰 글자 기준, 너비를 넘으면 여러 줄) */
+function paragraphHeight(p: Element, widthTw: number, styles: Styles) {
+  const pPr = kid(p, "pPr");
+  const style = styles.byId.get(wAttr(kid(pPr, "pStyle"), "val") ?? "") ?? styles.fallback;
+  const sizes = Array.from(p.getElementsByTagNameNS(W, "sz")).map((el) => intAttr(el, "val") ?? 0);
+  const size = sizes.length ? Math.max(...sizes) : style.size;
+  const spacing = kid(pPr, "spacing");
+  const line = intAttr(spacing, "line") ?? style.line;
+  const rule = wAttr(spacing, "lineRule") ?? style.rule;
+  const natural = size * 10 * FONT_LINE_FACTOR;
+  const lineH = rule === "exact" ? line : rule === "atLeast" ? Math.max(line, natural) : (natural * line) / 240;
+  const text = cellText(p);
+  const lines = text ? wrapCount(text, size, widthTw) : 1;
+  return lines * lineH + (intAttr(spacing, "before") ?? style.before) + (intAttr(spacing, "after") ?? style.after);
+}
+
+function cellContentHeight(tc: Element, styles: Styles) {
+  return sum(kids(tc, "p").map((p) => paragraphHeight(p, contentWidth(tc), styles))) + 56; // 칸 위아래 안쪽 여백
+}
+
+function estimatedRowHeight(tr: Element, styles: Styles) {
+  return Math.max(rowHeight(tr), ...kids(tr, "tc").map((tc) => cellContentHeight(tc, styles)));
+}
+
+/** 교시 행에 쓸 수 있는 높이 = 쪽 높이 − 위아래 여백 − 교시 행이 아닌 모든 내용 */
+function periodRowBudget(body: Element, periodRows: Set<Element>, styles: Styles) {
+  const sect = kid(body, "sectPr");
+  const pgSz = kid(sect, "pgSz");
+  const pgMar = kid(sect, "pgMar");
+  const pageW = (intAttr(pgSz, "w") ?? 11906) - (intAttr(pgMar, "left") ?? 1440) - (intAttr(pgMar, "right") ?? 1440);
+  const pageH = (intAttr(pgSz, "h") ?? 16838) - (intAttr(pgMar, "top") ?? 1440) - (intAttr(pgMar, "bottom") ?? 1440);
+  let used = 0;
+  for (const node of Array.from(body.childNodes)) {
+    if (node.nodeType !== 1 || (node as Element).namespaceURI !== W) continue;
+    const el = node as Element;
+    if (el.localName === "p") used += paragraphHeight(el, pageW, styles);
+    else if (el.localName === "tbl") {
+      for (const tr of kids(el, "tr")) if (!periodRows.has(tr)) used += estimatedRowHeight(tr, styles);
+    }
+  }
+  return pageH - used - PAGE_SAFETY_TW;
+}
+
+/**
+ * 교시 행 높이 정하기. 양식 높이로 들어가면 그대로, 아니면 양식의 높이 비율을 지키며
+ * 줄이되 내용보다 낮아지지 않게 함 (호출하는 쪽에서 sum(needs) <= budget 을 맞춤)
+ */
+function layoutRows(bases: number[], needs: number[], budget: number) {
+  const natural = bases.map((b, i) => Math.max(b, needs[i]));
+  if (sum(natural) <= budget) return natural;
+  const at = (s: number) => bases.map((b, i) => Math.max(needs[i], b * s));
+  let lo = 0;
+  let hi = 1;
+  for (let k = 0; k < 30; k++) {
+    const mid = (lo + hi) / 2;
+    if (sum(at(mid)) > budget) hi = mid;
+    else lo = mid;
+  }
+  return at(lo);
 }
 
 const PPR_AFTER_SPACING = [
@@ -257,8 +408,8 @@ function writeCell(tc: Element, lines: CellLine[], sizeHalfPt: number) {
     const spacing = ensureChild(pPr, "spacing", PPR_AFTER_SPACING);
     setW(spacing, "before", String(beforeTw));
     setW(spacing, "after", "0");
-    setW(spacing, "line", "240");
-    setW(spacing, "lineRule", "auto");
+    setW(spacing, "line", String(lineTw(sizeHalfPt))); // 고정 줄 간격이라 높이 어림과 실제 높이가 같음
+    setW(spacing, "lineRule", "exact");
 
     const r = mk(doc, "r");
     const rPr = mk(doc, "rPr");
@@ -282,14 +433,6 @@ function writeCell(tc: Element, lines: CellLine[], sizeHalfPt: number) {
   setW(ensureChild(tcPr, "vAlign", TCPR_AFTER_VALIGN), "val", "center");
 
   for (const line of lines) newPara(line.text, line.beforeTw);
-}
-
-function fillCell(tc: Element, groups: SubjectGroup[], perLine: number) {
-  const lines = groups.flatMap((g, i) => [
-    { text: `[${g.subject}]`, beforeTw: i ? GAP_TW : 0 }, // 과목 묶음 사이 작은 간격
-    ...nameLines(g.names, perLine).map((text) => ({ text })),
-  ]);
-  writeCell(tc, lines, FONT_SIZE_HALF_PT);
 }
 
 /** 나뉜 칸들을 하나로 합치고 `target` 칸의 서식(색상)을 남김 */
@@ -419,6 +562,7 @@ function applySettings(body: Element, timetable: Element, settings: TemplateSett
 /** 템플릿을 열고 교시 행마다 요일별 칸 목록을 준비 */
 async function openTimetable(templateBuf: ArrayBuffer, settings?: TemplateSettings) {
   const { zip, xml, body } = await openDocx(templateBuf);
+  const styles = await readStyles(zip);
   fixFonts(body);
   const { tbl, header } = findTimetable(body);
   if (settings) applySettings(body, tbl, settings);
@@ -445,7 +589,13 @@ async function openTimetable(templateBuf: ArrayBuffer, settings?: TemplateSettin
     }
     rows.push({ tr, period: +m[1], dayCells });
   }
-  return { zip, xml, rows };
+  const budget = periodRowBudget(body, new Set(rows.map((r) => r.tr)), styles);
+  /** 교시 이름 칸처럼 채우지 않는 칸에 필요한 높이 */
+  const labelNeed = (tr: Element) => {
+    const filled = new Set([...rows.find((r) => r.tr === tr)!.dayCells.values()].flat());
+    return Math.max(0, ...kids(tr, "tc").filter((tc) => !filled.has(tc)).map((tc) => cellContentHeight(tc, styles)));
+  };
+  return { zip, xml, rows, budget, labelNeed };
 }
 
 async function saveDocx(zip: JSZip, xml: Document) {
@@ -457,7 +607,7 @@ async function saveDocx(zip: JSZip, xml: Document) {
 
 /** 전체 특수학급 시간표: 각 칸에 [과목] / 학생 이름 */
 export async function fillTemplate(templateBuf: ArrayBuffer, schedule: Schedule, settings?: TemplateSettings) {
-  const { zip, xml, rows } = await openTimetable(templateBuf, settings);
+  const { zip, xml, rows, budget, labelNeed } = await openTimetable(templateBuf, settings);
 
   // 1) 배치 계획: 행마다 [(칸, 과목묶음)]
   const notes: string[] = [];
@@ -482,30 +632,34 @@ export async function fillTemplate(templateBuf: ArrayBuffer, schedule: Schedule,
     plan.push({ tr, items });
   }
 
-  // 2) 한 페이지(템플릿 원래 높이 합) 안에 들어가도록 이름 배치 방식 결정
-  const budget = plan.reduce((s, { tr }) => s + rowHeight(tr), 0);
-  const perLineFor = (tc: Element, compact: boolean) => (compact && cellWidth(tc) >= WIDE_CELL_TW ? 2 : 1);
-  const rowNeeds = (compact: boolean) =>
-    plan.map(({ items }) => Math.max(0, ...items.map(({ tc, groups }) => neededHeight(groups, perLineFor(tc, compact)))));
-  const total = (needs: number[]) => plan.reduce((s, { tr }, i) => s + Math.max(rowHeight(tr), needs[i]), 0);
-
-  const compact = total(rowNeeds(false)) > budget;
-  const needs = rowNeeds(compact);
+  // 2) 한 페이지에 들어가는 가장 큰 글씨 찾기 (같은 크기에서는 PACKINGS 순서로 촘촘하게)
+  const bases = plan.map(({ tr }) => rowHeight(tr));
+  const labels = plan.map(({ tr }) => labelNeed(tr));
+  const configs = FONT_SIZES_HALF_PT.flatMap((size) => PACKINGS.map((packing) => ({ size, packing })));
+  const needsFor = ({ size, packing }: { size: number; packing: Packing }) =>
+    plan.map(({ items }, i) =>
+      Math.max(
+        labels[i],
+        ...items.map(({ tc, groups }) => linesHeight(groupLines(groups, size, contentWidth(tc), packing), size, contentWidth(tc))),
+      ),
+    );
+  let chosen = configs.find((c) => sum(needsFor(c)) <= budget);
+  if (!chosen) {
+    chosen = configs[configs.length - 1];
+    notes.push(`학생이 아주 많아 가장 작은 글씨(${chosen.size / 2}pt)로도 한 페이지를 넘을 수 있습니다.`);
+  } else if (chosen.size < FONT_SIZES_HALF_PT[0]) {
+    notes.push(`한 페이지에 맞추려고 이름 글씨를 ${chosen.size / 2}pt로 줄였어요.`);
+  }
+  const { size, packing } = chosen;
 
   // 3) 채우기
   for (const { items } of plan) {
-    for (const { tc, groups } of items) fillCell(tc, groups, perLineFor(tc, compact));
+    for (const { tc, groups } of items) writeCell(tc, groupLines(groups, size, contentWidth(tc), packing), size);
   }
 
-  // 4) 행 높이 재분배
-  if (total(needs) > budget) {
-    const sumNeeds = needs.reduce((a, b) => a + b, 0);
-    const extra = Math.max(0, (budget - sumNeeds) / plan.length);
-    plan.forEach(({ tr }, i) => setRowHeight(tr, needs[i] + extra));
-    if (sumNeeds > budget + PAGE_SLACK_TW) notes.push("내용이 많아 한 페이지를 넘을 수 있습니다.");
-  } else {
-    plan.forEach(({ tr }) => setRowHeight(tr, rowHeight(tr)));
-  }
+  // 4) 행 높이: 한 페이지 안에서 양식의 높이 비율대로
+  const heights = layoutRows(bases, needsFor(chosen), budget);
+  plan.forEach(({ tr }, i) => setRowHeight(tr, heights[i]));
 
   return { blob: await saveDocx(zip, xml), notes };
 }
@@ -521,6 +675,7 @@ export function studentSlots(classTt: ClassTimetables, st: Student): Map<string,
 
 /**
  * 학생 개인 시간표: 템플릿의 칸 색상(선생님 구분)과 행 높이는 그대로 두고, 수업하는 칸에 과목명만 채움.
+ * 한 페이지를 넘을 것 같으면 과목명 글씨와 행 높이를 줄여 항상 한 페이지에 맞춤.
  * 나뉜 칸은 하나로 합치되, 전체 시간표에서 그 학생의 과목이 놓인 칸의 색상을 따름.
  */
 export async function fillStudentTemplate(
@@ -529,8 +684,9 @@ export async function fillStudentTemplate(
   slots: Map<string, string>,
   settings?: TemplateSettings,
 ) {
-  const { zip, xml, rows } = await openTimetable(templateBuf, settings);
-  for (const { period, dayCells: byDay } of rows) {
+  const { zip, xml, rows, budget, labelNeed } = await openTimetable(templateBuf, settings);
+  const plan = rows.map(({ tr, period, dayCells: byDay }) => {
+    const cells: { tc: Element; subject: string }[] = [];
     for (const [d, dayCells] of byDay) {
       if (!dayCells.length) continue;
       const key = slotKey(d, period);
@@ -541,7 +697,53 @@ export async function fillStudentTemplate(
         target = dayCells[Math.min(Math.max(idx, 0), dayCells.length - 1)];
         mergeCells(target, dayCells);
       }
-      if (subject) writeCell(target, [{ text: subject }], PERSONAL_FONT_SIZE_HALF_PT);
+      if (subject) cells.push({ tc: target, subject });
+    }
+    return { tr, cells, label: labelNeed(tr) };
+  });
+
+  // 한 페이지에 들어가고 과목명이 칸 안에서 줄바뀜 없이 들어가는 가장 큰 글씨
+  const needsFor = (size: number) =>
+    plan.map(({ cells, label }) =>
+      Math.max(label, ...cells.map(({ tc, subject }) => linesHeight([{ text: subject }], size, contentWidth(tc)))),
+    );
+  const fits = (size: number) => sum(needsFor(size)) <= budget;
+  const oneLine = (size: number) =>
+    plan.every(({ cells }) => cells.every(({ tc, subject }) => wrapCount(subject, size, contentWidth(tc)) === 1));
+  const sizes = PERSONAL_FONT_SIZES_HALF_PT;
+  const size = sizes.find((s) => fits(s) && oneLine(s)) ?? sizes.find(fits) ?? sizes[sizes.length - 1];
+
+  for (const { cells } of plan) for (const { tc, subject } of cells) writeCell(tc, [{ text: subject }], size);
+  const heights = layoutRows(
+    plan.map(({ tr }) => rowHeight(tr)),
+    needsFor(size),
+    budget,
+  );
+  plan.forEach(({ tr }, i) => setRowHeight(tr, heights[i]));
+  return saveDocx(zip, xml);
+}
+
+/** 같은 양식으로 만든 문서 여러 개를 한 파일로 합침. 문서마다 새 쪽에서 시작 (구역 나누기) */
+export async function combineDocx(blobs: Blob[]) {
+  const [first, ...rest] = await Promise.all(blobs.map(async (b) => openDocx(await b.arrayBuffer())));
+  const { zip, xml, body } = first;
+  const sectPr = kid(body, "sectPr");
+  for (const next of rest) {
+    // 지금까지의 마지막 문단에서 구역을 끝내면 빈 줄 없이 다음 쪽부터 시작
+    let last = Array.from(body.childNodes)
+      .filter((n): n is Element => n.nodeType === 1 && n !== sectPr)
+      .pop();
+    if (!last || last.localName !== "p") {
+      last = mk(xml, "p");
+      body.insertBefore(last, sectPr);
+    }
+    if (sectPr) {
+      const pPr = kid(last, "pPr") ?? last.insertBefore(mk(xml, "pPr"), last.firstChild);
+      insertBefore(pPr, sectPr.cloneNode(true) as Element, ["pPrChange"]);
+    }
+    for (const node of Array.from(next.body.childNodes)) {
+      if (node.nodeType === 1 && (node as Element).localName === "sectPr") continue;
+      body.insertBefore(xml.importNode(node, true), sectPr);
     }
   }
   return saveDocx(zip, xml);

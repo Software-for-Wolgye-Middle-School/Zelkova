@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import JSZip from "jszip";
 import {
   buildSchedule,
+  combineDocx,
   fillStudentTemplate,
   fillTemplate,
   inspectClassTimetables,
@@ -39,8 +39,9 @@ export type GenerationResult = {
   schedule: Schedule;
   students: Student[];
   studentDocs: StudentDoc[];
-  zipBlob: Blob;
-  zipFileName: string;
+  /** 전체 시간표와 학생별 시간표를 한 파일에 모은 문서 */
+  allBlob: Blob;
+  allFileName: string;
   classCount: number;
   warnings: string[];
   notes: string[];
@@ -258,14 +259,8 @@ export default function TimetableApp() {
         return docs;
       });
 
-      const zipFileName = `특수학급 시간표 (${term}).zip`;
-      const zipBlob = await runStage(4, () => {
-        const zip = new JSZip();
-        zip.file(fileName, blob);
-        const folder = zip.folder("학생별 시간표")!;
-        for (const d of studentDocs) folder.file(d.fileName, d.blob);
-        return zip.generateAsync({ type: "blob" });
-      });
+      const allFileName = `${safeName(title)} (전체 + 학생별).docx`;
+      const allBlob = await runStage(4, () => combineDocx([blob, ...studentDocs.map((d) => d.blob)]));
 
       setResult({
         blob,
@@ -274,8 +269,8 @@ export default function TimetableApp() {
         schedule,
         students,
         studentDocs,
-        zipBlob,
-        zipFileName,
+        allBlob,
+        allFileName,
         classCount: classTt.size,
         warnings,
         notes,
