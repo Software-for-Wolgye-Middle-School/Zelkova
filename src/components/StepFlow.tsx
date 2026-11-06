@@ -62,12 +62,6 @@ export function useStepFlow() {
     setTimeout(() => goStep(step + 1, then), CHECK_MS);
   };
 
-  /** 단계는 그대로 두고 화면만 다음으로 밀어 바꿈 (같은 단계 안에서 다음 학생으로 넘어갈 때) */
-  const refade = (change: () => void) => {
-    if (fading) return;
-    slide(step, step, change);
-  };
-
   const shift = (side: 1 | -1) => (side > 0 ? "translate-x-6" : "-translate-x-6");
   const fadeClass = `motion-reduce:transition-none ${
     phase === "out"
@@ -76,7 +70,38 @@ export function useStepFlow() {
         ? `transition-none opacity-0 ${shift(dir)}`
         : "transition-[opacity,translate] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] opacity-100 translate-x-0"
   }`;
-  return { step, fadeFrom, fadeTo, fading, checking, goStep, goNext, refade, fadeClass };
+  return { step, fadeFrom, fadeTo, fading, checking, goStep, goNext, fadeClass };
+}
+
+/** 같은 단계 안에서 내용만 바꿀 때 사라지는 시간 (다음 학생 보기 등) */
+const SWAP_OUT_MS = 150;
+
+/**
+ * 같은 단계 안에서 내용만 바꿀 때: 서서히 사라졌다가 서서히 나타남.
+ * downClass 는 위에서 아래로 내려오며 나타나고, fadeClass 는 제자리에서 나타남
+ */
+export function useSwap() {
+  const [phase, setPhase] = useState<Phase>("idle");
+
+  const swap = (change: () => void) => {
+    if (phase !== "idle") return;
+    setPhase("out");
+    setTimeout(() => {
+      change();
+      setPhase("in");
+      requestAnimationFrame(() => requestAnimationFrame(() => setPhase("idle")));
+    }, SWAP_OUT_MS);
+  };
+
+  const cls = (down: boolean) =>
+    `motion-reduce:transition-none ${
+      phase === "out"
+        ? `transition-[opacity,translate] duration-150 ease-in opacity-0 ${down ? "translate-y-2" : ""}`
+        : phase === "in"
+          ? `transition-none opacity-0 ${down ? "-translate-y-2" : ""}`
+          : "transition-[opacity,translate] duration-300 ease-out opacity-100 translate-y-0"
+    }`;
+  return { swap, downClass: cls(true), fadeClass: cls(false) };
 }
 
 /**

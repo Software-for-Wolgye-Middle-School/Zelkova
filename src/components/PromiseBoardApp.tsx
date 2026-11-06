@@ -8,7 +8,7 @@ import type { Student } from "@/lib/timetable";
 import ImportStudentsButton from "./ImportStudentsButton";
 import NameCombobox from "./NameCombobox";
 import { DownloadIcon, PlusIcon, Spinner, TrashIcon } from "./icons";
-import { SlideCarousel, StepHeading, StepNav, StepProgress, useStepFlow } from "./StepFlow";
+import { SlideCarousel, StepHeading, StepNav, StepProgress, useStepFlow, useSwap } from "./StepFlow";
 import { useShake } from "./useShake";
 
 /** 고를 수 있는 연도: 2026년 ~ 2036년 */
@@ -38,7 +38,9 @@ const cleanName = (name: string) => name.trim().replace(/\s+/g, " ").slice(0, 12
 const isBlank = (e: Entry) => !e.name.trim() && !e.promise.trim();
 
 export default function PromiseBoardApp({ students, onLoadStudents }: { students: Student[]; onLoadStudents: () => Promise<Student[] | null> }) {
-  const { step, fadeFrom, fadeTo, checking, goStep, goNext, refade, fadeClass } = useStepFlow();
+  const { step, fadeFrom, fadeTo, fading, checking, goStep, goNext, fadeClass } = useStepFlow();
+  /** 학생을 바꿀 때: 왼쪽 입력은 위에서 아래로, 미리보기는 제자리에서 사라졌다 나타남 */
+  const studentSwap = useSwap();
   const [{ year, month }, setYm] = useState(defaultMonth);
   const [entries, setEntries] = useState<Entry[]>([{ id: 0, name: "", promise: "" }]);
   const [current, setCurrent] = useState(0);
@@ -75,13 +77,13 @@ export default function PromiseBoardApp({ students, onLoadStudents }: { students
 
   /** 지금 학생을 두고 다음 학생 칸을 새로 엶 */
   const addStudent = () =>
-    refade(() => {
+    studentSwap.swap(() => {
       setEntries((list) => [...list, { id: nextId.current++, name: "", promise: "" }]);
       setCurrent(entries.length);
     });
-  const showStudent = (i: number) => i !== current && refade(() => setCurrent(i));
+  const showStudent = (i: number) => i !== current && studentSwap.swap(() => setCurrent(i));
   const removeStudent = () =>
-    refade(() => {
+    studentSwap.swap(() => {
       setEntries((list) => list.filter((e) => e.id !== entry.id));
       setCurrent((c) => Math.max(0, Math.min(c, entries.length - 2)));
     });
@@ -128,7 +130,9 @@ export default function PromiseBoardApp({ students, onLoadStudents }: { students
           <StepProgress steps={STEPS} step={step} checking={checking} onGo={goStep} />
 
           <div className={`space-y-5 ${fadeClass}`}>
-            <StepHeading step={heading} />
+            <div className={step === 1 ? studentSwap.downClass : ""}>
+              <StepHeading step={heading} />
+            </div>
 
             {step === 0 && (
               <div className="grid grid-cols-2 gap-2">
@@ -169,6 +173,8 @@ export default function PromiseBoardApp({ students, onLoadStudents }: { students
                     ))}
                   </div>
                 )}
+                {/* 학생마다 바뀌는 부분만 움직임 (불러오기 버튼 · 학생 목록은 그대로) */}
+                <div className={`space-y-4 ${studentSwap.downClass}`}>
                 <div>
                   <label className="mb-1 block text-xs font-semibold text-slate-600" htmlFor="pb-name">
                     이름
@@ -211,6 +217,7 @@ export default function PromiseBoardApp({ students, onLoadStudents }: { students
                     학생 {current + 1} 제거
                   </button>
                 )}
+                </div>
               </div>
             )}
 
@@ -279,7 +286,7 @@ export default function PromiseBoardApp({ students, onLoadStudents }: { students
         {/* 날짜 · 학생 단계는 지금 학생의 약속판, 마지막 단계는 모든 학생을 넘겨 보기. 같은 화면이면 단계를 옮겨도 그대로 둠 */}
         <section
           aria-label="약속판 미리보기"
-          className={`min-w-0 ${fadeFrom === fadeTo || singleView(fadeFrom) !== singleView(fadeTo) ? fadeClass : ""}`}
+          className={`min-w-0 ${fading && singleView(fadeFrom) !== singleView(fadeTo) ? fadeClass : studentSwap.fadeClass}`}
         >
           {step === 2 ? (
             <SlideCarousel
