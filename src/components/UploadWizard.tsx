@@ -19,6 +19,7 @@ import type { SettingsErrors } from "./settings";
 import StudentForm from "./StudentForm";
 import type { RowErrors, StudentRow } from "./students";
 import { CLASS_FILE, formatBytes, WIZARD_STEPS, type SlotState } from "./steps";
+import { useShake } from "./useShake";
 
 type Props = {
   step: number;
@@ -65,6 +66,9 @@ export default function UploadWizard({
   onDismissError,
 }: Props) {
   const [showErrors, setShowErrors] = useState(false);
+  const { shake, shakeClass } = useShake();
+  /** 다 채우지 않고 다음 · 시간표 생성하기를 누른 단계 (고칠 때까지 안내를 보여 줌) */
+  const [blockedStep, setBlockedStep] = useState<number | null>(null);
   // 앞 단계로 가면 오른쪽에서, 뒤 단계로 가면 왼쪽에서 화면이 들어옴
   const [track, setTrack] = useState({ step, dir: "next" as "next" | "prev" });
   if (track.step !== step) setTrack({ step, dir: step < track.step ? "prev" : "next" });
@@ -95,16 +99,26 @@ export default function UploadWizard({
     },
   ];
 
+  /** 넘어갈 수 없으면 버튼이 흔들리며 무엇을 고칠지 보여 줌 */
   const goNext = () => {
     if (step === 0) {
-      if (settingsDone) onStepChange(1);
+      if (settingsDone) return onStepChange(1);
+      setBlockedStep(0);
+      shake();
       return;
     }
     if (!studentsDone) {
       setShowErrors(true);
+      shake();
       return;
     }
     onStepChange(2);
+  };
+
+  const generate = () => {
+    if (settingsDone && studentsDone && classDone) return onGenerate();
+    setBlockedStep(2);
+    shake();
   };
 
   /** 앞 단계가 끝나지 않았으면 그 단계로 보냄 */
@@ -209,9 +223,9 @@ export default function UploadWizard({
           {isLast ? (
             <button
               type="button"
-              onClick={onGenerate}
-              disabled={!(settingsDone && studentsDone && classDone)}
-              className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-6 py-3 text-[15px] font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
+              onClick={generate}
+              aria-disabled={!(settingsDone && studentsDone && classDone)}
+              className={`inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-6 py-3 text-[15px] font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 aria-disabled:cursor-not-allowed aria-disabled:bg-slate-200 aria-disabled:text-slate-400 aria-disabled:shadow-none ${shakeClass}`}
             >
               <SparkleIcon className="h-5 w-5" />
               시간표 생성하기
@@ -220,14 +234,24 @@ export default function UploadWizard({
             <button
               type="button"
               onClick={goNext}
-              disabled={step === 0 && !settingsDone}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
+              aria-disabled={step === 0 && !settingsDone}
+              className={`inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 aria-disabled:cursor-not-allowed aria-disabled:bg-slate-200 aria-disabled:text-slate-400 aria-disabled:shadow-none ${shakeClass}`}
             >
               다음
               <ArrowRightIcon className="h-4 w-4" />
             </button>
           )}
         </div>
+        {step === 0 && blockedStep === 0 && !settingsDone && (
+          <p role="alert" className="mt-3 text-right text-sm font-medium text-red-600">
+            빨간색으로 표시된 칸을 확인해 주세요
+          </p>
+        )}
+        {isLast && blockedStep === 2 && !(settingsDone && studentsDone && classDone) && (
+          <p role="alert" className="mt-3 text-right text-sm font-medium text-red-600">
+            {!classDone ? "학급 시간표 파일을 올려 주세요" : !studentsDone ? "특수학생 정보를 확인해 주세요" : "기본 정보를 확인해 주세요"}
+          </p>
+        )}
         {step === 1 && showErrors && !studentsDone && (
           <p role="alert" className="mt-3 text-right text-sm font-medium text-red-600">
             {studentErrors.size === 0 ? "학생을 한 명 이상 입력해 주세요" : "빨간색으로 표시된 칸을 확인해 주세요"}

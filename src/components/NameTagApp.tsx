@@ -388,8 +388,15 @@ export default function NameTagApp({ students }: { students: Student[] }) {
           )}
           </div>
 
-          <StepNav step={step} last={last} canNext={canNext} checking={checking} onPrev={() => goStep(step - 1)} onNext={next} />
-          {step === 0 && !canNext && <p className="-mt-3 text-center text-xs text-slate-400">이름을 넣으면 다음으로 넘어갈 수 있어요</p>}
+          <StepNav
+            step={step}
+            last={last}
+            canNext={canNext}
+            checking={checking}
+            onPrev={() => goStep(step - 1)}
+            onNext={next}
+            invalidMessage="이름을 한 명 이상 넣어 주세요."
+          />
         </div>
 
         <section aria-label="이름표 미리보기" className="min-w-0">

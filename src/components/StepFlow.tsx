@@ -2,6 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 import { ArrowLeftIcon, ArrowRightIcon, CheckIcon } from "./icons";
+import { useShake } from "./useShake";
 
 /**
  * 칭찬통장 · 약속판 · 이름표 · 필사 교실이 함께 쓰는 단계 진행 화면:
@@ -144,9 +145,12 @@ export function StepHeading({ step }: { step: Step }) {
 }
 
 export const nextButtonClass =
-  "inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none";
+  "inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none aria-disabled:cursor-not-allowed aria-disabled:bg-slate-200 aria-disabled:text-slate-400 aria-disabled:shadow-none";
 
-/** 아래쪽 이전 · 다음 버튼 줄. extra 는 다음 버튼 왼쪽에 놓는 버튼 */
+/**
+ * 아래쪽 이전 · 다음 버튼 줄. extra 는 다음 버튼 왼쪽에 놓는 버튼.
+ * 아직 넘어갈 수 없을 때(canNext=false) 다음을 누르면 버튼이 흔들리고 invalidMessage 를 보여 줌
+ */
 export function StepNav({
   step,
   last,
@@ -155,6 +159,7 @@ export function StepNav({
   onPrev,
   onNext,
   extra,
+  invalidMessage = "입력한 내용을 확인해 주세요.",
 }: {
   step: number;
   last: boolean;
@@ -163,8 +168,15 @@ export function StepNav({
   onPrev: () => void;
   onNext: () => void;
   extra?: ReactNode;
+  invalidMessage?: string;
 }) {
+  const { shake, shakeClass } = useShake();
+  /** 넘어갈 수 없을 때 다음을 누른 단계 (그 단계에서 입력을 마치면 안내가 사라짐) */
+  const [blockedAt, setBlockedAt] = useState<number | null>(null);
+  const blocked = !canNext && blockedAt === step;
+
   return (
+    <>
     <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-4">
       <button
         type="button"
@@ -178,13 +190,29 @@ export function StepNav({
       {!last && (
         <div className="flex items-center gap-2">
           {extra}
-          <button type="button" onClick={onNext} disabled={!canNext || checking} className={nextButtonClass}>
+          <button
+            type="button"
+            onClick={() => {
+              if (checking) return;
+              if (canNext) return onNext();
+              setBlockedAt(step);
+              shake();
+            }}
+            aria-disabled={!canNext || checking}
+            className={`${nextButtonClass} ${shakeClass}`}
+          >
             다음
             <ArrowRightIcon className="h-4 w-4" />
           </button>
         </div>
       )}
     </div>
+    {blocked && (
+      <p role="alert" className="-mt-3 text-right text-xs font-medium text-red-600">
+        {invalidMessage}
+      </p>
+    )}
+    </>
   );
 }
 

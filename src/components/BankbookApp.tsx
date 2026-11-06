@@ -14,6 +14,7 @@ import {
   type PaperColor,
 } from "@/lib/bankbookSvg";
 import { embeddedFontCss, loadImageDataUrl, safeFileName, svgToPng, withFont } from "@/lib/svgExport";
+import ImportStudentsButton from "./ImportStudentsButton";
 import NameCombobox from "./NameCombobox";
 import { CheckIcon, DownloadIcon, PlusIcon, Spinner, TrashIcon, XIcon } from "./icons";
 import { SlideCarousel, StepHeading, StepNav, StepProgress, useStepFlow } from "./StepFlow";
@@ -93,7 +94,7 @@ const today = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
 
-export default function BankbookApp({ students }: { students: Student[] }) {
+export default function BankbookApp({ students, onLoadStudents }: { students: Student[]; onLoadStudents: () => Promise<Student[] | null> }) {
   const { step, fadeFrom, fadeTo, checking, goStep, goNext, fadeClass } = useStepFlow();
   const [name, setName] = useState("");
   const [bank, setBank] = useState("느티나무 은행");
@@ -506,6 +507,15 @@ export default function BankbookApp({ students }: { students: Student[] }) {
                 이름
               </label>
               <NameCombobox id="bb-name" value={name} onChange={setName} names={savedNames} maxLength={10} placeholder="예: 이순신" className={field} />
+              {/* 등록된 학생을 받아 오면 이름 칸에서 쓰는 대로 자동으로 찾아 줌 */}
+              <ImportStudentsButton
+                className="mt-2"
+                onImport={async () => {
+                  const list = await onLoadStudents();
+                  if (!list) return null;
+                  return list.length ? `등록된 학생 ${list.length}명을 불러왔어요. 이름을 쓰면 찾아 줘요.` : "학생 정보 관리에 등록된 학생이 없어요.";
+                }}
+              />
               {duplicate && <p className="mt-1.5 text-xs font-medium text-amber-700">이미 통장을 만든 학생이에요. 같은 학생 통장을 하나 더 만들어요.</p>}
             </div>
           )}
@@ -668,8 +678,15 @@ export default function BankbookApp({ students }: { students: Student[] }) {
           )}
           </div>
 
-          <StepNav step={step} last={last} canNext={canNext} checking={checking} onPrev={() => goStep(step - 1)} onNext={() => goNext()} />
-          {step === 1 && !trimmed && <p className="-mt-3 text-center text-xs text-slate-400">이름을 입력하면 다음으로 넘어갈 수 있어요</p>}
+          <StepNav
+            step={step}
+            last={last}
+            canNext={canNext}
+            checking={checking}
+            onPrev={() => goStep(step - 1)}
+            onNext={() => goNext()}
+            invalidMessage={step === 0 ? "표지 그림을 불러오는 중이에요. 잠시만 기다려 주세요." : "이름을 입력해 주세요."}
+          />
         </div>
 
         <section aria-label="칭찬통장 미리보기" className={`min-w-0 space-y-4 ${previewView(fadeFrom) === previewView(fadeTo) ? "" : fadeClass}`}>

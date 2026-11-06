@@ -5,6 +5,7 @@ import { checkAuth, logout } from "./auth";
 import { LockIcon, PlusIcon, TrashIcon } from "./icons";
 import ConfirmDialog from "./ConfirmDialog";
 import LoginOverlay from "./LoginOverlay";
+import { useShake } from "./useShake";
 import { SUBJECT_ON } from "./StudentForm";
 import { CLASSES, DEFAULT_SUBJECTS, GRADES, isBlank, newRow, SUBJECTS, validateRows, type StudentRow } from "./students";
 
@@ -72,6 +73,7 @@ function StudentsPanel({ rows, onRowsChange, onLock }: Props & { onLock?: () => 
   const [query, setQuery] = useState("");
   const [confirmClear, setConfirmClear] = useState(false);
   const [sort, setSort] = useState<Sort>("recent");
+  const registerShake = useShake();
   /** 방금 등록한 학생 (목록에서 색칠해 보여 줌) */
   const [justAdded, setJustAdded] = useState<string | null>(null);
 
@@ -100,11 +102,16 @@ function StudentsPanel({ rows, onRowsChange, onLock }: Props & { onLock?: () => 
   const submit = (e: FormEvent) => {
     e.preventDefault();
     const row: StudentRow = { ...newRow(), grade, cls: cls.trim(), name: name.trim().replace(/\s+/g, " "), subjects };
-    const { errors } = validateRows([row]);
-    const err = errors.get(row.id);
-    if (err) return setError(err.cls ?? err.name ?? err.subjects ?? "입력을 확인해 주세요");
-    if (registered.some((r) => r.grade === row.grade && Number(r.cls) === Number(row.cls) && r.name.trim() === row.name)) {
-      return setError(`${grade}학년 ${row.cls}반 ${row.name} 학생은 이미 등록되어 있어요`);
+    // 이름이 없으면 빈 줄로 보아 검사에서 빠지므로 따로 확인
+    const err = row.name ? validateRows([row]).errors.get(row.id) : { name: "이름을 입력해 주세요" };
+    const problem = err
+      ? (err.cls ?? err.name ?? err.subjects ?? "입력을 확인해 주세요")
+      : registered.some((r) => r.grade === row.grade && Number(r.cls) === Number(row.cls) && r.name.trim() === row.name)
+        ? `${grade}학년 ${row.cls}반 ${row.name} 학생은 이미 등록되어 있어요`
+        : null;
+    if (problem) {
+      setError(problem);
+      return registerShake.shake();
     }
     setError(null);
     onRowsChange([...registered, row]);
@@ -219,7 +226,7 @@ function StudentsPanel({ rows, onRowsChange, onLock }: Props & { onLock?: () => 
           )}
           <button
             type="submit"
-            className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-[15px] font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700"
+            className={`inline-flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-[15px] font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700 ${registerShake.shakeClass}`}
           >
             <PlusIcon className="h-5 w-5" />
             등록하기

@@ -5,9 +5,11 @@ import { clampPromise, promiseBoardsFileName, PROMISE_LINE_CHARS, PROMISE_MAX_LI
 import { BOARD_H, BOARD_W, boardSvg, boardsPdf } from "@/lib/promiseBoardSvg";
 import { downloadBlob } from "@/lib/svgExport";
 import type { Student } from "@/lib/timetable";
+import ImportStudentsButton from "./ImportStudentsButton";
 import NameCombobox from "./NameCombobox";
 import { DownloadIcon, PlusIcon, Spinner, TrashIcon } from "./icons";
 import { SlideCarousel, StepHeading, StepNav, StepProgress, useStepFlow } from "./StepFlow";
+import { useShake } from "./useShake";
 
 /** 고를 수 있는 연도: 2026년 ~ 2036년 */
 const BOARD_YEARS = Array.from({ length: 11 }, (_, i) => 2026 + i);
@@ -35,12 +37,14 @@ type Entry = { id: number; name: string; promise: string };
 const cleanName = (name: string) => name.trim().replace(/\s+/g, " ").slice(0, 12);
 const isBlank = (e: Entry) => !e.name.trim() && !e.promise.trim();
 
-export default function PromiseBoardApp({ students }: { students: Student[] }) {
+export default function PromiseBoardApp({ students, onLoadStudents }: { students: Student[]; onLoadStudents: () => Promise<Student[] | null> }) {
   const { step, fadeFrom, fadeTo, checking, goStep, goNext, refade, fadeClass } = useStepFlow();
   const [{ year, month }, setYm] = useState(defaultMonth);
   const [entries, setEntries] = useState<Entry[]>([{ id: 0, name: "", promise: "" }]);
   const [current, setCurrent] = useState(0);
   const nextId = useRef(1);
+  const addShake = useShake();
+  const [addBlocked, setAddBlocked] = useState(false);
   const [busy, setBusy] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const savedNames = useMemo(() => [...new Set(students.map((s) => s.name))].sort((a, b) => a.localeCompare(b, "ko")), [students]);
@@ -53,6 +57,21 @@ export default function PromiseBoardApp({ students }: { students: Student[] }) {
   const reqs = named.map(reqOf);
   const currentSvg = boardSvg(reqOf(entry));
   const boardSvgs = reqs.map((r) => boardSvg(r));
+
+  /** 학생 정보 관리에 등록한 학생을 학생 1, 2, 3… 으로 넣음 (이미 있는 이름은 건너뜀, 약속은 비어 있음) */
+  const importStudents = async () => {
+    const list = await onLoadStudents();
+    if (!list) return null;
+    const have = new Set(entries.map((e) => cleanName(e.name)).filter(Boolean));
+    const toAdd = [...new Set(list.map((s) => cleanName(s.name)))].filter((n) => n && !have.has(n)).sort((a, b) => a.localeCompare(b, "ko"));
+    if (!toAdd.length) return list.length ? "등록된 학생이 이미 모두 들어 있어요." : "학생 정보 관리에 등록된 학생이 없어요.";
+    const kept = entries.filter((e) => !isBlank(e));
+    const next = [...kept, ...toAdd.map((name) => ({ id: nextId.current++, name, promise: "" }))];
+    setEntries(next);
+    // 비어 있던 칸에서 불러왔으면 불러온 첫 학생을 보여 줌
+    setCurrent(isBlank(entry) ? kept.length : Math.max(0, next.findIndex((e) => e.id === entry.id)));
+    return `학생 정보 관리에서 ${toAdd.length}명을 불러왔어요.`;
+  };
 
   /** 지금 학생을 두고 다음 학생 칸을 새로 엶 */
   const addStudent = () =>
@@ -132,6 +151,7 @@ export default function PromiseBoardApp({ students }: { students: Student[] }) {
 
             {step === 1 && (
               <div className="space-y-4">
+                <ImportStudentsButton onImport={importStudents} />
                 {entries.length > 1 && (
                   <div className="flex flex-wrap gap-1.5" aria-label="입력한 학생">
                     {entries.map((e, i) => (
@@ -224,13 +244,24 @@ export default function PromiseBoardApp({ students }: { students: Student[] }) {
             checking={checking}
             onPrev={() => goStep(step - 1)}
             onNext={next}
+            invalidMessage={named.length ? "이름 없이 약속만 적은 학생이 있어요. 이름을 적거나 그 학생을 제거해 주세요." : "이름을 입력해 주세요."}
             extra={
               step === 1 && (
                 <button
                   type="button"
-                  onClick={addStudent}
-                  disabled={!cleanName(entry.name) || entries.length >= MAX_STUDENTS || checking}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
+                  onClick={() => {
+                    if (checking) return;
+                    // 이름을 안 쓰고 누르면 흔들리며 알려 줌
+                    if (!cleanName(entry.name)) {
+                      setAddBlocked(true);
+                      return addShake.shake();
+                    }
+                    setAddBlocked(false);
+                    addStudent();
+                  }}
+                  aria-disabled={!cleanName(entry.name) || checking}
+                  disabled={entries.length >= MAX_STUDENTS}
+                  className={`inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400 aria-disabled:cursor-not-allowed aria-disabled:text-slate-400 ${addShake.shakeClass}`}
                 >
                   <PlusIcon className="h-4 w-4" />
                   추가하기
@@ -238,7 +269,11 @@ export default function PromiseBoardApp({ students }: { students: Student[] }) {
               )
             }
           />
-          {step === 1 && !cleanName(entry.name) && <p className="-mt-3 text-center text-xs text-slate-400">이름을 입력하면 학생을 추가하거나 다음으로 넘어갈 수 있어요</p>}
+          {step === 1 && addBlocked && !cleanName(entry.name) && (
+            <p role="alert" className="-mt-3 text-right text-xs font-medium text-red-600">
+              이름을 입력하면 학생을 추가할 수 있어요.
+            </p>
+          )}
         </div>
 
         {/* 날짜 · 학생 단계는 지금 학생의 약속판, 마지막 단계는 모든 학생을 넘겨 보기. 같은 화면이면 단계를 옮겨도 그대로 둠 */}

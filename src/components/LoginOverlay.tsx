@@ -4,6 +4,7 @@ import { useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { login } from "./auth";
 import { EyeIcon, EyeOffIcon, LockIcon, Spinner } from "./icons";
+import { useShake } from "./useShake";
 
 const field =
   "h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-[15px] outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100";
@@ -23,12 +24,16 @@ export default function LoginOverlay({
   const [id, setId] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const { shake, shakeClass } = useShake();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!id.trim() || !password) return setError("아이디와 비밀번호를 입력해 주세요.");
+    if (!id.trim() || !password) {
+      setError("아이디와 비밀번호를 입력해 주세요.");
+      return shake();
+    }
     setBusy(true);
     setError(null);
     const result = await login(id, password);
@@ -37,6 +42,7 @@ export default function LoginOverlay({
     else {
       setError(result.error);
       setPassword("");
+      shake();
     }
   };
 
@@ -99,7 +105,7 @@ export default function LoginOverlay({
           <button
             type="submit"
             disabled={busy}
-            className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-[15px] font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700 disabled:cursor-wait disabled:opacity-70"
+            className={`mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-[15px] font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700 disabled:cursor-wait disabled:opacity-70 ${shakeClass}`}
           >
             {busy && <Spinner className="h-5 w-5" />}
             로그인

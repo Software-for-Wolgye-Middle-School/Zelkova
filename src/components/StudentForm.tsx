@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { DownloadIcon, PlusIcon, Spinner, TrashIcon } from "./icons";
+import { PlusIcon, TrashIcon } from "./icons";
 import ConfirmDialog from "./ConfirmDialog";
-import LoginOverlay from "./LoginOverlay";
+import ImportStudentsButton from "./ImportStudentsButton";
 import { CLASSES, GRADES, newRow, SUBJECTS, type RowErrors, type StudentRow } from "./students";
 
 export const SUBJECT_ON: Record<string, string> = {
@@ -29,19 +29,6 @@ const field =
 export default function StudentForm({ rows, onChange, onImport, errors, showErrors, studentCount }: Props) {
   const focusId = useRef<string | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
-  const [importing, setImporting] = useState(false);
-  const [importNote, setImportNote] = useState<string | null>(null);
-  const [needLogin, setNeedLogin] = useState(false);
-
-  /** 등록된 학생을 불러오고 결과를 알려 줌. 로그인이 필요하면 로그인 창을 띄움 */
-  const importStudents = async () => {
-    setImporting(true);
-    setImportNote(null);
-    const added = await onImport();
-    setImporting(false);
-    if (added === null) return setNeedLogin(true);
-    setImportNote(added ? `학생 정보 관리에서 ${added}명을 불러왔어요.` : "등록된 학생이 이미 모두 들어 있어요.");
-  };
 
   // 새로 추가한 줄의 '반' 칸으로 바로 이동
   useEffect(() => {
@@ -85,20 +72,13 @@ export default function StudentForm({ rows, onChange, onImport, errors, showErro
           <p className="text-sm text-slate-500">
             입력한 학생 <span className="font-semibold text-slate-900">{studentCount}명</span>
           </p>
-          <button
-            type="button"
-            onClick={importStudents}
-            disabled={importing}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-wait disabled:opacity-70"
-          >
-            {importing ? <Spinner className="h-4 w-4" /> : <DownloadIcon className="h-4 w-4" />}
-            등록된 학생 정보 불러오기
-          </button>
-          {importNote && (
-            <span role="status" className="text-xs font-medium text-emerald-700">
-              {importNote}
-            </span>
-          )}
+          <ImportStudentsButton
+            onImport={async () => {
+              const added = await onImport();
+              if (added === null) return null;
+              return added ? `학생 정보 관리에서 ${added}명을 불러왔어요.` : "등록된 학생이 이미 모두 들어 있어요.";
+            }}
+          />
         </div>
         {studentCount > 0 && (
           <button
@@ -236,17 +216,6 @@ export default function StudentForm({ rows, onChange, onImport, errors, showErro
           학생 추가
         </button>
       </div>
-      <p className="mt-2 text-xs text-slate-400">이름 칸에서 Enter 를 누르면 다음 학생 줄로 넘어가요.</p>
-      {needLogin && (
-        <LoginOverlay
-          exitLabel="닫기"
-          onExit={() => setNeedLogin(false)}
-          onSuccess={() => {
-            setNeedLogin(false);
-            void importStudents();
-          }}
-        />
-      )}
     </div>
   );
 }
