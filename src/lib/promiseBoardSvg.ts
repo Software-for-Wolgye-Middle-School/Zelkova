@@ -3,7 +3,7 @@
  * 올려 준 약속판과 같은 형식: 제목, 리본, 토끼 · 강아지, 요일별 색, 날짜 동그라미, 하단 '이 달의 약속' 칸.
  */
 import { monthWeeks, WEEKDAYS, type PromiseBoardRequest } from "./promiseBoard";
-import { embeddedFontCss, esc, FONT, printSheets, svgToPng } from "./svgExport";
+import { embeddedFontCss, esc, FONT, svgToPng } from "./svgExport";
 
 export const BOARD_W = 860;
 export const BOARD_H = 1216; // A4 세로 비율
@@ -185,26 +185,19 @@ export function boardSvg({ name, year, month, promise = [] }: PromiseBoardReques
 </svg>`;
 }
 
-// ---------------------------------------------------------------- 내려받기 · 인쇄 (브라우저 전용)
+// ---------------------------------------------------------------- 내려받기 (브라우저 전용)
 
 const boardText = (req: PromiseBoardRequest) =>
   [TITLE, RIBBON, ...BUBBLE, BOTTOM, WEEKDAYS.join(""), `${req.year}년 ${req.month}월`, `이름: ${req.name}`, ...(req.promise ?? [])].join("");
 
-/** A4 인쇄에 충분한 해상도의 PNG */
-export async function boardPng(req: PromiseBoardRequest, scale = 2.5): Promise<Blob> {
-  const svg = boardSvg(req, { fontCss: await embeddedFontCss(boardText(req)) });
-  return svgToPng(svg, BOARD_W, BOARD_H, scale);
-}
-
-/** 새 창에서 A4 한 장으로 인쇄 */
-export async function printBoard(req: PromiseBoardRequest, win: Window) {
-  const svg = boardSvg(req, { fontCss: await embeddedFontCss(boardText(req)) });
-  printSheets(win, {
-    title: `${req.name} 나와의 약속판`,
-    page: { w: 210, h: 297, css: "A4" },
-    items: [svg],
-    itemMm: { w: 210, h: 297 },
-    cols: 1,
-    rows: 1,
-  });
+/** 학생마다 A4 세로 한 쪽씩 담은 PDF 하나 */
+export async function boardsPdf(reqs: PromiseBoardRequest[]): Promise<Blob> {
+  const [{ jsPDF }, fontCss] = await Promise.all([import("jspdf"), embeddedFontCss(reqs.map(boardText).join(""))]);
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  for (const [i, req] of reqs.entries()) {
+    if (i > 0) doc.addPage();
+    const jpeg = await svgToPng(boardSvg(req, { fontCss }), BOARD_W, BOARD_H, 2.5, "image/jpeg");
+    doc.addImage(new Uint8Array(await jpeg.arrayBuffer()), "JPEG", 0, 0, 210, 297, `board-${i}`);
+  }
+  return doc.output("blob");
 }

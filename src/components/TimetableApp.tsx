@@ -358,7 +358,7 @@ export default function TimetableApp() {
             )}
             {phase === "generating" && <GeneratingScreen stage={stage} />}
             {phase === "result" && result && <ResultView result={result} onRestart={restart} />}
-            {phase === "promise" && <PromiseBoardApp />}
+            {phase === "promise" && <PromiseBoardApp students={registeredStudents} />}
             {phase === "bankbook" && <BankbookApp students={registeredStudents} />}
             {phase === "nametag" && <NameTagApp students={registeredStudents} />}
             {phase === "students" && <StudentsApp rows={rows} onRowsChange={changeRows} />}

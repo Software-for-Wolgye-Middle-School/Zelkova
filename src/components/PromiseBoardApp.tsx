@@ -1,13 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { clampPromise, promiseBoardFileName, PROMISE_LINE_CHARS, PROMISE_MAX_LINES, type PromiseBoardRequest } from "@/lib/promiseBoard";
-import { boardPng, boardSvg } from "@/lib/promiseBoardSvg";
-import { DownloadIcon, Spinner } from "./icons";
-import { loadRows } from "./students";
+import { useMemo, useRef, useState } from "react";
+import { clampPromise, promiseBoardsFileName, PROMISE_LINE_CHARS, PROMISE_MAX_LINES, type PromiseBoardRequest } from "@/lib/promiseBoard";
+import { BOARD_H, BOARD_W, boardSvg, boardsPdf } from "@/lib/promiseBoardSvg";
+import { downloadBlob } from "@/lib/svgExport";
+import type { Student } from "@/lib/timetable";
+import NameCombobox from "./NameCombobox";
+import { DownloadIcon, PlusIcon, Spinner, TrashIcon } from "./icons";
+import { SlideCarousel, StepHeading, StepNav, StepProgress, useStepFlow } from "./StepFlow";
 
 /** 고를 수 있는 연도: 2026년 ~ 2036년 */
 const BOARD_YEARS = Array.from({ length: 11 }, (_, i) => 2026 + i);
+const MAX_STUDENTS = 40;
 
 function defaultMonth() {
   const now = new Date();
@@ -19,54 +23,80 @@ function defaultMonth() {
 const field =
   "h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-[15px] outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100";
 
-export default function PromiseBoardApp() {
-  const [name, setName] = useState("");
+/** 약속판을 만드는 순서 */
+const STEPS = [
+  { title: "날짜", heading: "몇 월 약속판인가요?" },
+  { title: "학생", heading: "학생" },
+  { title: "다운받기", heading: "미리 보고 내려받아요" },
+] as const;
+
+type Entry = { id: number; name: string; promise: string };
+
+const cleanName = (name: string) => name.trim().replace(/\s+/g, " ").slice(0, 12);
+const isBlank = (e: Entry) => !e.name.trim() && !e.promise.trim();
+
+export default function PromiseBoardApp({ students }: { students: Student[] }) {
+  const { step, fadeTo, checking, goStep, goNext, refade, fadeClass } = useStepFlow();
   const [{ year, month }, setYm] = useState(defaultMonth);
-  const [promiseText, setPromiseText] = useState("");
-  const [savedNames, setSavedNames] = useState<string[]>([]);
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const nameBox = useRef<HTMLDivElement>(null);
-  const [busy, setBusy] = useState<"png" | null>(null);
+  const [entries, setEntries] = useState<Entry[]>([{ id: 0, name: "", promise: "" }]);
+  const [current, setCurrent] = useState(0);
+  const nextId = useRef(1);
+  const [busy, setBusy] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const savedNames = useMemo(() => [...new Set(students.map((s) => s.name))].sort((a, b) => a.localeCompare(b, "ko")), [students]);
 
-  // 바깥을 누르면 목록 닫기
-  useEffect(() => {
-    if (!pickerOpen) return;
-    const close = (e: MouseEvent) => !nameBox.current?.contains(e.target as Node) && setPickerOpen(false);
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
-  }, [pickerOpen]);
+  const entry = entries[Math.min(current, entries.length - 1)];
+  const reqOf = (e: Entry): PromiseBoardRequest => ({ name: cleanName(e.name) || "○○○", year, month, promise: e.promise ? e.promise.split("\n") : [] });
+  const update = (patch: Partial<Entry>) => setEntries((list) => list.map((e) => (e.id === entry.id ? { ...e, ...patch } : e)));
 
-  // 시간표에서 입력해 둔 학생 이름을 빠르게 고를 수 있도록
-  useEffect(() => {
-    const rows = loadRows() ?? [];
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage 는 브라우저에서만 읽을 수 있음
-    setSavedNames([...new Set(rows.map((r) => r.name.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ko")));
-  }, []);
+  const named = entries.filter((e) => cleanName(e.name));
+  const reqs = named.map(reqOf);
+  const currentSvg = boardSvg(reqOf(entry));
+  const boardSvgs = reqs.map((r) => boardSvg(r));
 
-  const trimmed = name.trim().replace(/\s+/g, " ").slice(0, 12);
-  const promise = useMemo(() => (promiseText ? promiseText.split("\n") : []), [promiseText]);
-  const req: PromiseBoardRequest = { name: trimmed || "○○○", year, month, promise };
-  const svg = useMemo(() => boardSvg({ name: trimmed || "○○○", year, month, promise }), [trimmed, year, month, promise]);
+  /** 지금 학생을 두고 다음 학생 칸을 새로 엶 */
+  const addStudent = () =>
+    refade(() => {
+      setEntries((list) => [...list, { id: nextId.current++, name: "", promise: "" }]);
+      setCurrent(entries.length);
+    });
+  const showStudent = (i: number) => i !== current && refade(() => setCurrent(i));
+  const removeStudent = () =>
+    refade(() => {
+      setEntries((list) => list.filter((e) => e.id !== entry.id));
+      setCurrent((c) => Math.max(0, Math.min(c, entries.length - 2)));
+    });
 
-  const downloadPng = async () => {
-    setBusy("png");
+  /** 학생 단계에서 '다음': 이름을 적은 학생만 남기고 미리보기로 */
+  const next = () =>
+    goNext(
+      step === 1
+        ? () => {
+            setEntries((list) => list.filter((e) => cleanName(e.name)));
+            setCurrent(0);
+          }
+        : undefined,
+    );
+
+  const download = async () => {
+    setBusy(true);
     setExportError(null);
     try {
-      const blob = await boardPng(req);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = promiseBoardFileName(req, "png");
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      downloadBlob(await boardsPdf(reqs), promiseBoardsFileName(reqs));
     } catch (e) {
       console.error(e);
-      setExportError("그림 파일로 저장하지 못했어요.");
+      setExportError("PDF로 저장하지 못했어요. 잠시 뒤 다시 해 주세요.");
     } finally {
-      setBusy(null);
+      setBusy(false);
     }
   };
+
+  const last = step === STEPS.length - 1;
+  // 이름을 적은 학생이 있어야 하고, 이름 없이 약속만 적은 학생은 없어야 함 (아예 빈 칸은 건너뜀)
+  const canNext = step === 1 ? named.length > 0 && entries.every((e) => cleanName(e.name) || isBlank(e)) : true;
+  const heading =
+    step === 1 ? { ...STEPS[1], heading: `학생 ${current + 1}`, hint: "이름과 이 달의 약속을 적어 주세요. 학생을 더 추가하거나 다음으로 넘어가요." } : STEPS[step];
+  const singleView = (s: number) => s < 2;
 
   return (
     <div className="fade-up mx-auto max-w-5xl">
@@ -74,123 +104,173 @@ export default function PromiseBoardApp() {
         <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-[28px]">나와의 약속판 만들기</h1>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[20rem_minmax(0,1fr)]">
-        <div className="h-fit space-y-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6 lg:sticky lg:top-6">
-          <div>
-            <label className="block text-sm font-semibold text-slate-800" htmlFor="pb-name">
-              이름
-            </label>
-            <div ref={nameBox} className="relative mt-2">
-              <input
-                id="pb-name"
-                value={name}
-                maxLength={12}
-                autoComplete="off"
-                placeholder="예: 강동아"
-                onChange={(e) => setName(e.target.value)}
-                onFocus={() => setPickerOpen(false)}
-                className={`${field} ${savedNames.length > 0 ? "pr-11" : ""}`}
-              />
-              {savedNames.length > 0 && (
-                <>
+      <div className="grid gap-6 lg:grid-cols-[22rem_minmax(0,1fr)]">
+        <div className="h-fit space-y-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+          <StepProgress steps={STEPS} step={step} checking={checking} onGo={goStep} />
+
+          <div className={`space-y-5 ${fadeClass}`}>
+            <StepHeading step={heading} />
+
+            {step === 0 && (
+              <div className="grid grid-cols-2 gap-2">
+                <select aria-label="연도" value={year} onChange={(e) => setYm({ year: Number(e.target.value), month })} className={field}>
+                  {BOARD_YEARS.map((y) => (
+                    <option key={y} value={y}>
+                      {y}년
+                    </option>
+                  ))}
+                </select>
+                <select aria-label="월" value={month} onChange={(e) => setYm({ year, month: Number(e.target.value) })} className={field}>
+                  {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                    <option key={m} value={m}>
+                      {m}월
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {step === 1 && (
+              <div className="space-y-4">
+                {entries.length > 1 && (
+                  <div className="flex flex-wrap gap-1.5" aria-label="입력한 학생">
+                    {entries.map((e, i) => (
+                      <button
+                        key={e.id}
+                        type="button"
+                        onClick={() => showStudent(i)}
+                        aria-pressed={i === current}
+                        className={`rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset transition ${
+                          i === current ? "bg-indigo-50 text-indigo-700 ring-indigo-300" : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"
+                        }`}
+                      >
+                        {i + 1}. {cleanName(e.name) || "이름 없음"}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div>
+                  <label className="mb-1 block text-xs font-semibold text-slate-600" htmlFor="pb-name">
+                    이름
+                  </label>
+                  <NameCombobox
+                    key={entry.id}
+                    id="pb-name"
+                    value={entry.name}
+                    onChange={(name) => update({ name })}
+                    names={savedNames}
+                    maxLength={12}
+                    placeholder="예: 강동아"
+                    className={field}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-semibold text-slate-600" htmlFor="pb-promise">
+                    이 달의 약속
+                  </label>
+                  <textarea
+                    id="pb-promise"
+                    value={entry.promise}
+                    rows={Math.max(2, entry.promise.split("\n").length)}
+                    autoComplete="off"
+                    placeholder={"예: 매일 책 10쪽 읽기\n(Enter를 누르면 다음 줄에 쓸 수 있어요)"}
+                    onChange={(e) => update({ promise: clampPromise(e.target.value) })}
+                    className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-[15px] leading-6 outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100"
+                  />
+                  <p className="mt-1 text-xs text-slate-400">
+                    한 줄에 {PROMISE_LINE_CHARS}자까지, 최대 {PROMISE_MAX_LINES}줄까지 쓸 수 있어요.
+                  </p>
+                </div>
+                {entries.length > 1 && (
                   <button
                     type="button"
-                    aria-label="등록된 학생 보기"
-                    aria-expanded={pickerOpen}
-                    onClick={() => setPickerOpen((o) => !o)}
-                    className="absolute right-1 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+                    onClick={removeStudent}
+                    className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-slate-500 transition hover:bg-red-50 hover:text-red-600"
                   >
-                    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`h-4 w-4 transition-transform ${pickerOpen ? "rotate-180" : ""}`} aria-hidden="true">
-                      <path d="M5 8l5 5 5-5" />
-                    </svg>
+                    <TrashIcon className="h-3.5 w-3.5" />
+                    학생 {current + 1} 빼기
                   </button>
-                  {pickerOpen && (
-                    <ul role="listbox" aria-label="등록된 학생" className="absolute z-10 mt-1 max-h-60 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
-                      {savedNames.map((n) => (
-                        <li key={n} role="option" aria-selected={trimmed === n}>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setName(n);
-                              setPickerOpen(false);
-                            }}
-                            className={`block w-full px-3 py-2 text-left text-[15px] hover:bg-indigo-50 ${trimmed === n ? "font-semibold text-indigo-700" : "text-slate-700"}`}
-                          >
-                            {n}
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
+                )}
+              </div>
+            )}
 
-          <div>
-            <p className="text-sm font-semibold text-slate-800">날짜</p>
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              <select aria-label="연도" value={year} onChange={(e) => setYm({ year: Number(e.target.value), month })} className={field}>
-                {BOARD_YEARS.map((y) => (
-                  <option key={y} value={y}>
-                    {y}년
-                  </option>
-                ))}
-              </select>
-              <select aria-label="월" value={month} onChange={(e) => setYm({ year, month: Number(e.target.value) })} className={field}>
-                {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-                  <option key={m} value={m}>
-                    {m}월
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div>
-            <p className="text-sm font-semibold text-slate-800">이 달의 약속</p>
-            <textarea
-              value={promiseText}
-              rows={Math.max(2, promise.length)}
-              autoComplete="off"
-              aria-label="이 달의 약속"
-              placeholder={"예: 매일 책 10쪽 읽기\n(Enter를 누르면 다음 줄에 쓸 수 있어요)"}
-              onChange={(e) => setPromiseText(clampPromise(e.target.value))}
-              className={`mt-2 w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-[15px] leading-6 outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100`}
-            />
-            <p className="mt-1 text-xs text-slate-400">
-              한 줄에 {PROMISE_LINE_CHARS}자까지, 최대 {PROMISE_MAX_LINES}줄까지 쓸 수 있어요. A4 한 장에 맞춰 약속판이 자동으로 조절돼요.
-            </p>
-          </div>
-
-          <div className="space-y-2 border-t border-slate-100 pt-5">
-            <button
-              type="button"
-              onClick={downloadPng}
-              disabled={!trimmed || busy !== null}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-[15px] font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
-            >
-              {busy === "png" ? <Spinner className="h-5 w-5" /> : <DownloadIcon className="h-5 w-5" />}
-              그림 파일로 저장 (PNG)
-            </button>
-            {exportError && (
-              <p role="alert" className="text-center text-xs font-medium text-red-600">
-                {exportError}
-              </p>
+            {step === 2 && (
+              <div>
+                <p className="mb-3 text-sm text-slate-600">
+                  {year}년 {month}월 · 학생 {reqs.length}명의 약속판을 PDF 파일 하나에 한 쪽씩 담아요.
+                </p>
+                <button
+                  type="button"
+                  onClick={download}
+                  disabled={busy || reqs.length === 0}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-[15px] font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
+                >
+                  {busy ? <Spinner className="h-5 w-5" /> : <DownloadIcon className="h-5 w-5" />}
+                  PDF 다운로드
+                </button>
+                {exportError && (
+                  <p role="alert" className="mt-2 text-center text-xs font-medium text-red-600">
+                    {exportError}
+                  </p>
+                )}
+              </div>
             )}
           </div>
+
+          <StepNav
+            step={step}
+            last={last}
+            canNext={canNext}
+            checking={checking}
+            onPrev={() => goStep(step - 1)}
+            onNext={next}
+            extra={
+              step === 1 && (
+                <button
+                  type="button"
+                  onClick={addStudent}
+                  disabled={!cleanName(entry.name) || entries.length >= MAX_STUDENTS || checking}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
+                >
+                  <PlusIcon className="h-4 w-4" />
+                  추가하기
+                </button>
+              )
+            }
+          />
+          {step === 1 && !cleanName(entry.name) && <p className="-mt-3 text-center text-xs text-slate-400">이름을 입력하면 학생을 추가하거나 다음으로 넘어갈 수 있어요</p>}
         </div>
 
-        <section aria-label="약속판 미리보기" className="min-w-0">
-          <div className="rounded-2xl border border-slate-200 bg-slate-100 p-3 sm:p-6">
-            <div
-              className="mx-auto max-w-[620px] overflow-hidden rounded-md bg-white shadow-md [&>svg]:block [&>svg]:h-auto [&>svg]:w-full"
-              role="img"
-              aria-label={`${req.name}의 ${year}년 ${month}월 나와의 약속판 미리보기`}
-              // boardSvg 는 이름을 XML 이스케이프한 뒤 직접 만든 SVG 문자열
-              dangerouslySetInnerHTML={{ __html: svg }}
+        {/* 날짜 · 학생 단계는 지금 학생의 약속판, 마지막 단계는 모든 학생을 넘겨 보기. 같은 화면이면 단계를 옮겨도 그대로 둠 */}
+        <section
+          aria-label="약속판 미리보기"
+          className={`min-w-0 ${fadeTo === step || singleView(step) !== singleView(fadeTo) ? fadeClass : ""}`}
+        >
+          {step === 2 ? (
+            <SlideCarousel
+              count={boardSvgs.length}
+              caption={(i) => `${i + 1}/${boardSvgs.length} · ${reqs[i]?.name ?? ""}`}
+              aspectRatio={`${BOARD_W} / ${BOARD_H}`}
+              maxWidth={452}
+              slideClassName="overflow-hidden rounded-md bg-white shadow-md"
+              render={(i) => (
+                <div
+                  className="h-full [&>svg]:block [&>svg]:h-full [&>svg]:w-full"
+                  // boardSvg 는 이름을 XML 이스케이프한 뒤 직접 만든 SVG 문자열
+                  dangerouslySetInnerHTML={{ __html: boardSvgs[i] ?? "" }}
+                />
+              )}
             />
-          </div>
+          ) : (
+            <div className="rounded-2xl border border-slate-200 bg-slate-100 p-3 sm:p-6">
+              <div
+                className="mx-auto max-w-[620px] overflow-hidden rounded-md bg-white shadow-md [&>svg]:block [&>svg]:h-auto [&>svg]:w-full"
+                role="img"
+                aria-label={`${reqOf(entry).name}의 ${year}년 ${month}월 나와의 약속판 미리보기`}
+                dangerouslySetInnerHTML={{ __html: currentSvg }}
+              />
+            </div>
+          )}
         </section>
       </div>
     </div>

@@ -29,6 +29,13 @@ export function monthWeeks(year: number, month: number): (number | null)[][] {
   return Array.from({ length: cells.length / 7 }, (_, w) => cells.slice(w * 7, w * 7 + 7));
 }
 
+/** 여러 학생을 한 파일로 저장할 때: 한 명이면 그 학생 이름, 여러 명이면 'n명' */
+export function promiseBoardsFileName(reqs: PromiseBoardRequest[], ext = "pdf") {
+  const [first] = reqs;
+  if (reqs.length === 1) return promiseBoardFileName(first, ext);
+  return `나와의 약속판 ${reqs.length}명 (${first.year}년 ${first.month}월).${ext}`;
+}
+
 export function promiseBoardFileName({ name, year, month }: PromiseBoardRequest, ext = "jpg") {
   const safe = name.replace(/[\\/:*?"<>|]/g, "");
   return `${safe} 나와의 약속판 (${year}년 ${month}월).${ext}`;

@@ -17,7 +17,8 @@ import {
 } from "@/lib/bankbookSvg";
 import { embeddedFontCss, loadImageDataUrl, safeFileName, svgToPng, withFont } from "@/lib/svgExport";
 import NameCombobox from "./NameCombobox";
-import { ArrowLeftIcon, ArrowRightIcon, CheckIcon, DownloadIcon, PlusIcon, Spinner, TrashIcon } from "./icons";
+import { DownloadIcon, PlusIcon, Spinner, TrashIcon } from "./icons";
+import { SlideCarousel, StepHeading, StepNav, StepProgress, useStepFlow } from "./StepFlow";
 import {
   BACKGROUND_MAX_WIDTH,
   deletePhotoSet,
@@ -46,8 +47,6 @@ type PictureKey = string;
 
 const BLANK_ART = "data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%271%27 height=%271%27%3E%3Crect width=%271%27 height=%271%27 fill=%27%23fff%27/%3E%3C/svg%3E";
 const MAX_LEDGERS = 99;
-const SLIDE_MS = 450;
-const CHECK_MS = 600;
 
 const field =
   "h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-[15px] outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100";
@@ -74,12 +73,7 @@ const today = () => {
 };
 
 export default function BankbookApp({ students }: { students: Student[] }) {
-  const [step, setStep] = useState(0);
-  const [fading, setFading] = useState(false);
-  const [fadeTo, setFadeTo] = useState(0);
-  const [checking, setChecking] = useState(false);
-  const [sheetIdx, setSheetIdx] = useState(0);
-  const [sheetAnim, setSheetAnim] = useState<{ from: number; to: number; slid: boolean } | null>(null);
+  const { step, fadeTo, checking, goStep, goNext, fadeClass } = useStepFlow();
   const [name, setName] = useState("");
   const [bank, setBank] = useState("느티나무 은행");
   const [branch, setBranch] = useState("월계중학교");
@@ -130,18 +124,6 @@ export default function BankbookApp({ students }: { students: Student[] }) {
   }, [customOpen]);
 
   const pictureArt = art?.key === picture ? art : null;
-  /** 단계를 바꿀 때 화면이 서서히 사라졌다가 새 화면이 서서히 나타남 */
-  const goStep = (n: number) => {
-    if (n === step || fading) return;
-    setFadeTo(n);
-    setFading(true);
-    setTimeout(() => {
-      setStep(n);
-      setChecking(false);
-      setFading(false);
-    }, 200);
-  };
-  const fadeClass = `transition-[opacity,transform] ease-in-out motion-reduce:transition-none ${fading ? "translate-y-1 opacity-0 duration-200" : "translate-y-0 opacity-100 duration-300"}`;
   const ledgers = Math.min(MAX_LEDGERS, Math.max(1, parseInt(ledgersText, 10) || 1));
 
   /** 기본 그림을 고르면 그 그림에 어울리는 속지 색으로 바꿈 */
@@ -268,47 +250,21 @@ export default function BankbookApp({ students }: { students: Student[] }) {
     }
   };
 
-  /** 체크 표시가 그려진 뒤에 다음 단계로 넘어감 */
-  const goNext = () => {
-    if (checking || fading) return;
-    setChecking(true);
-    setTimeout(() => {
-      goStep(step + 1);
-    }, CHECK_MS);
-  };
-
-  const curSheet = Math.min(sheetIdx, sheets - 1);
-  /** 오른쪽: 지금 종이가 오른쪽으로 밀려나며 다음 종이가 드러남, 왼쪽: 앞 종이가 오른쪽에서 와서 덮음 */
-  const flipSheet = (to: number) => {
-    if (sheetAnim || to < 0 || to >= sheets) return;
-    setSheetAnim({ from: curSheet, to, slid: false });
-    requestAnimationFrame(() => requestAnimationFrame(() => setSheetAnim((a) => a && { ...a, slid: true })));
-    setTimeout(() => {
-      setSheetIdx(to);
-      setSheetAnim(null);
-    }, SLIDE_MS);
-  };
-  const sheetView = (s: number, offset: boolean) => (
-    <div
-      key={s}
-      className="absolute inset-0 bg-white shadow-md transition-transform ease-in-out motion-reduce:transition-none"
-      style={{ transform: offset ? "translateX(105%)" : "translateX(0)", transitionDuration: `${SLIDE_MS}ms` }}
-    >
-      {pages.slice(s * layout.perSheet, (s + 1) * layout.perSheet).map((p, slot) => (
-        <div
-          key={p.key}
-          className="absolute overflow-hidden outline-dashed outline-1 outline-slate-300 [&>svg]:block [&>svg]:h-full [&>svg]:w-full"
-          style={{
-            left: `${((layout.left + (slot % layout.cols) * layout.page.w) / layout.paper.w) * 100}%`,
-            top: `${((layout.top + Math.floor(slot / layout.cols) * layout.page.h) / layout.paper.h) * 100}%`,
-            width: `${(layout.page.w / layout.paper.w) * 100}%`,
-            height: `${(layout.page.h / layout.paper.h) * 100}%`,
-          }}
-          dangerouslySetInnerHTML={{ __html: p.svg }}
-        />
-      ))}
-    </div>
-  );
+  /** A4 한 장에 놓이는 쪽들 (자르는 점선 포함) */
+  const sheetContent = (s: number) =>
+    pages.slice(s * layout.perSheet, (s + 1) * layout.perSheet).map((p, slot) => (
+      <div
+        key={p.key}
+        className="absolute overflow-hidden outline-dashed outline-1 outline-slate-300 [&>svg]:block [&>svg]:h-full [&>svg]:w-full"
+        style={{
+          left: `${((layout.left + (slot % layout.cols) * layout.page.w) / layout.paper.w) * 100}%`,
+          top: `${((layout.top + Math.floor(slot / layout.cols) * layout.page.h) / layout.paper.h) * 100}%`,
+          width: `${(layout.page.w / layout.paper.w) * 100}%`,
+          height: `${(layout.page.h / layout.paper.h) * 100}%`,
+        }}
+        dangerouslySetInnerHTML={{ __html: p.svg }}
+      />
+    ));
 
   const last = step === STEPS.length - 1;
   /** 이름을 적어야 이름 단계 다음으로 갈 수 있음 */
@@ -354,52 +310,10 @@ export default function BankbookApp({ students }: { students: Student[] }) {
 
       <div className="grid gap-6 lg:grid-cols-[22rem_minmax(0,1fr)]">
         <div className="h-fit space-y-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-          <ol className="flex items-center" aria-label="진행 단계">
-            {STEPS.map((s, i) => (
-              <li key={s.title} className="flex flex-1 items-center last:flex-none" aria-current={i === step ? "step" : undefined}>
-                <button
-                  type="button"
-                  onClick={() => i <= step && goStep(i)}
-                  disabled={i > step}
-                  className="flex flex-col items-center gap-1 disabled:cursor-default"
-                >
-                  <span
-                    className={`relative grid h-8 w-8 place-items-center rounded-full text-sm font-bold transition ${
-                      i < step ? "bg-indigo-600 text-white" : i === step ? "bg-indigo-600 text-white ring-4 ring-indigo-100" : "bg-slate-100 text-slate-400"
-                    }`}
-                  >
-                    {i < step ? (
-                      <CheckIcon className="h-4 w-4" />
-                    ) : (
-                      <>
-                        <span className={i === step && checking ? "invisible" : ""}>{i + 1}</span>
-                        {i === step && (
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="pointer-events-none absolute h-4 w-4" aria-hidden="true">
-                            <path d="M5 12.5l4.5 4.5L19 7.5" strokeDasharray="22" strokeDashoffset={checking ? 0 : 22} style={{ transition: `stroke-dashoffset ${CHECK_MS - 150}ms ease-out 100ms` }} />
-                          </svg>
-                        )}
-                      </>
-                    )}
-
-                  </span>
-                  <span className={`text-[11px] font-semibold ${i <= step ? "text-slate-800" : "text-slate-400"}`}>{s.title}</span>
-                </button>
-                {i < STEPS.length - 1 && (
-                  <span className="mx-1 mb-5 h-0.5 flex-1 overflow-hidden rounded bg-slate-200">
-                    <span
-                      className={`block h-full origin-left rounded bg-indigo-600 transition-transform duration-500 ease-out motion-reduce:transition-none ${i < step ? "scale-x-100" : "scale-x-0"}`}
-                    />
-                  </span>
-                )}
-              </li>
-            ))}
-          </ol>
+          <StepProgress steps={STEPS} step={step} checking={checking} onGo={goStep} />
 
           <div className={`space-y-5 ${fadeClass}`}>
-          <div>
-            <h2 className="text-lg font-bold text-slate-900">{STEPS[step].heading}</h2>
-            {STEPS[step].hint && <p className="mt-0.5 text-xs text-slate-500">{STEPS[step].hint}</p>}
-          </div>
+          <StepHeading step={STEPS[step]} />
 
           {step === 0 && (
             <div>
@@ -564,69 +478,20 @@ export default function BankbookApp({ students }: { students: Student[] }) {
           )}
           </div>
 
-          <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-4">
-            <button
-              type="button"
-              onClick={() => goStep(step - 1)}
-              disabled={step === 0}
-              className="inline-flex items-center gap-1.5 rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 disabled:invisible"
-            >
-              <ArrowLeftIcon className="h-4 w-4" />
-              이전
-            </button>
-            {!last && (
-              <button
-                type="button"
-                onClick={goNext}
-                disabled={!canNext || checking}
-                className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
-              >
-                다음
-                <ArrowRightIcon className="h-4 w-4" />
-              </button>
-            )}
-          </div>
+          <StepNav step={step} last={last} canNext={canNext} checking={checking} onPrev={() => goStep(step - 1)} onNext={() => goNext()} />
           {step === 1 && !trimmed && <p className="-mt-3 text-center text-xs text-slate-400">이름을 입력하면 다음으로 넘어갈 수 있어요</p>}
         </div>
 
         <section aria-label="칭찬통장 미리보기" className={`min-w-0 space-y-4 ${previewView(step) === previewView(fadeTo) ? "" : fadeClass}`}>
           {/* 앞면 · 속지 · 거래 내역 · 뒷면 (거래 내역은 모든 쪽이 같음) */}
           {step === 4 && (
-            <figure className="rounded-2xl border border-slate-200 bg-slate-100 p-3 sm:p-5">
-              <figcaption className="mb-2 text-xs font-semibold text-slate-500">
-                A4 {layout.orientation === "landscape" ? "가로" : "세로"} {curSheet + 1}/{sheets}장 ({layout.page.w} × {layout.page.h}mm)
-              </figcaption>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => flipSheet(curSheet - 1)}
-                  disabled={curSheet === 0 || !!sheetAnim}
-                  aria-label="앞 장 보기"
-                  className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white text-slate-600 shadow ring-1 ring-slate-200 transition hover:bg-indigo-50 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  <ArrowLeftIcon className="h-4 w-4" />
-                </button>
-                <div
-                  className="relative mx-auto min-w-0 flex-1 overflow-hidden"
-                  style={{ aspectRatio: `${layout.paper.w} / ${layout.paper.h}`, maxWidth: layout.orientation === "landscape" ? 640 : 452 }}
-                >
-                  {sheetAnim
-                    ? sheetAnim.to > sheetAnim.from
-                      ? [sheetView(sheetAnim.to, false), sheetView(sheetAnim.from, sheetAnim.slid)]
-                      : [sheetView(sheetAnim.from, false), sheetView(sheetAnim.to, !sheetAnim.slid)]
-                    : sheetView(curSheet, false)}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => flipSheet(curSheet + 1)}
-                  disabled={curSheet >= sheets - 1 || !!sheetAnim}
-                  aria-label="다음 장 보기"
-                  className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white text-slate-600 shadow ring-1 ring-slate-200 transition hover:bg-indigo-50 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  <ArrowRightIcon className="h-4 w-4" />
-                </button>
-              </div>
-            </figure>
+            <SlideCarousel
+              count={sheets}
+              render={sheetContent}
+              caption={(i) => `A4 ${layout.orientation === "landscape" ? "가로" : "세로"} ${i + 1}/${sheets}장 (${layout.page.w} × ${layout.page.h}mm)`}
+              aspectRatio={`${layout.paper.w} / ${layout.paper.h}`}
+              maxWidth={layout.orientation === "landscape" ? 640 : 452}
+            />
           )}
 
           {step === 5 && (
