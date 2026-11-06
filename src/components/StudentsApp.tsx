@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
-import { PlusIcon, TrashIcon } from "./icons";
+import { checkAuth, login, logout } from "./auth";
+import { LockIcon, PlusIcon, Spinner, TrashIcon } from "./icons";
 import { SUBJECT_ON } from "./StudentForm";
 import { CLASSES, DEFAULT_SUBJECTS, GRADES, newRow, SUBJECTS, validateRows, type StudentRow } from "./students";
 
@@ -11,15 +12,130 @@ const field =
 
 const isBlank = (r: StudentRow) => !r.name.trim() && !r.cls.trim();
 
-/** 목록 순서: 최근 등록한 학생이 위 · 이름 가나다순 */
-type Sort = "recent" | "name";
+/** 목록 순서: 최근 등록한 학생이 위 · 이름 가나다순 · 학년 · 반마다 묶어서 */
+type Sort = "recent" | "name" | "class";
 const SORTS: [Sort, string][] = [
   ["recent", "최근 등록순"],
   ["name", "이름순"],
+  ["class", "반별"],
 ];
+const classOf = (r: StudentRow) => `${r.grade}학년 ${r.cls}반`;
+
+type Props = { rows: StudentRow[]; onRowsChange: (rows: StudentRow[]) => void };
+
+/**
+ * 학생 정보 관리: 아이디 · 비밀번호로 로그인해야 볼 수 있음. 잠겨 있으면 화면 가운데에 로그인 창을 띄우고 뒤는 흐리게 함.
+ * onAuthed: 로그인한 뒤 서버의 학생 목록을 다시 불러옴 · onExit: 메인 화면으로
+ */
+export default function StudentsApp({ rows, onRowsChange, onAuthed, onExit }: Props & { onAuthed: () => void; onExit: () => void }) {
+  const [auth, setAuth] = useState<"checking" | "locked" | "open">("checking");
+
+  useEffect(() => {
+    let cancelled = false;
+    checkAuth().then((ok) => !cancelled && setAuth(ok ? "open" : "locked"));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const lock = async () => {
+    await logout();
+    setAuth("locked");
+  };
+
+  if (auth === "open") return <StudentsPanel rows={rows} onRowsChange={onRowsChange} onLock={lock} />;
+  // 잠겨 있을 때는 학생 정보 없이 빈 화면만 흐리게 보여 줌
+  return (
+    <>
+      <div aria-hidden="true" className="pointer-events-none select-none">
+        <StudentsPanel rows={[]} onRowsChange={() => {}} />
+      </div>
+      <LoginOverlay
+        checking={auth === "checking"}
+        onSuccess={() => {
+          setAuth("open");
+          onAuthed();
+        }}
+        onExit={onExit}
+      />
+    </>
+  );
+}
+
+function LoginOverlay({ checking, onSuccess, onExit }: { checking: boolean; onSuccess: () => void; onExit: () => void }) {
+  const [id, setId] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!id.trim() || !password) return setError("아이디와 비밀번호를 입력해 주세요.");
+    setBusy(true);
+    setError(null);
+    const result = await login(id, password);
+    setBusy(false);
+    if (result.ok) onSuccess();
+    else {
+      setError(result.error);
+      setPassword("");
+    }
+  };
+
+  // 페이지의 등장 애니메이션 안에 있으면 화면 전체를 덮지 못하므로 body 에 바로 그림
+  return createPortal(
+    <div className="fixed inset-0 z-50 grid place-items-center bg-white/30 p-4 backdrop-blur-md">
+      {checking ? (
+        <Spinner className="h-8 w-8 text-indigo-600" />
+      ) : (
+        <form
+          onSubmit={submit}
+          aria-labelledby="login-title"
+          className="fade-up w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 shadow-xl sm:p-7"
+        >
+          <span className="grid h-11 w-11 place-items-center rounded-full bg-indigo-50 text-indigo-600">
+            <LockIcon className="h-5 w-5" />
+          </span>
+          <h2 id="login-title" className="mt-4 text-lg font-bold text-slate-900">
+            학생 정보 관리
+          </h2>
+          <p className="mt-1 text-sm text-slate-500">아이디와 비밀번호를 입력해 주세요.</p>
+          {/* 확인하는 동안에는 입력을 막아 결과가 돌아올 때 새로 쓴 비밀번호가 지워지지 않게 함 */}
+          <fieldset disabled={busy} className="mt-5 space-y-3">
+            <label className="block">
+              <span className="mb-1 block text-xs font-semibold text-slate-600">아이디</span>
+              <input value={id} autoFocus autoComplete="username" onChange={(e) => setId(e.target.value)} className={field} />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs font-semibold text-slate-600">비밀번호</span>
+              <input type="password" value={password} autoComplete="current-password" onChange={(e) => setPassword(e.target.value)} className={field} />
+            </label>
+          </fieldset>
+          {error && (
+            <p id="login-error" role="alert" className="mt-3 text-sm font-medium text-red-600">
+              {error}
+            </p>
+          )}
+          <button
+            type="submit"
+            disabled={busy}
+            className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-[15px] font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700 disabled:cursor-wait disabled:opacity-70"
+          >
+            {busy && <Spinner className="h-5 w-5" />}
+            로그인
+          </button>
+          <button type="button" onClick={onExit} className="mt-2 w-full rounded-xl px-5 py-2.5 text-sm font-semibold text-slate-500 transition hover:bg-slate-100">
+            메인 화면으로
+          </button>
+        </form>
+      )}
+    </div>,
+    document.body,
+  );
+}
 
 /** 학생 정보를 등록 · 삭제 · 조회하는 화면. 여기서 등록한 학생은 시간표 · 칭찬통장 · 이름표에서 바로 불러와 써요. */
-export default function StudentsApp({ rows, onRowsChange }: { rows: StudentRow[]; onRowsChange: (rows: StudentRow[]) => void }) {
+function StudentsPanel({ rows, onRowsChange, onLock }: Props & { onLock?: () => void }) {
   const [grade, setGrade] = useState("1");
   const [cls, setCls] = useState("1");
   const [name, setName] = useState("");
@@ -38,10 +154,14 @@ export default function StudentsApp({ rows, onRowsChange }: { rows: StudentRow[]
   const shown = useMemo(() => {
     const q = query.trim().replace(/\s+/g, "");
     // 등록한 학생은 목록 끝에 붙으므로, 거꾸로 하면 최근에 등록한 학생이 위로 옴
+    const byClass = (a: StudentRow, b: StudentRow) => Number(a.grade) - Number(b.grade) || Number(a.cls) - Number(b.cls);
+    const byName = (a: StudentRow, b: StudentRow) => a.name.localeCompare(b.name, "ko");
     const list =
       sort === "recent"
         ? [...registered].reverse()
-        : [...registered].sort((a, b) => a.name.localeCompare(b.name, "ko") || Number(a.grade) - Number(b.grade) || Number(a.cls) - Number(b.cls));
+        : sort === "name"
+          ? [...registered].sort((a, b) => byName(a, b) || byClass(a, b))
+          : [...registered].sort((a, b) => byClass(a, b) || byName(a, b));
     return q ? list.filter((r) => `${r.grade}학년${r.cls}반${r.grade}-${r.cls}${r.name}`.includes(q)) : list;
   }, [registered, query, sort]);
 
@@ -148,7 +268,7 @@ export default function StudentsApp({ rows, onRowsChange }: { rows: StudentRow[]
               value={name}
               maxLength={10}
               autoComplete="off"
-              placeholder="예: 하초현"
+              placeholder="예: 이순신"
               onChange={(e) => setName(e.target.value)}
               className={field}
             />
@@ -193,11 +313,19 @@ export default function StudentsApp({ rows, onRowsChange }: { rows: StudentRow[]
             <h2 className="text-base font-bold text-slate-900">
               등록된 학생 <span className="text-indigo-600">{registered.length}명</span>
             </h2>
-            {registered.length > 0 && (
-              <button type="button" onClick={() => setConfirmClear(true)} className="text-sm font-semibold text-slate-500 hover:text-red-600">
-                전체 삭제
-              </button>
-            )}
+            <div className="flex items-center gap-3">
+              {registered.length > 0 && (
+                <button type="button" onClick={() => setConfirmClear(true)} className="text-sm font-semibold text-slate-500 hover:text-red-600">
+                  전체 삭제
+                </button>
+              )}
+              {onLock && (
+                <button type="button" onClick={onLock} className="inline-flex items-center gap-1 text-sm font-semibold text-slate-500 hover:text-indigo-600">
+                  <LockIcon className="h-4 w-4" />
+                  잠그기
+                </button>
+              )}
+            </div>
           </div>
 
           {registered.length > 0 && (
@@ -206,7 +334,7 @@ export default function StudentsApp({ rows, onRowsChange }: { rows: StudentRow[]
                 type="search"
                 value={query}
                 aria-label="학생 찾기"
-                placeholder="이름 · 학년 · 반으로 찾기 (예: 2-3, 하초현)"
+                placeholder="이름 · 학년 · 반으로 찾기 (예: 2-3, 이순신)"
                 onChange={(e) => setQuery(e.target.value)}
                 className={`${field} sm:flex-1`}
               />
@@ -235,11 +363,17 @@ export default function StudentsApp({ rows, onRowsChange }: { rows: StudentRow[]
             <p className="py-12 text-center text-[15px] text-slate-500">찾는 학생이 없어요.</p>
           ) : (
             <ul className="divide-y divide-slate-100">
-              {shown.map((r) => (
+              {shown.map((r, i) => (
+                <Fragment key={r.id}>
+                {sort === "class" && classOf(r) !== (i > 0 ? classOf(shown[i - 1]) : "") && (
+                  // 반별로 볼 때 반마다 머리글
+                  <li className="-mx-2 border-none px-2 pb-1 pt-4 text-xs font-bold text-slate-700 first:pt-0">
+                    {classOf(r)} <span className="font-medium text-slate-400">{shown.filter((x) => classOf(x) === classOf(r)).length}명</span>
+                  </li>
+                )}
                 <li
-                  key={r.id}
                   id={`st-row-${r.id}`}
-                  className={`-mx-2 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg px-2 py-2.5 transition-colors duration-500 ${
+                  className={`-mx-2 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg px-2 py-2.5 transition-[background-color,box-shadow] duration-500 ${
                     r.id === justAdded ? "bg-emerald-50 ring-1 ring-inset ring-emerald-200" : ""
                   }`}
                 >
@@ -301,6 +435,7 @@ export default function StudentsApp({ rows, onRowsChange }: { rows: StudentRow[]
                     <TrashIcon className="h-4.5 w-4.5" />
                   </button>
                 </li>
+                </Fragment>
               ))}
             </ul>
           )}
@@ -328,7 +463,9 @@ export default function StudentsApp({ rows, onRowsChange }: { rows: StudentRow[]
               정말 전체 삭제할까요?
             </h2>
             <p id="clear-desc" className="mt-1.5 text-sm text-slate-600">
-              등록된 학생 {registered.length}명이 모두 지워져요. 지운 뒤에는 되돌릴 수 없어요.
+              등록된 학생 {registered.length}명이 모두 지워져요.
+              <br />
+              지운 뒤에는 되돌릴 수 없어요.
             </p>
             <div className="mt-6 flex justify-end gap-2">
               <button

@@ -13,8 +13,8 @@ function syllable(ch: string) {
 }
 
 /**
- * 이름이 입력한 글자로 시작하는지. 초성만 써도 되고 (ㄱㄷㅇ → 강동아),
- * 마지막 글자는 아직 조합 중일 수 있어 받침 없는 글자도 앞부분으로 봄 (강도 → 강동아)
+ * 이름이 입력한 글자로 시작하는지. 초성만 써도 되고 (ㅇㅅㅅ → 이순신),
+ * 마지막 글자는 아직 조합 중일 수 있어 받침 없는 글자도 앞부분으로 봄 (이수 → 이순신)
  */
 function startsWithTyped(name: string, typed: string) {
   if (typed.length > name.length) return false;

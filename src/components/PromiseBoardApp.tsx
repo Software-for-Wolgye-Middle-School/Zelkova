@@ -160,7 +160,7 @@ export default function PromiseBoardApp({ students }: { students: Student[] }) {
                     onChange={(name) => update({ name })}
                     names={savedNames}
                     maxLength={12}
-                    placeholder="예: 강동아"
+                    placeholder="예: 이순신"
                     className={field}
                   />
                 </div>

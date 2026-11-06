@@ -505,7 +505,7 @@ export default function BankbookApp({ students }: { students: Student[] }) {
               <label className="mb-1 block text-xs font-semibold text-slate-600" htmlFor="bb-name">
                 이름
               </label>
-              <NameCombobox id="bb-name" value={name} onChange={setName} names={savedNames} maxLength={10} placeholder="예: 하초현" className={field} />
+              <NameCombobox id="bb-name" value={name} onChange={setName} names={savedNames} maxLength={10} placeholder="예: 이순신" className={field} />
               {duplicate && <p className="mt-1.5 text-xs font-medium text-amber-700">이미 통장을 만든 학생이에요. 같은 학생 통장을 하나 더 만들어요.</p>}
             </div>
           )}

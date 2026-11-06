@@ -112,6 +112,26 @@ export default function TimetableApp() {
   const uploadToken = useRef(0);
   const serverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  /**
+   * 서버에 저장된 학생 목록이 있으면 그것을 쓰고, 아직 없으면 이 브라우저의 목록을 서버로 옮김.
+   * 서버 학생 정보는 로그인해야 받을 수 있어서, 로그인하지 않았으면 이 브라우저에 저장된 목록을 그대로 씀
+   */
+  const syncFromServer = useCallback(async () => {
+    const saved = loadRows();
+    const tt = loadRows(TIMETABLE_KEY) ?? saved?.map((r) => ({ ...r, subjects: [...r.subjects] }));
+    const server = await fetchServerRows();
+    if (!server) return;
+    if (server.length === 0) {
+      if (saved) void saveServerRows(saved);
+      return;
+    }
+    setRows(server);
+    saveRows(server);
+    const nextTt = syncToTimetable(saved ?? [], server, tt ?? []);
+    setTtRows(nextTt);
+    saveRows(nextTt, TIMETABLE_KEY);
+  }, []);
+
   // 지난번에 입력한 학생 목록 불러오기
   useEffect(() => {
     const saved = loadRows();
@@ -120,25 +140,8 @@ export default function TimetableApp() {
     // 시간표 학생 목록이 따로 저장돼 있지 않으면 등록한 학생을 그대로 가져옴
     const tt = loadRows(TIMETABLE_KEY) ?? saved?.map((r) => ({ ...r, subjects: [...r.subjects] }));
     if (tt) setTtRows(tt);
-
-    // 서버에 저장된 학생 목록이 있으면 그것을 쓰고, 아직 없으면 이 브라우저의 목록을 서버로 옮김
-    let cancelled = false;
-    fetchServerRows().then((server) => {
-      if (cancelled || !server) return;
-      if (server.length === 0) {
-        if (saved) void saveServerRows(saved);
-        return;
-      }
-      setRows(server);
-      saveRows(server);
-      const nextTt = syncToTimetable(saved ?? [], server, tt ?? []);
-      setTtRows(nextTt);
-      saveRows(nextTt, TIMETABLE_KEY);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    void syncFromServer();
+  }, [syncFromServer]);
 
   // 양식에서 학년도 · 학기 · 선생님 기본값을 읽고, 지난번 바꾼 값을 덮어씀
   useEffect(() => {
@@ -356,7 +359,9 @@ export default function TimetableApp() {
             {phase === "promise" && <PromiseBoardApp students={registeredStudents} />}
             {phase === "bankbook" && <BankbookApp students={registeredStudents} />}
             {phase === "nametag" && <NameTagApp students={registeredStudents} />}
-            {phase === "students" && <StudentsApp rows={rows} onRowsChange={changeRows} />}
+            {phase === "students" && (
+              <StudentsApp rows={rows} onRowsChange={changeRows} onAuthed={() => void syncFromServer()} onExit={() => setPhase("home")} />
+            )}
             {phase === "handwriting" && <HandwritingApp />}
             {phase === "meal" && <MealApp />}
           </main>
@@ -365,7 +370,7 @@ export default function TimetableApp() {
             {phase === "handwriting"
               ? "필사 학습지는 이 컴퓨터의 브라우저 안에서만 만들어져요."
               : phase === "students"
-              ? "학생 정보는 이 컴퓨터의 브라우저 안에만 저장돼요. 밖으로 전송되지 않아요."
+              ? "학생 정보는 학교 서버에 저장되고, 로그인한 사람만 볼 수 있어요."
               : phase === "bankbook" || phase === "nametag"
               ? "AI 그림을 그릴 때 그림 설명만 Pollinations AI로 보내요. 학생 이름은 밖으로 전송되지 않아요."
               : phase === "meal"

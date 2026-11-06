@@ -211,7 +211,7 @@ export default function NameTagApp({ students }: { students: Student[] }) {
                     onSubmit={addNames}
                     names={savedNames}
                     maxLength={60}
-                    placeholder="예: 강동아"
+                    placeholder="예: 이순신"
                     className={field}
                   />
                 </div>
