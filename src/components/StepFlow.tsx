@@ -4,33 +4,54 @@ import { useState, type ReactNode } from "react";
 import { ArrowLeftIcon, ArrowRightIcon, CheckIcon } from "./icons";
 
 /**
- * 칭찬통장 · 나와의 약속판이 함께 쓰는 단계 진행 화면:
- * 위쪽 단계 표시(체크가 그려지며 다음 단계로), 단계 사이 서서히 바뀌는 화면, 아래 이전 · 다음 버튼, 좌우로 넘기는 미리보기.
+ * 칭찬통장 · 약속판 · 이름표 · 필사 교실이 함께 쓰는 단계 진행 화면:
+ * 위쪽 단계 표시(체크가 그려지며 다음 단계로), 좌우로 밀리며 바뀌는 단계 화면, 아래 이전 · 다음 버튼, 좌우로 넘기는 미리보기.
  */
 
 export const CHECK_MS = 600;
 export const SLIDE_MS = 450;
-const FADE_OUT_MS = 200;
+/** 지금 화면이 옆으로 밀려 나가는 시간. 그다음 새 화면이 반대쪽에서 들어옴 */
+const SLIDE_OUT_MS = 170;
+/** 단계 표시의 선이 하나씩 차례로 채워지거나 비워지는 간격 */
+const STAGGER_MS = 220;
 
-export type Step = { title: string; heading: string; hint?: string };
+export type Step = { title: string; heading: ReactNode; hint?: string };
+
+/** out: 밀려 나가는 중 · in: 새 화면이 반대쪽에 놓인 순간(애니메이션 없이) · idle: 제자리로 들어옴 */
+type Phase = "idle" | "out" | "in";
 
 export function useStepFlow() {
   const [step, setStep] = useState(0);
-  const [fading, setFading] = useState(false);
+  const [phase, setPhase] = useState<Phase>("idle");
+  /** 1: 다음(오른쪽에서 들어옴) · -1: 이전(왼쪽에서 들어옴) */
+  const [dir, setDir] = useState<1 | -1>(1);
+  const [fadeFrom, setFadeFrom] = useState(0);
   const [fadeTo, setFadeTo] = useState(0);
   const [checking, setChecking] = useState(false);
+  const fading = phase !== "idle";
 
-  /** 단계를 바꿀 때 화면이 서서히 사라졌다가 새 화면이 서서히 나타남. then 은 화면이 사라진 순간에 실행 */
+  /** 화면을 옆으로 밀어 내고 change 를 한 뒤, 새 화면을 반대쪽에서 들여옴 */
+  const slide = (from: number, to: number, change: () => void) => {
+    setDir(to < from ? -1 : 1);
+    setFadeFrom(from);
+    setFadeTo(to);
+    setPhase("out");
+    setTimeout(() => {
+      change();
+      setPhase("in");
+      // 반대쪽에 놓인 모습이 한 번 그려진 다음 움직이기 시작해야 미끄러져 들어옴
+      requestAnimationFrame(() => requestAnimationFrame(() => setPhase("idle")));
+    }, SLIDE_OUT_MS);
+  };
+
+  /** 단계를 바꿈 (앞 단계면 오른쪽으로, 뒤 단계면 왼쪽으로 밀림). then 은 화면이 바뀌는 순간에 실행 */
   const goStep = (n: number, then?: () => void) => {
     if (n === step || fading) return;
-    setFadeTo(n);
-    setFading(true);
-    setTimeout(() => {
+    slide(step, n, () => {
       then?.();
       setStep(n);
       setChecking(false);
-      setFading(false);
-    }, FADE_OUT_MS);
+    });
   };
 
   /** 체크 표시가 그려진 뒤에 다음 단계로 넘어감 */
@@ -40,34 +61,47 @@ export function useStepFlow() {
     setTimeout(() => goStep(step + 1, then), CHECK_MS);
   };
 
-  /** 단계는 그대로 두고 화면만 서서히 바꿈 (같은 단계 안에서 다음 학생으로 넘어갈 때) */
+  /** 단계는 그대로 두고 화면만 다음으로 밀어 바꿈 (같은 단계 안에서 다음 학생으로 넘어갈 때) */
   const refade = (change: () => void) => {
     if (fading) return;
-    setFadeTo(step);
-    setFading(true);
-    setTimeout(() => {
-      change();
-      setFading(false);
-    }, FADE_OUT_MS);
+    slide(step, step, change);
   };
 
-  const fadeClass = `transition-[opacity,transform] ease-in-out motion-reduce:transition-none ${
-    fading ? "translate-y-1 opacity-0 duration-200" : "translate-y-0 opacity-100 duration-300"
+  const shift = (side: 1 | -1) => (side > 0 ? "translate-x-6" : "-translate-x-6");
+  const fadeClass = `motion-reduce:transition-none ${
+    phase === "out"
+      ? `transition-[opacity,translate] duration-150 ease-in opacity-0 ${shift(dir > 0 ? -1 : 1)}`
+      : phase === "in"
+        ? `transition-none opacity-0 ${shift(dir)}`
+        : "transition-[opacity,translate] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] opacity-100 translate-x-0"
   }`;
-  return { step, fadeTo, fading, checking, goStep, goNext, refade, fadeClass };
+  return { step, fadeFrom, fadeTo, fading, checking, goStep, goNext, refade, fadeClass };
 }
 
-/** 위쪽 단계 표시. 지난 단계는 눌러서 돌아갈 수 있음 */
+/**
+ * 위쪽 단계 표시. 지난 단계는 눌러서 돌아갈 수 있음.
+ * 앞으로 가면 선이 왼쪽부터, 뒤로 가면 채워졌던 선이 오른쪽부터 하나씩 차례로 비워짐
+ */
 export function StepProgress({ steps, step, checking, onGo }: { steps: readonly Step[]; step: number; checking: boolean; onGo: (n: number) => void }) {
+  // 바로 전 단계 (단계가 바뀐 그 순간의 차례를 계산하려고 기억)
+  const [track, setTrack] = useState({ step, from: step });
+  if (track.step !== step) setTrack({ step, from: track.step });
+  const from = track.step !== step ? track.step : track.from;
+  /** i 번째 선(동그라미 i 와 i+1 사이)이 바뀌기 시작할 때까지 기다리는 시간 */
+  const lineDelay = (i: number) => (step < from ? (from - 1 - i) * STAGGER_MS : (i - from) * STAGGER_MS);
+  /** 동그라미는 그 앞 선이 다 바뀐 뒤에 색이 바뀜 */
+  const dotDelay = (i: number) => (step < from ? Math.max(0, from - i) * STAGGER_MS : Math.max(0, i - from) * STAGGER_MS);
+
   return (
     <ol className="flex items-center" aria-label="진행 단계">
       {steps.map((s, i) => (
         <li key={s.title} className="flex flex-1 items-center last:flex-none" aria-current={i === step ? "step" : undefined}>
           <button type="button" onClick={() => i <= step && onGo(i)} disabled={i > step} className="flex flex-col items-center gap-1 disabled:cursor-default">
             <span
-              className={`relative grid h-8 w-8 place-items-center rounded-full text-sm font-bold transition ${
+              className={`relative grid h-8 w-8 place-items-center rounded-full text-sm font-bold transition duration-300 motion-reduce:transition-none ${
                 i < step ? "bg-indigo-600 text-white" : i === step ? "bg-indigo-600 text-white ring-4 ring-indigo-100" : "bg-slate-100 text-slate-400"
               }`}
+              style={{ transitionDelay: `${dotDelay(i)}ms` }}
             >
               {i < step ? (
                 <CheckIcon className="h-4 w-4" />
@@ -86,8 +120,10 @@ export function StepProgress({ steps, step, checking, onGo }: { steps: readonly 
           </button>
           {i < steps.length - 1 && (
             <span className="mx-1 mb-5 h-0.5 flex-1 overflow-hidden rounded bg-slate-200">
+              {/* 왼쪽 끝을 기준으로 늘고 줄어서, 비워질 때는 오른쪽에서 왼쪽으로 줄어듦 */}
               <span
-                className={`block h-full origin-left rounded bg-indigo-600 transition-transform duration-500 ease-out motion-reduce:transition-none ${i < step ? "scale-x-100" : "scale-x-0"}`}
+                className={`block h-full origin-left rounded bg-indigo-600 transition-transform ease-in-out motion-reduce:transition-none ${i < step ? "scale-x-100" : "scale-x-0"}`}
+                style={{ transitionDuration: `${STAGGER_MS + 120}ms`, transitionDelay: `${Math.max(0, lineDelay(i))}ms` }}
               />
             </span>
           )}

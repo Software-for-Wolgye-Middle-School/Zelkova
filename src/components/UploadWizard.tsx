@@ -62,6 +62,9 @@ export default function UploadWizard({
   onDismissError,
 }: Props) {
   const [showErrors, setShowErrors] = useState(false);
+  // 앞 단계로 가면 오른쪽에서, 뒤 단계로 가면 왼쪽에서 화면이 들어옴
+  const [track, setTrack] = useState({ step, dir: "next" as "next" | "prev" });
+  if (track.step !== step) setTrack({ step, dir: step < track.step ? "prev" : "next" });
   const settingsDone = !!settings && settingsErrors.size === 0;
   const studentsDone = studentCount > 0 && studentErrors.size === 0;
   const classDone = classSlot.status === "ready";
@@ -125,7 +128,7 @@ export default function UploadWizard({
       <section
         key={step}
         aria-labelledby="step-title"
-        className="fade-up mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8"
+        className={`${track.step === step && track.dir === "prev" ? "step-in-prev" : "step-in-next"} mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8`}
       >
         {error && (
           <div

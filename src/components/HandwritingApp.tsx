@@ -11,15 +11,15 @@ import {
   parsePhrases,
   phrasesFor,
   SHEET_PX,
-  shuffled,
   worksheetPdf,
   type FontKind,
   type Level,
   type Mode,
   type Options,
+  WEB_FONTS_URL,
 } from "@/lib/handwriting";
 import { downloadBlob } from "@/lib/svgExport";
-import { DownloadIcon, RefreshIcon, Spinner, XIcon } from "./icons";
+import { DownloadIcon, Spinner, XIcon } from "./icons";
 import { SlideCarousel, StepHeading, StepNav, StepProgress, useStepFlow, type Step } from "./StepFlow";
 
 const chip = (on: boolean) =>
@@ -68,7 +68,6 @@ export default function HandwritingApp() {
   const [font, setFont] = useState<FontKind>("gothic");
   const [cell, setCell] = useState<number>(CELL_MM.default);
   const [guide, setGuide] = useState(true);
-  const [order, setOrder] = useState<string[] | null>(null); // 순서를 섞었을 때의 순서
   const [customText, setCustomText] = useState("");
   const [saved, setSaved] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -85,8 +84,8 @@ export default function HandwritingApp() {
 
   const base = useMemo(() => phrasesFor(level), [level]);
   const custom = useMemo(() => parsePhrases(customText), [customText]);
-  /** 예시: 고른 길이의 모든 주제 문구 (섞었으면 그 순서로) · 직접 입력: 적은 문구 */
-  const phrases = source === "example" ? (order && order.length === base.length && order.every((s) => base.includes(s)) ? order : base) : custom;
+  /** 예시: 고른 길이의 모든 주제 문구 · 직접 입력: 적은 문구 */
+  const phrases = source === "example" ? base : custom;
   const shown = phrases.length ? phrases : SAMPLE;
 
   const pages = useMemo(() => paginate(shown, options), [shown, options]);
@@ -144,13 +143,15 @@ export default function HandwritingApp() {
 
   return (
     <div className="fade-up mx-auto max-w-5xl">
+      {/* 미리보기에 쓰는 웹 글꼴 (React 가 문서 head 로 옮겨 한 번만 불러옴) */}
+      <link rel="stylesheet" href={WEB_FONTS_URL} precedence="default" />
       <div className="mb-8 text-center">
         <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-[28px]">긍정 · 감성 필사 교실</h1>
         <p className="mt-2 text-[15px] text-slate-500">마음이 자라는 글을 따라 쓰는 학습지를 만들어요.</p>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[22rem_minmax(0,1fr)]">
-        <div className="h-fit space-y-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        <div className="h-fit space-y-5 overflow-x-clip rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
           <StepProgress steps={steps} step={step} checking={checking} onGo={goStep} />
 
           <div className={`space-y-5 ${fadeClass}`}>
@@ -182,33 +183,13 @@ export default function HandwritingApp() {
             )}
 
             {current.title === "주제" && (
-              <div className="space-y-3">
-                <div className="grid grid-cols-3 gap-1.5">
-                  {LEVELS.map((l) => (
-                    <button
-                      key={l.id}
-                      type="button"
-                      aria-pressed={level === l.id}
-                      onClick={() => {
-                        setLevel(l.id);
-                        setOrder(null);
-                      }}
-                      className={chip(level === l.id)}
-                    >
-                      {l.label}
-                      <span className="block text-[11px] font-normal text-slate-400">{l.hint}</span>
-                    </button>
-                  ))}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setOrder(shuffled(base))}
-                  disabled={base.length < 2}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-40"
-                >
-                  <RefreshIcon className="h-4 w-4" />
-                  순서 섞기
-                </button>
+              <div className="grid grid-cols-3 gap-1.5">
+                {LEVELS.map((l) => (
+                  <button key={l.id} type="button" aria-pressed={level === l.id} onClick={() => setLevel(l.id)} className={chip(level === l.id)}>
+                    {l.label}
+                    <span className="block text-[11px] font-normal text-slate-400">{l.hint}</span>
+                  </button>
+                ))}
               </div>
             )}
 
@@ -221,21 +202,29 @@ export default function HandwritingApp() {
                     </button>
                   ))}
                 </div>
-                <p className="mt-1.5 text-xs text-slate-500">{MODES.find((m) => m.id === mode)!.hint}</p>
+                {MODES.find((m) => m.id === mode)!.hint && <p className="mt-1.5 text-xs text-slate-500">{MODES.find((m) => m.id === mode)!.hint}</p>}
               </div>
             )}
 
             {current === LOOK_STEP && (
               <div className="space-y-4">
                 <div>
-                  <p className="mb-1.5 text-xs font-semibold text-slate-600">글꼴</p>
-                  <div className="grid grid-cols-3 gap-1.5">
+                  <label htmlFor="hw-font" className="mb-1.5 block text-xs font-semibold text-slate-600">
+                    글꼴
+                  </label>
+                  <select
+                    id="hw-font"
+                    value={font}
+                    onChange={(e) => setFont(e.target.value as FontKind)}
+                    style={{ fontFamily: FONTS.find((f) => f.id === font)!.css }}
+                    className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-[15px] outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100"
+                  >
                     {FONTS.map((f) => (
-                      <button key={f.id} type="button" aria-pressed={font === f.id} onClick={() => setFont(f.id)} className={chip(font === f.id)}>
+                      <option key={f.id} value={f.id} style={{ fontFamily: f.css }}>
                         {f.label}
-                      </button>
+                      </option>
                     ))}
-                  </div>
+                  </select>
                 </div>
                 <div>
                   <div className="flex items-baseline justify-between">

@@ -36,7 +36,7 @@ const cleanName = (name: string) => name.trim().replace(/\s+/g, " ").slice(0, 12
 const isBlank = (e: Entry) => !e.name.trim() && !e.promise.trim();
 
 export default function PromiseBoardApp({ students }: { students: Student[] }) {
-  const { step, fadeTo, checking, goStep, goNext, refade, fadeClass } = useStepFlow();
+  const { step, fadeFrom, fadeTo, checking, goStep, goNext, refade, fadeClass } = useStepFlow();
   const [{ year, month }, setYm] = useState(defaultMonth);
   const [entries, setEntries] = useState<Entry[]>([{ id: 0, name: "", promise: "" }]);
   const [current, setCurrent] = useState(0);
@@ -105,7 +105,7 @@ export default function PromiseBoardApp({ students }: { students: Student[] }) {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[22rem_minmax(0,1fr)]">
-        <div className="h-fit space-y-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        <div className="h-fit space-y-5 overflow-x-clip rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
           <StepProgress steps={STEPS} step={step} checking={checking} onGo={goStep} />
 
           <div className={`space-y-5 ${fadeClass}`}>
@@ -244,7 +244,7 @@ export default function PromiseBoardApp({ students }: { students: Student[] }) {
         {/* 날짜 · 학생 단계는 지금 학생의 약속판, 마지막 단계는 모든 학생을 넘겨 보기. 같은 화면이면 단계를 옮겨도 그대로 둠 */}
         <section
           aria-label="약속판 미리보기"
-          className={`min-w-0 ${fadeTo === step || singleView(step) !== singleView(fadeTo) ? fadeClass : ""}`}
+          className={`min-w-0 ${fadeFrom === fadeTo || singleView(fadeFrom) !== singleView(fadeTo) ? fadeClass : ""}`}
         >
           {step === 2 ? (
             <SlideCarousel

@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import JSZip from "jszip";
 import {
   BORDER_OPTIONS,
   ICON_OPTIONS,
@@ -11,11 +10,10 @@ import {
   RAINBOW_CSS,
   SHEET_H,
   SHEET_W,
-  TAG_MM,
   type NameTag,
   type TagBorder,
 } from "@/lib/nameTagSvg";
-import { downloadBlob, embeddedFontCss, loadImageDataUrl, printSheets, svgToPng, withFont } from "@/lib/svgExport";
+import { downloadBlob, embeddedFontCss, loadImageDataUrl, svgToPng, withFont } from "@/lib/svgExport";
 import NameCombobox from "./NameCombobox";
 import { DownloadIcon, PlusIcon, Spinner, TrashIcon, XIcon } from "./icons";
 import { StepHeading, StepNav, StepProgress, useStepFlow } from "./StepFlow";
@@ -40,7 +38,15 @@ const parseNames = (text: string) => text.split(/[\n,]/).map((s) => s.trim().rep
 /** 이름표를 만드는 순서 */
 const STEPS = [
   { title: "이름", heading: "누구의 이름표인가요?", hint: "이름을 쓰고 Enter를 누르거나 목록에서 고르면 추가돼요. 여러 명을 넣을 수 있어요." },
-  { title: "반 이름", heading: "반 이름을 적어 주세요", hint: "적지 않아도 돼요. 비워 두면 이름만 들어가요." },
+  {
+    title: "반 이름",
+    heading: (
+      <>
+        반 이름을 적어 주세요 <span className="text-xs font-normal text-slate-500">(선택)</span>
+      </>
+    ),
+    hint: "",
+  },
   { title: "꾸미기", heading: "아이콘과 테두리를 골라 주세요", hint: "" },
 ] as const;
 
@@ -59,7 +65,7 @@ export default function NameTagApp({ students }: { students: Student[] }) {
   const [iconError, setIconError] = useState<string | null>(null);
   const [addingIcon, setAddingIcon] = useState(false);
   const [border, setBorder] = useState<TagBorder>("rainbow");
-  const [busy, setBusy] = useState<"png" | "print" | null>(null);
+  const [busy, setBusy] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
 
   // 학생 정보 관리에 등록해 둔 학생 이름으로 자동완성 (이미 넣은 이름은 빼고)
@@ -146,52 +152,24 @@ export default function NameTagApp({ students }: { students: Student[] }) {
     setIconFor({});
   };
 
-  const withFonts = async () => {
-    const css = await embeddedFontCss(nameTagText(tags));
-    return svgs.map((svg) => withFont(svg, css));
-  };
-
-  /** 인쇄와 같은 A4 배치로 저장. 한 장이면 PNG 하나, 여러 장이면 장마다 PNG 를 ZIP 으로 묶음 */
-  const downloadImages = async () => {
-    setBusy("png");
+  /** 인쇄용 A4 배치(한 장에 14개)로 모든 이름표를 PDF 하나에 담아 내려받음 */
+  const download = async () => {
+    setBusy(true);
     setExportError(null);
     try {
-      const css = await embeddedFontCss(nameTagText(tags));
-      const sheets = nameTagSheetSvgs(svgs).map((svg) => withFont(svg, css));
-      if (sheets.length === 1) {
-        downloadBlob(await svgToPng(sheets[0], SHEET_W, SHEET_H, 1.5), "이름표.png");
-        return;
+      const [{ jsPDF }, css] = await Promise.all([import("jspdf"), embeddedFontCss(nameTagText(tags))]);
+      const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+      for (const [i, svg] of nameTagSheetSvgs(svgs).entries()) {
+        if (i > 0) doc.addPage();
+        const jpeg = await svgToPng(withFont(svg, css), SHEET_W, SHEET_H, 1, "image/jpeg");
+        doc.addImage(new Uint8Array(await jpeg.arrayBuffer()), "JPEG", 0, 0, 210, 297, `sheet-${i}`);
       }
-      const zip = new JSZip();
-      for (const [i, svg] of sheets.entries()) {
-        zip.file(`이름표 ${i + 1}장.png`, await svgToPng(svg, SHEET_W, SHEET_H, 1.5));
-      }
-      downloadBlob(await zip.generateAsync({ type: "blob" }), "이름표.zip");
+      downloadBlob(doc.output("blob"), "이름표.pdf");
     } catch (e) {
       console.error(e);
-      setExportError("그림 파일로 저장하지 못했어요. 인쇄 버튼으로 PDF 저장을 이용해 주세요.");
+      setExportError("PDF로 저장하지 못했어요. 잠시 뒤 다시 해 주세요.");
     } finally {
-      setBusy(null);
-    }
-  };
-
-  const print = async () => {
-    const win = window.open("", "_blank"); // 팝업 차단을 피하려고 클릭하자마자 창을 엶
-    if (!win) return setExportError("팝업이 차단되어 인쇄 창을 열 수 없어요.");
-    setBusy("print");
-    setExportError(null);
-    try {
-      printSheets(win, {
-        title: "이름표",
-        page: { w: 210, h: 297, css: "A4" },
-        items: await withFonts(),
-        itemMm: TAG_MM,
-        cols: 2,
-        rows: 7,
-        cutLines: false, // 테두리를 따라 자르면 됨
-      });
-    } finally {
-      setBusy(null);
+      setBusy(false);
     }
   };
 
@@ -213,7 +191,7 @@ export default function NameTagApp({ students }: { students: Student[] }) {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[22rem_minmax(0,1fr)]">
-        <div className="h-fit space-y-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        <div className="h-fit space-y-5 overflow-x-clip rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
           <StepProgress steps={STEPS} step={step} checking={checking} onGo={goStep} />
 
           <div className={`space-y-5 ${fadeClass}`}>
@@ -247,6 +225,16 @@ export default function NameTagApp({ students }: { students: Student[] }) {
                   추가
                 </button>
               </div>
+              {savedNames.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => addNames(savedNames.join("\n"))}
+                  className="mt-2 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-indigo-600 transition hover:bg-indigo-50"
+                >
+                  <PlusIcon className="h-3.5 w-3.5" />
+                  등록된 학생 모두 추가 ({savedNames.length}명)
+                </button>
+              )}
               {names.length > 0 && (
                 <div className="mt-3">
                   <p className="mb-1.5 text-xs font-semibold text-slate-600">넣은 이름 {names.length}명</p>
@@ -383,21 +371,12 @@ export default function NameTagApp({ students }: { students: Student[] }) {
           <div className="space-y-2">
             <button
               type="button"
-              onClick={print}
-              disabled={names.length === 0 || busy !== null || !iconsReady}
+              onClick={download}
+              disabled={names.length === 0 || busy || !iconsReady}
               className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-[15px] font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
             >
-              {busy === "print" && <Spinner className="h-5 w-5" />}
-              인쇄 · PDF로 저장 (A4 한 장에 14개)
-            </button>
-            <button
-              type="button"
-              onClick={downloadImages}
-              disabled={names.length === 0 || busy !== null || !iconsReady}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-3 text-[15px] font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
-            >
-              {busy === "png" ? <Spinner className="h-5 w-5" /> : <DownloadIcon className="h-5 w-5" />}
-              전체 그림 파일로 저장 (PNG)
+              {busy ? <Spinner className="h-5 w-5" /> : <DownloadIcon className="h-5 w-5" />}
+              다운로드하기
             </button>
             {exportError && (
               <p role="alert" className="text-center text-xs font-medium text-red-600">

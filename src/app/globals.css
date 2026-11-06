@@ -18,6 +18,8 @@ body {
   color: var(--foreground);
   font-family: var(--font-sans);
   word-break: keep-all;
+  /* 단계 화면이 옆으로 밀리며 바뀔 때 잠깐이라도 가로 스크롤이 생기지 않게 */
+  overflow-x: clip;
 }
 
 /* ---------- 생성 중 화면: 시간표 칸이 차례로 채워지는 애니메이션 ---------- */
@@ -70,10 +72,40 @@ body {
   animation: fade-up 0.35s ease-out both;
 }
 
+/* 단계를 바꿀 때: 다음 단계는 오른쪽에서, 이전 단계는 왼쪽에서 미끄러져 들어옴 */
+@keyframes step-in-next {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes step-in-prev {
+  from {
+    opacity: 0;
+    transform: translateX(-24px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.step-in-next {
+  animation: step-in-next 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.step-in-prev {
+  animation: step-in-prev 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .cell-fill,
   .shimmer::after,
-  .fade-up {
+  .fade-up,
+  .step-in-next,
+  .step-in-prev {
     animation: none;
   }
   .cell-fill {

@@ -9,7 +9,7 @@ export type Level = "word" | "sentence" | "story";
 type Theme = "self" | "friend" | "feeling" | "school" | "thanks" | "spring" | "summer" | "autumn" | "winter";
 /** trace: 연한 글씨 따라 쓰기 · look: 보고 쓰기 · blank: 완전 빈칸 */
 export type Mode = "trace" | "look" | "blank";
-export type FontKind = "gothic" | "gungsuh" | "round";
+export type FontKind = "gothic" | "gungsuh" | "round" | "myeongjo" | "dodum";
 
 export const LEVELS: { id: Level; label: string; hint: string }[] = [
   { id: "word", label: "어휘", hint: "낱말 하나" },
@@ -18,16 +18,24 @@ export const LEVELS: { id: Level; label: string; hint: string }[] = [
 ];
 
 export const MODES: { id: Mode; label: string; hint: string }[] = [
-  { id: "trace", label: "따라 쓰기", hint: "연한 글씨 위에 덧쓰고, 아래 빈칸에 한 번 더" },
+  { id: "trace", label: "따라 쓰기", hint: "" },
   { id: "look", label: "보고 쓰기", hint: "위의 글을 보고 아래 빈칸에 쓰기" },
   { id: "blank", label: "빈칸", hint: "선생님이 불러 주는 글을 받아쓰기" },
 ];
 
-export const FONTS: { id: FontKind; label: string; css: string }[] = [
+/** web: Google Fonts 글꼴 이름 (화면에 불러오고, PDF 에는 쓰인 글자만 담아 넣음). 없으면 컴퓨터에 있는 글꼴 */
+export const FONTS: { id: FontKind; label: string; css: string; web?: string }[] = [
   { id: "gothic", label: "고딕", css: `"Malgun Gothic","맑은 고딕","Apple SD Gothic Neo",sans-serif` },
   { id: "gungsuh", label: "바른 궁서", css: `"Gungsuh","궁서","Batang","바탕",serif` },
-  { id: "round", label: "둥근 글씨", css: `Jua,"Malgun Gothic","맑은 고딕",sans-serif` },
+  { id: "round", label: "둥근 글씨", css: `Jua,"Malgun Gothic","맑은 고딕",sans-serif`, web: "Jua" },
+  { id: "myeongjo", label: "나눔명조", css: `"Nanum Myeongjo","Batang","바탕",serif`, web: "Nanum Myeongjo" },
+  { id: "dodum", label: "고운돋움", css: `"Gowun Dodum","Malgun Gothic","맑은 고딕",sans-serif`, web: "Gowun Dodum" },
 ];
+
+/** 화면 미리보기에서 웹 글꼴을 불러오는 주소 */
+export const WEB_FONTS_URL = `https://fonts.googleapis.com/css2?${FONTS.filter((f) => f.web)
+  .map((f) => `family=${f.web!.replace(/ /g, "+")}`)
+  .join("&")}&display=swap`;
 
 /** 글자 칸 한 변의 길이 (mm). 글자 크기는 칸에 맞춰 정해짐 */
 export const CELL_MM = { min: 8, max: 24, default: 13 };
@@ -86,16 +94,6 @@ const PHRASES: Record<Theme, Pool> = {
 /** 모든 주제에서 고른 길이의 문구 */
 export function phrasesFor(level: Level): string[] {
   return (Object.keys(PHRASES) as Theme[]).flatMap((t) => PHRASES[t][level]);
-}
-
-/** 순서 섞기 (Fisher–Yates) */
-export function shuffled<T>(list: T[]): T[] {
-  const a = [...list];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
 }
 
 /** 줄마다 한 문구 (앞뒤 공백 정리, 너무 긴 글은 자름) */
@@ -236,8 +234,9 @@ export function pageSvg(lines: PlacedLine[], index: number, o: Options) {
 /** 모든 쪽을 A4 PDF 하나로 */
 export async function worksheetPdf(pages: PlacedLine[][], o: Options): Promise<Blob> {
   const text = pages.flatMap((p) => p.map((l) => l.text)).join("");
-  // 둥근 글씨(Jua)는 웹 글꼴이라 그림 안에 넣어야 PDF 에도 그 글꼴로 나옴
-  const [{ jsPDF }, css] = await Promise.all([import("jspdf"), o.font === "round" ? embeddedFontCss(text) : Promise.resolve("")]);
+  // 웹 글꼴은 그림 안에 넣어야 PDF 에도 그 글꼴로 나옴
+  const web = FONTS.find((f) => f.id === o.font)?.web;
+  const [{ jsPDF }, css] = await Promise.all([import("jspdf"), web ? embeddedFontCss(text, web) : Promise.resolve("")]);
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   for (const [i, lines] of pages.entries()) {
     if (i > 0) doc.addPage();

@@ -90,7 +90,7 @@ const today = () => {
 };
 
 export default function BankbookApp({ students }: { students: Student[] }) {
-  const { step, fadeTo, checking, goStep, goNext, fadeClass } = useStepFlow();
+  const { step, fadeFrom, fadeTo, checking, goStep, goNext, fadeClass } = useStepFlow();
   const [name, setName] = useState("");
   const [bank, setBank] = useState("느티나무 은행");
   const [branch, setBranch] = useState("월계중학교");
@@ -377,7 +377,7 @@ export default function BankbookApp({ students }: { students: Student[] }) {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[22rem_minmax(0,1fr)]">
-        <div className="h-fit space-y-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        <div className="h-fit space-y-5 overflow-x-clip rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
           <StepProgress steps={STEPS} step={step} checking={checking} onGo={goStep} />
 
           <div className={`space-y-5 ${fadeClass}`}>
@@ -568,7 +568,7 @@ export default function BankbookApp({ students }: { students: Student[] }) {
                   className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-[15px] font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
                 >
                   {busy ? <Spinner className="h-5 w-5" /> : <DownloadIcon className="h-5 w-5" />}
-                  모두 다운로드 (PDF 1개)
+                  모두 다운로드
                 </button>
               </div>
               {exportError && (
@@ -584,7 +584,7 @@ export default function BankbookApp({ students }: { students: Student[] }) {
           {step === 1 && !trimmed && <p className="-mt-3 text-center text-xs text-slate-400">이름을 입력하면 다음으로 넘어갈 수 있어요</p>}
         </div>
 
-        <section aria-label="칭찬통장 미리보기" className={`min-w-0 space-y-4 ${previewView(step) === previewView(fadeTo) ? "" : fadeClass}`}>
+        <section aria-label="칭찬통장 미리보기" className={`min-w-0 space-y-4 ${previewView(fadeFrom) === previewView(fadeTo) ? "" : fadeClass}`}>
           {/* 앞면 · 속지 · 거래 내역 · 뒷면 (거래 내역은 모든 쪽이 같음) */}
           {step === DONE_STEP && (
             <SlideCarousel
