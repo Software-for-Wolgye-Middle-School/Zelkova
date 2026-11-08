@@ -458,8 +458,26 @@ export default function BankbookApp({ students, onLoadStudents }: { students: St
 
   return (
     <div className="fade-up mx-auto max-w-5xl">
-      <div className="mb-8 text-center">
+      <div className="relative mb-8 text-center">
         <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-[28px]">칭찬통장 만들기</h1>
+        {step > 0 && step < DONE_STEP && who && (
+          // 2~4단계는 학생마다 반복하므로 지금 누구 통장인지 왼쪽 카드 바로 위에 늘 보여 줌
+          <div className="mt-4 rounded-xl bg-indigo-50 px-4 py-3 text-left ring-1 ring-inset ring-indigo-200 lg:absolute lg:left-0 lg:top-1/2 lg:mt-0 lg:w-[22rem] lg:-translate-y-1/2">
+            <div className="flex items-baseline justify-between gap-2">
+              <p key={who} className="fade-up min-w-0 truncate text-sm font-semibold text-indigo-900">
+                <span className="text-lg font-bold">{who}</span> 학생 통장 만드는 중
+              </p>
+              <p className="shrink-0 text-xs font-semibold text-indigo-600">
+                {whoIndex + 1} / {names.length}명
+              </p>
+            </div>
+            {names.length > 1 && (
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-indigo-100">
+                <div className="h-full rounded-full bg-indigo-500 transition-[width] duration-500 motion-reduce:transition-none" style={{ width: `${((whoIndex + 1) / names.length) * 100}%` }} />
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[22rem_minmax(0,1fr)]">
@@ -467,24 +485,6 @@ export default function BankbookApp({ students, onLoadStudents }: { students: St
           <StepProgress steps={STEPS} step={step} checking={checking} onGo={go} />
 
           <div className={`space-y-5 ${fadeClass}`}>
-          {step > 0 && step < DONE_STEP && who && (
-            // 2~4단계는 학생마다 반복하므로 지금 누구 통장인지 늘 보여 줌
-            <div className="rounded-xl bg-indigo-50 px-4 py-3 ring-1 ring-inset ring-indigo-200">
-              <div className="flex items-baseline justify-between gap-2">
-                <p className="min-w-0 truncate text-sm font-semibold text-indigo-900">
-                  <span className="text-lg font-bold">{who}</span> 학생 통장 만드는 중
-                </p>
-                <p className="shrink-0 text-xs font-semibold text-indigo-600">
-                  {whoIndex + 1} / {names.length}명
-                </p>
-              </div>
-              {names.length > 1 && (
-                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-indigo-100">
-                  <div className="h-full rounded-full bg-indigo-500 transition-[width] duration-500 motion-reduce:transition-none" style={{ width: `${((whoIndex + 1) / names.length) * 100}%` }} />
-                </div>
-              )}
-            </div>
-          )}
           <StepHeading step={step === DONE_STEP - 1 && nextStudent ? { ...STEPS[step], hint: `다음을 누르면 ${nextStudent} 학생 통장으로 넘어가요.` } : STEPS[step]} />
 
           {step === 0 && (
