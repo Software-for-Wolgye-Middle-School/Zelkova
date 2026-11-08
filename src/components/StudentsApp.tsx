@@ -13,14 +13,14 @@ const field =
   "h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-[15px] outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100";
 
 
-/** 목록 순서: 최근 등록한 학생이 위 · 이름 가나다순 · 학년 · 반마다 묶어서 */
-type Sort = "recent" | "name" | "class";
+/** 목록 순서: 최근 등록한 학생이 위 · 이름 가나다순 · 학년마다 묶어서 (학년 안에서는 1반, 2반 … 순) */
+type Sort = "recent" | "name" | "grade";
 const SORTS: [Sort, string][] = [
   ["recent", "최근 등록순"],
   ["name", "이름순"],
-  ["class", "반별"],
+  ["grade", "학년별"],
 ];
-const classOf = (r: StudentRow) => `${r.grade}학년 ${r.cls}반`;
+const gradeOf = (r: StudentRow) => `${r.grade}학년`;
 
 type Props = { rows: StudentRow[]; onRowsChange: (rows: StudentRow[]) => void };
 
@@ -290,10 +290,10 @@ function StudentsPanel({ rows, onRowsChange, onLock }: Props & { onLock?: () => 
             <ul className="divide-y divide-slate-100">
               {shown.map((r, i) => (
                 <Fragment key={r.id}>
-                {sort === "class" && classOf(r) !== (i > 0 ? classOf(shown[i - 1]) : "") && (
-                  // 반별로 볼 때 반마다 머리글
+                {sort === "grade" && gradeOf(r) !== (i > 0 ? gradeOf(shown[i - 1]) : "") && (
+                  // 학년별로 볼 때 학년마다 머리글
                   <li className="-mx-2 border-none px-2 pb-1 pt-4 text-xs font-bold text-slate-700 first:pt-0">
-                    {classOf(r)} <span className="font-medium text-slate-400">{shown.filter((x) => classOf(x) === classOf(r)).length}명</span>
+                    {gradeOf(r)} <span className="font-medium text-slate-400">{shown.filter((x) => gradeOf(x) === gradeOf(r)).length}명</span>
                   </li>
                 )}
                 <li
