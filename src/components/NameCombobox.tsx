@@ -5,6 +5,9 @@ import { useEffect, useRef, useState } from "react";
 const CHOSEONG = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ";
 const MAX_SUGGESTIONS = 8;
 
+/** 쉼표나 줄바꿈으로 여러 명을 한 번에 붙여 넣어도 됨 */
+export const parseNames = (text: string) => text.split(/[\n,]/).map((s) => s.trim().replace(/\s+/g, " ").slice(0, 10)).filter(Boolean);
+
 /** 한글 음절을 초성 · 중성 · 종성 번호로 (한글 음절이 아니면 null) */
 function syllable(ch: string) {
   const code = ch.charCodeAt(0) - 0xac00;

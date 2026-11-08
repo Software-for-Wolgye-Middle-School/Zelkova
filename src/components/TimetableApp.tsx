@@ -212,7 +212,7 @@ export default function TimetableApp() {
   const { students, errors: studentErrors } = useMemo(() => validateRows(ttRows), [ttRows]);
   const registeredStudents = useMemo(() => validateRows(rows).students, [rows]);
 
-  /** 학생 정보 관리(서버)에 등록한 학생을 새로 받아 옴 (약속판 · 칭찬통장의 불러오기). 로그인하지 않았으면 null */
+  /** 학생 정보 관리(서버)에 등록한 학생을 새로 받아 옴 (약속판의 불러오기). 로그인하지 않았으면 null */
   const loadRegistered = useCallback(async (): Promise<Student[] | null> => {
     const server = await fetchServerRows();
     if (!server) return null;
@@ -384,7 +384,7 @@ export default function TimetableApp() {
             {phase === "generating" && <GeneratingScreen stage={stage} />}
             {phase === "result" && result && <ResultView result={result} onRestart={restart} />}
             {phase === "promise" && <PromiseBoardApp students={registeredStudents} onLoadStudents={loadRegistered} />}
-            {phase === "bankbook" && <BankbookApp students={registeredStudents} onLoadStudents={loadRegistered} />}
+            {phase === "bankbook" && <BankbookApp students={registeredStudents} />}
             {phase === "nametag" && <NameTagApp students={registeredStudents} />}
             {phase === "students" && (
               <StudentsApp rows={rows} onRowsChange={changeRows} onAuthed={() => void syncFromServer()} onExit={() => setPhase("home")} />

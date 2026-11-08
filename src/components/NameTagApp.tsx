@@ -14,7 +14,7 @@ import {
   type TagBorder,
 } from "@/lib/nameTagSvg";
 import { downloadBlob, embeddedFontCss, loadImageDataUrl, svgToPng, withFont } from "@/lib/svgExport";
-import NameCombobox from "./NameCombobox";
+import NameCombobox, { parseNames } from "./NameCombobox";
 import { DownloadIcon, PlusIcon, Spinner, TrashIcon, XIcon } from "./icons";
 import { StepHeading, StepNav, StepProgress, useStepFlow } from "./StepFlow";
 import {
@@ -31,9 +31,6 @@ const DEFAULT_ICON = "clover";
 
 const field =
   "h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-[15px] outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100";
-
-/** 쉼표나 줄바꿈으로 여러 명을 한 번에 붙여 넣어도 됨 */
-const parseNames = (text: string) => text.split(/[\n,]/).map((s) => s.trim().replace(/\s+/g, " ").slice(0, 10)).filter(Boolean);
 
 /** 이름표를 만드는 순서 */
 const STEPS = [

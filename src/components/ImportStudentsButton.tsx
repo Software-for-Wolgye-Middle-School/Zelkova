@@ -5,7 +5,7 @@ import { DownloadIcon, Spinner } from "./icons";
 import LoginOverlay from "./LoginOverlay";
 
 /**
- * '등록된 학생 정보 불러오기' 버튼 (시간표 · 약속판 · 칭찬통장에서 함께 씀).
+ * '등록된 학생 정보 불러오기' 버튼 (시간표 · 약속판에서 함께 씀).
  * onImport 는 불러온 뒤 보여 줄 문구를 돌려주고, 로그인하지 않아 서버 학생 정보를 받지 못하면 null.
  * null 이면 로그인 창을 띄우고, 로그인하면 이어서 다시 불러옴
  */
