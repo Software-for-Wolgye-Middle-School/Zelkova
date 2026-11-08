@@ -54,6 +54,8 @@ export default function NameTagApp({ students }: { students: Student[] }) {
   const { step, checking, goStep, goNext, fadeClass } = useStepFlow();
   const [names, setNames] = useState<string[]>([]);
   const [pending, setPending] = useState("");
+  /** '등록된 학생 모두 추가'로 넣었으면 아래 이름 목록을 보여 주지 않음 (이름을 모두 지우면 다시 보여 줌) */
+  const [bulkAdded, setBulkAdded] = useState(false);
   const [label, setLabel] = useState("");
   const [defaultIcon, setDefaultIcon] = useState(DEFAULT_ICON);
   /** 학생마다 따로 고른 아이콘 (이름 → 아이콘) */
@@ -79,7 +81,11 @@ export default function NameTagApp({ students }: { students: Student[] }) {
     if (added.length) setNames((list) => [...new Set([...list, ...added])]);
     setPending("");
   };
-  const removeName = (n: string) => setNames((list) => list.filter((x) => x !== n));
+  const removeName = (n: string) => {
+    const rest = names.filter((x) => x !== n);
+    setNames(rest);
+    if (!rest.length) setBulkAdded(false);
+  };
 
   useEffect(() => {
     for (const o of ICON_OPTIONS) {
@@ -228,14 +234,17 @@ export default function NameTagApp({ students }: { students: Student[] }) {
               {savedNames.length > 0 && (
                 <button
                   type="button"
-                  onClick={() => addNames(savedNames.join("\n"))}
+                  onClick={() => {
+                    addNames(savedNames.join("\n"));
+                    setBulkAdded(true);
+                  }}
                   className="mt-2 inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-indigo-600 transition hover:bg-indigo-50"
                 >
                   <PlusIcon className="h-3.5 w-3.5" />
                   등록된 학생 모두 추가 ({savedNames.length}명)
                 </button>
               )}
-              {names.length > 0 && (
+              {names.length > 0 && !bulkAdded && (
                 <div className="mt-3">
                   <p className="mb-1.5 text-xs font-semibold text-slate-600">넣은 이름 {names.length}명</p>
                   <ul className="flex flex-wrap gap-1.5" aria-label="넣은 이름">
@@ -406,11 +415,23 @@ export default function NameTagApp({ students }: { students: Student[] }) {
           <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2">
             {tags.map((t, i) => (
               <div key={`${t.name}-${i}`}>
-                <div
-                  className="[&>svg]:block [&>svg]:h-auto [&>svg]:w-full"
-                  // nameTagSvg 는 입력값을 XML 이스케이프한 뒤 직접 만든 SVG 문자열
-                  dangerouslySetInnerHTML={{ __html: svgs[i] }}
-                />
+                <div className="relative">
+                  <div
+                    className="[&>svg]:block [&>svg]:h-auto [&>svg]:w-full"
+                    // nameTagSvg 는 입력값을 XML 이스케이프한 뒤 직접 만든 SVG 문자열
+                    dangerouslySetInnerHTML={{ __html: svgs[i] }}
+                  />
+                  {t.name && (
+                    <button
+                      type="button"
+                      onClick={() => removeName(t.name)}
+                      aria-label={`${t.name} 이름표 지우기`}
+                      className="absolute right-1.5 top-1.5 grid h-7 w-7 place-items-center rounded-full bg-white/90 text-slate-500 shadow ring-1 ring-slate-200 transition hover:bg-red-50 hover:text-red-600"
+                    >
+                      <TrashIcon className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
                 {t.name && step === 2 && (
                   <select
                     aria-label={`${t.name} 아이콘`}
