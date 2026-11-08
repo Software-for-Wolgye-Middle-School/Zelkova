@@ -8,7 +8,7 @@ import type { Student } from "@/lib/timetable";
 import ImportStudentsButton from "./ImportStudentsButton";
 import NameCombobox from "./NameCombobox";
 import { DownloadIcon, PlusIcon, Spinner, TrashIcon } from "./icons";
-import { SlideCarousel, StepHeading, StepNav, StepProgress, useStepFlow, useSwap } from "./StepFlow";
+import { SlideCarousel, stepSettleClass, StepHeading, StepNav, StepProgress, useStepFlow, useSwap } from "./StepFlow";
 import { useShake } from "./useShake";
 
 /** 고를 수 있는 연도: 2026년 ~ 2036년 */
@@ -39,7 +39,7 @@ const isBlank = (e: Entry) => !e.name.trim() && !e.promise.trim();
 
 export default function PromiseBoardApp({ students, onLoadStudents }: { students: Student[]; onLoadStudents: () => Promise<Student[] | null> }) {
   const { step, fadeFrom, fadeTo, fading, checking, goStep, goNext, fadeClass } = useStepFlow();
-  /** 학생을 바꿀 때: 왼쪽 입력은 위에서 아래로, 미리보기는 제자리에서 사라졌다 나타남 */
+  /** 학생을 바꿀 때: 왼쪽 입력은 사라졌다 나타나고, 미리보기는 사라진 뒤 백지에 위에서 아래로 채워짐 */
   const studentSwap = useSwap();
   const [{ year, month }, setYm] = useState(defaultMonth);
   const [entries, setEntries] = useState<Entry[]>([{ id: 0, name: "", promise: "" }]);
@@ -130,7 +130,7 @@ export default function PromiseBoardApp({ students, onLoadStudents }: { students
           <StepProgress steps={STEPS} step={step} checking={checking} onGo={goStep} />
 
           <div className={`space-y-5 ${fadeClass}`}>
-            <div className={step === 1 ? studentSwap.downClass : ""}>
+            <div className={step === 1 ? studentSwap.fadeClass : ""}>
               <StepHeading step={heading} />
             </div>
 
@@ -174,7 +174,7 @@ export default function PromiseBoardApp({ students, onLoadStudents }: { students
                   </div>
                 )}
                 {/* 학생마다 바뀌는 부분만 움직임 (불러오기 버튼 · 학생 목록은 그대로) */}
-                <div className={`space-y-4 ${studentSwap.downClass}`}>
+                <div className={`space-y-4 ${studentSwap.fadeClass}`}>
                 <div>
                   <label className="mb-1 block text-xs font-semibold text-slate-600" htmlFor="pb-name">
                     이름
@@ -223,9 +223,6 @@ export default function PromiseBoardApp({ students, onLoadStudents }: { students
 
             {step === 2 && (
               <div>
-                <p className="mb-3 text-sm text-slate-600">
-                  {year}년 {month}월 · 학생 {reqs.length}명의 약속판을 PDF 파일 하나에 한 쪽씩 담아요.
-                </p>
                 <button
                   type="button"
                   onClick={download}
@@ -286,12 +283,12 @@ export default function PromiseBoardApp({ students, onLoadStudents }: { students
         {/* 날짜 · 학생 단계는 지금 학생의 약속판, 마지막 단계는 모든 학생을 넘겨 보기. 같은 화면이면 단계를 옮겨도 그대로 둠 */}
         <section
           aria-label="약속판 미리보기"
-          className={`min-w-0 ${fading && singleView(fadeFrom) !== singleView(fadeTo) ? fadeClass : studentSwap.fadeClass}`}
+          className={`min-w-0 ${fading && singleView(fadeFrom) !== singleView(fadeTo) ? fadeClass : stepSettleClass}`}
         >
           {step === 2 ? (
             <SlideCarousel
               count={boardSvgs.length}
-              caption={(i) => `${i + 1}/${boardSvgs.length} · ${reqs[i]?.name ?? ""}`}
+              caption={(i) => `${i + 1}/${boardSvgs.length}  (${reqs[i]?.name ?? ""})`}
               aspectRatio={`${BOARD_W} / ${BOARD_H}`}
               maxWidth={452}
               slideClassName="overflow-hidden rounded-md bg-white shadow-md"
@@ -306,11 +303,14 @@ export default function PromiseBoardApp({ students, onLoadStudents }: { students
           ) : (
             <div className="rounded-2xl border border-slate-200 bg-slate-100 p-3 sm:p-6">
               <div
-                className="mx-auto max-w-[620px] overflow-hidden rounded-md bg-white shadow-md [&>svg]:block [&>svg]:h-auto [&>svg]:w-full"
+                className="relative mx-auto max-w-[620px] overflow-hidden rounded-md bg-white shadow-md"
                 role="img"
                 aria-label={`${reqOf(entry).name}의 ${year}년 ${month}월 나와의 약속판 미리보기`}
-                dangerouslySetInnerHTML={{ __html: currentSvg }}
-              />
+              >
+                <div className={`[&>svg]:block [&>svg]:h-auto [&>svg]:w-full ${studentSwap.paperClass}`} dangerouslySetInnerHTML={{ __html: currentSvg }} />
+                {/* 그림을 덮은 흰 종이. 윗부분이 흐릿해서 그림이 위에서부터 서서히 드러남 */}
+                <div aria-hidden="true" className={`pointer-events-none absolute inset-x-0 -top-1/4 h-[125%] bg-linear-to-b from-transparent to-white to-20% ${studentSwap.coverClass}`} />
+              </div>
             </div>
           )}
         </section>

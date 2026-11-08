@@ -21,6 +21,9 @@ export type Step = { title: string; heading: ReactNode; hint?: string };
 /** out: 밀려 나가는 중 · in: 새 화면이 반대쪽에 놓인 순간(애니메이션 없이) · idle: 제자리로 들어옴 */
 type Phase = "idle" | "out" | "in";
 
+/** 단계 화면이 제자리로 들어올 때의 움직임. fadeClass 를 그만 쓰는 순간에도 이어지도록 따로 둠 */
+export const stepSettleClass = "transition-[opacity,translate] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none";
+
 export function useStepFlow() {
   const [step, setStep] = useState(0);
   const [phase, setPhase] = useState<Phase>("idle");
@@ -68,7 +71,7 @@ export function useStepFlow() {
       ? `transition-[opacity,translate] duration-150 ease-in opacity-0 ${shift(dir > 0 ? -1 : 1)}`
       : phase === "in"
         ? `transition-none opacity-0 ${shift(dir)}`
-        : "transition-[opacity,translate] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] opacity-100 translate-x-0"
+        : `${stepSettleClass} opacity-100 translate-x-0`
   }`;
   return { step, fadeFrom, fadeTo, fading, checking, goStep, goNext, fadeClass };
 }
@@ -77,8 +80,9 @@ export function useStepFlow() {
 const SWAP_OUT_MS = 150;
 
 /**
- * 같은 단계 안에서 내용만 바꿀 때: 서서히 사라졌다가 서서히 나타남.
- * downClass 는 위에서 아래로 내려오며 나타나고, fadeClass 는 제자리에서 나타남
+ * 같은 단계 안에서 내용만 바꿀 때: 서서히 사라졌다가 새 내용이 나타남.
+ * fadeClass 는 제자리에서 서서히 나타나고,
+ * paperClass + coverClass 는 그림이 사라져 백지가 된 뒤 위에서 아래로 채워짐 (coverClass 는 그림을 덮은 흰 종이가 아래로 빠져나감)
  */
 export function useSwap() {
   const [phase, setPhase] = useState<Phase>("idle");
@@ -93,15 +97,12 @@ export function useSwap() {
     }, SWAP_OUT_MS);
   };
 
-  const cls = (down: boolean) =>
-    `motion-reduce:transition-none ${
-      phase === "out"
-        ? `transition-[opacity,translate] duration-150 ease-in opacity-0 ${down ? "translate-y-2" : ""}`
-        : phase === "in"
-          ? `transition-none opacity-0 ${down ? "-translate-y-2" : ""}`
-          : "transition-[opacity,translate] duration-300 ease-out opacity-100 translate-y-0"
-    }`;
-  return { swap, downClass: cls(true), fadeClass: cls(false) };
+  const fadeClass = `motion-reduce:transition-none ${
+    phase === "out" ? "transition-opacity duration-150 ease-in opacity-0" : phase === "in" ? "transition-none opacity-0" : "transition-opacity duration-300 ease-out opacity-100"
+  }`;
+  const paperClass = `motion-reduce:transition-none ${phase === "out" ? "transition-opacity duration-150 ease-in opacity-0" : "transition-none opacity-100"}`;
+  const coverClass = `motion-reduce:transition-none ${phase === "in" ? "transition-none translate-y-0" : "transition-[translate] duration-700 ease-in-out translate-y-full"}`;
+  return { swap, fadeClass, paperClass, coverClass };
 }
 
 /**
