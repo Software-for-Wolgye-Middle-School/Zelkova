@@ -471,11 +471,13 @@ export default function BankbookApp({ students, onLoadStudents }: { students: St
                 {whoIndex + 1} / {names.length}명
               </p>
             </div>
-            {names.length > 1 && (
-              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-indigo-100">
-                <div className="h-full rounded-full bg-indigo-500 transition-[width] duration-500 motion-reduce:transition-none" style={{ width: `${((whoIndex + 1) / names.length) * 100}%` }} />
-              </div>
-            )}
+            {/* 전체 학생의 배경 · 통장 정보 · 거래 내역 단계 중 마친 만큼 채움 */}
+            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-indigo-100">
+              <div
+                className="h-full rounded-full bg-indigo-500 transition-[width] duration-500 motion-reduce:transition-none"
+                style={{ width: `${((whoIndex * (DONE_STEP - 1) + step - 1) / (names.length * (DONE_STEP - 1))) * 100}%` }}
+              />
+            </div>
           </div>
         )}
       </div>
