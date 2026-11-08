@@ -65,7 +65,7 @@ export default function PromiseBoardApp({ students, onLoadStudents }: { students
     const list = await onLoadStudents();
     if (!list) return null;
     const have = new Set(entries.map((e) => cleanName(e.name)).filter(Boolean));
-    const toAdd = [...new Set(list.map((s) => cleanName(s.name)))].filter((n) => n && !have.has(n)).sort((a, b) => a.localeCompare(b, "ko"));
+    const toAdd = [...new Set(list.map((s) => cleanName(s.name)))].filter((n) => n && !have.has(n));
     if (!toAdd.length) return list.length ? "등록된 학생이 이미 모두 들어 있어요." : "학생 정보 관리에 등록된 학생이 없어요.";
     const kept = entries.filter((e) => !isBlank(e));
     const next = [...kept, ...toAdd.map((name) => ({ id: nextId.current++, name, promise: "" }))];

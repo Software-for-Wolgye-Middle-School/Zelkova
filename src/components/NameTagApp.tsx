@@ -69,7 +69,7 @@ export default function NameTagApp({ students }: { students: Student[] }) {
 
   // 학생 정보 관리에 등록해 둔 학생 이름으로 자동완성 (이미 넣은 이름은 빼고)
   const savedNames = useMemo(
-    () => [...new Set(students.map((s) => s.name))].filter((n) => !names.includes(n)).sort((a, b) => a.localeCompare(b, "ko")),
+    () => [...new Set(students.map((s) => s.name))].filter((n) => !names.includes(n)),
     [students, names],
   );
   /** 입력칸의 이름(들)을 목록에 넣고 입력칸을 비움 */

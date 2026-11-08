@@ -38,6 +38,10 @@ export function validateRows(rows: StudentRow[]) {
   return { students, errors };
 }
 
+/** 등록된 학생을 불러올 때의 순서: 학년 → 반 → 이름 (1-1, 1-2 … 1-4, 2-1 … 3-4). 반을 비워 둔 예전 학생은 1반으로 봄 */
+export const byGradeClass = (a: Pick<StudentRow | Student, "grade" | "cls" | "name">, b: Pick<StudentRow | Student, "grade" | "cls" | "name">) =>
+  Number(a.grade) - Number(b.grade) || (Number(a.cls) || 1) - (Number(b.cls) || 1) || a.name.localeCompare(b.name, "ko");
+
 /** 학생 정보 관리 → 시간표 방향으로만 반영: 등록한 학생이 새로 생기면 시간표 목록에 더하고, 지우면 시간표 목록에서도 뺌 (반대 방향은 없음) */
 export function syncToTimetable(prevReg: StudentRow[], nextReg: StudentRow[], tt: StudentRow[]): StudentRow[] {
   const key = (r: StudentRow) => `${r.grade}|${Number(r.cls)}|${r.name.trim()}`;

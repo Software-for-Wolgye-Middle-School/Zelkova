@@ -231,7 +231,7 @@ export default function BankbookApp({ students, onLoadStudents }: { students: St
   const importStudents = async () => {
     const list = await onLoadStudents();
     if (!list) return null;
-    const toAdd = [...new Set(list.flatMap((s) => parseNames(s.name).slice(0, 1)))].filter((n) => !names.includes(n)).sort((a, b) => a.localeCompare(b, "ko"));
+    const toAdd = [...new Set(list.flatMap((s) => parseNames(s.name).slice(0, 1)))].filter((n) => !names.includes(n));
     if (!toAdd.length) return list.length ? "등록된 학생이 이미 모두 들어 있어요." : "학생 정보 관리에 등록된 학생이 없어요.";
     setNames((l) => [...new Set([...l, ...toAdd])]);
     return `학생 정보 관리에서 ${toAdd.length}명을 불러왔어요.`;

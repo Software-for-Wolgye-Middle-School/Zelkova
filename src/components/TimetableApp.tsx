@@ -17,7 +17,7 @@ import {
   type TemplateSettings,
 } from "@/lib/timetable";
 import { DEFAULT_TEMPLATE_URL, type SlotState } from "./steps";
-import { DEFAULT_SUBJECTS, fetchServerRows, isBlank, loadRows, saveRows, saveServerRows, syncToTimetable, TIMETABLE_KEY, validateRows, type StudentRow } from "./students";
+import { byGradeClass, DEFAULT_SUBJECTS, fetchServerRows, isBlank, loadRows, saveRows, saveServerRows, syncToTimetable, TIMETABLE_KEY, validateRows, type StudentRow } from "./students";
 import { cleanSettings, loadSettings, saveSettings, validateSettings } from "./settings";
 import UploadWizard from "./UploadWizard";
 import GeneratingScreen from "./GeneratingScreen";
@@ -203,14 +203,14 @@ export default function TimetableApp() {
     const current = ttRows.filter((r) => !isBlank(r));
     const have = new Set(current.map(key));
     const added = server.filter((r) => !have.has(key(r))).map((r) => ({ ...r, subjects: [...r.subjects] }));
-    const next = [...current, ...added];
+    const next = [...current, ...added].sort(byGradeClass);
     setTtRows(next.length ? next : INITIAL_ROWS);
     saveRows(next.length ? next : INITIAL_ROWS, TIMETABLE_KEY);
     return added.length;
   }, [ttRows]);
 
   const { students, errors: studentErrors } = useMemo(() => validateRows(ttRows), [ttRows]);
-  const registeredStudents = useMemo(() => validateRows(rows).students, [rows]);
+  const registeredStudents = useMemo(() => validateRows(rows).students.sort(byGradeClass), [rows]);
 
   /** 학생 정보 관리(서버)에 등록한 학생을 새로 받아 옴 (약속판 · 칭찬통장의 불러오기). 로그인하지 않았으면 null */
   const loadRegistered = useCallback(async (): Promise<Student[] | null> => {
@@ -218,7 +218,7 @@ export default function TimetableApp() {
     if (!server) return null;
     setRows(server);
     saveRows(server);
-    return validateRows(server).students;
+    return validateRows(server).students.sort(byGradeClass);
   }, []);
 
   const handleFile = useCallback(async (file: File) => {
