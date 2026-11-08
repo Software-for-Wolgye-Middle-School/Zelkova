@@ -14,6 +14,7 @@ import {
   type PaperColor,
 } from "@/lib/bankbookSvg";
 import { embeddedFontCss, loadImageDataUrl, safeFileName, svgToPng, withFont } from "@/lib/svgExport";
+import ImportStudentsButton from "./ImportStudentsButton";
 import NameCombobox, { parseNames } from "./NameCombobox";
 import { DownloadIcon, PlusIcon, Spinner, TrashIcon, XIcon } from "./icons";
 import { SlideCarousel, StepHeading, StepNav, StepProgress, useStepFlow } from "./StepFlow";
@@ -65,20 +66,48 @@ const LAYOUT = a4Layout(largestWidthFor(4));
 /** 단계별로 미리보기에 보이는 화면. 같은 화면이면 단계를 옮겨도 미리보기를 다시 불러오지 않음 */
 const previewView = (step: number) => (step === 0 || step === 2 ? "info" : step === 3 ? "ledger" : step === DONE_STEP ? "download" : "all");
 
-/** i 번째 학생의 계좌번호: 끝 숫자를 i 만큼 올림 (…-01 → …-02) */
-const accountAt = (account: string, i: number) =>
-  account.replace(/(\d+)$/, (n) => String(Number(n) + i).padStart(n.length, "0"));
+/** 다음 학생의 계좌번호: 끝 숫자를 하나 올림 (…-01 → …-02) */
+const nextAccount = (account: string) =>
+  account.replace(/(\d+)$/, (n) => String(Number(n) + 1).padStart(n.length, "0"));
+
+const ledgerCount = (text: string) => Math.min(MAX_LEDGERS, Math.max(1, parseInt(text, 10) || 1));
+
+/** 학생 한 명의 통장에 고른 값들. done: 거래 내역 단계까지 마침 */
+type Draft = {
+  bank: string;
+  branch: string;
+  issued: string;
+  account: string;
+  kind: Bankbook["kind"];
+  paper: PaperColor;
+  ledgersText: string;
+  picture: PictureKey;
+  pictureLabel: string;
+  done: boolean;
+};
+/** 불러온 표지 · 뒤표지 그림 (그림 key → data: 주소) */
+type Arts = Record<PictureKey, { front: string; back: string }>;
+
+/** 고른 값과 그림으로 통장을 만듦 (그림을 아직 못 불러왔으면 null) */
+function makeBook(name: string, d: Draft, arts: Arts): Bankbook | null {
+  const art = arts[d.picture];
+  return art ? { name, bank: d.bank.trim(), branch: d.branch.trim(), account: d.account.trim(), issued: d.issued, kind: d.kind, paper: d.paper, cover: art.front, back: art.back } : null;
+}
 
 const today = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
 
-export default function BankbookApp({ students }: { students: Student[] }) {
+export default function BankbookApp({ students, onLoadStudents }: { students: Student[]; onLoadStudents: () => Promise<Student[] | null> }) {
   const { step, fadeFrom, fadeTo, checking, goStep, goNext, fadeClass } = useStepFlow();
   /** 통장을 만들 학생들 (이 순서대로 PDF 에 담김) */
   const [names, setNames] = useState<string[]>([]);
   const [pending, setPending] = useState("");
+  /** 지금 통장을 만들고 있는 학생 */
+  const [who, setWho] = useState("");
+  /** 학생별로 고른 값 (이름 → 값). 지금 학생의 값은 아래 입력 상태에 있고, 다른 단계 · 학생으로 넘어갈 때 여기에 저장 */
+  const [made, setMade] = useState<Record<string, Draft>>({});
   const [bank, setBank] = useState("느티나무 은행");
   const [branch, setBranch] = useState("월계중학교");
   const [issued, setIssued] = useState(today);
@@ -87,7 +116,7 @@ export default function BankbookApp({ students }: { students: Student[] }) {
   const [paper, setPaper] = useState<PaperColor>("분홍");
   const [ledgersText, setLedgersText] = useState("5");
   const [picture, setPicture] = useState<PictureKey>("hello_kitty");
-  const [art, setArt] = useState<{ key: PictureKey; front: string; back: string } | null>(null);
+  const [arts, setArts] = useState<Arts>({});
   const [sets, setSets] = useState<CustomPhotoSet[]>([]);
   const [draft, setDraft] = useState<{ front: string | null; back: string | null }>({ front: null, back: null });
   const [customOpen, setCustomOpen] = useState(false);
@@ -110,6 +139,7 @@ export default function BankbookApp({ students }: { students: Student[] }) {
   }, []);
 
   useEffect(() => {
+    if (arts[picture]) return; // 학생마다 그림이 달라도 한 번 불러온 그림은 다시 쓰고, PDF 에도 씀
     const custom = sets.find((c) => c.id === picture);
     const pic = PICTURES.find((p) => p.key === picture);
     const target = custom ? { key: custom.id, front: custom.front, back: custom.back } : pic ? { key: pic.key, front: `/background/${pic.file}_front.png`, back: `/background/${pic.file}_back.png` } : null;
@@ -117,12 +147,12 @@ export default function BankbookApp({ students }: { students: Student[] }) {
     let cancelled = false;
     // 쪽을 크게 인쇄해도 흐리지 않도록 넉넉히 둠
     Promise.all([loadImageDataUrl(target.front, BOOK_W * 3), loadImageDataUrl(target.back, BOOK_W * 3)])
-      .then(([front, back]) => !cancelled && setArt({ key: target.key, front, back }))
+      .then(([front, back]) => !cancelled && setArts((m) => ({ ...m, [target.key]: { front, back } })))
       .catch((e) => console.error(e));
     return () => {
       cancelled = true;
     };
-  }, [picture, sets]);
+  }, [picture, sets, arts]);
 
   useEffect(() => {
     if (!customOpen) return;
@@ -131,8 +161,8 @@ export default function BankbookApp({ students }: { students: Student[] }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [customOpen]);
 
-  const pictureArt = art?.key === picture ? art : null;
-  const ledgers = Math.min(MAX_LEDGERS, Math.max(1, parseInt(ledgersText, 10) || 1));
+  const pictureArt = arts[picture] ?? null;
+  const ledgers = ledgerCount(ledgersText);
 
   /** 기본 그림을 고르면 그 그림에 어울리는 속지 색으로 바꿈 */
   const choosePicture = (key: PictureKey) => {
@@ -153,8 +183,11 @@ export default function BankbookApp({ students }: { students: Student[] }) {
   const blankArt = customOpen ? BLANK_ART : undefined;
   const layout = LAYOUT;
 
-  /** 미리보기에 보일 이름: 이름 단계에서는 쓰고 있거나 방금 넣은 이름, 그 뒤로는 첫 학생 */
-  const previewName = parseNames(pending)[0] ?? names[step === 0 ? names.length - 1 : 0] ?? "";
+  /** 미리보기에 보일 이름: 이름 단계에서는 쓰고 있거나 방금 넣은 이름, 그 뒤로는 지금 만드는 학생 */
+  const previewName = step === 0 ? (parseNames(pending)[0] ?? names[names.length - 1] ?? "") : who;
+  const whoIndex = names.indexOf(who);
+  /** 거래 내역 단계에서 '다음'을 누르면 넘어갈 학생 (마지막 학생이면 없음) */
+  const nextStudent = names[whoIndex + 1];
   const book = useMemo<Bankbook | null>(
     () =>
       (cover ?? blankArt) && (back ?? blankArt)
@@ -165,10 +198,15 @@ export default function BankbookApp({ students }: { students: Student[] }) {
   const pages = useMemo(() => (book ? bankbookPages(book, ledgers) : []), [book, ledgers]);
 
   const pictureLabel = sets.find((c) => c.id === picture)?.label ?? PICTURES.find((p) => p.key === picture)?.label ?? "";
-  /** 내려받을 통장: 학생 목록 순서대로, 계좌번호 끝 숫자만 하나씩 올림 */
+  /** 내려받을 통장: 학생 목록 순서대로 */
   const books = useMemo(
-    () => (book ? names.map((n, i) => ({ name: n, book: { ...book, name: n, account: accountAt(book.account, i) }, ledgers })) : []),
-    [names, book, ledgers],
+    () =>
+      names.flatMap((n) => {
+        const d = made[n];
+        const b = d && makeBook(n, d, arts);
+        return b ? [{ name: n, book: b, ledgers: ledgerCount(d.ledgersText) }] : [];
+      }),
+    [names, made, arts],
   );
   /** 미리보기 · PDF 의 A4 장들. 학생마다 새 장에서 시작 (완료 단계에서만 쓰므로 그때만 만듦) */
   const sheetList = useMemo(
@@ -189,7 +227,60 @@ export default function BankbookApp({ students }: { students: Student[] }) {
     if (added.length) setNames((list) => [...new Set([...list, ...added])]);
     setPending("");
   };
-  const removeName = (n: string) => setNames((list) => list.filter((x) => x !== n));
+  /** 학생 정보 관리에 등록한 학생을 목록에 넣음 (이미 있는 이름은 건너뜀) */
+  const importStudents = async () => {
+    const list = await onLoadStudents();
+    if (!list) return null;
+    const toAdd = [...new Set(list.flatMap((s) => parseNames(s.name).slice(0, 1)))].filter((n) => !names.includes(n)).sort((a, b) => a.localeCompare(b, "ko"));
+    if (!toAdd.length) return list.length ? "등록된 학생이 이미 모두 들어 있어요." : "학생 정보 관리에 등록된 학생이 없어요.";
+    setNames((l) => [...new Set([...l, ...toAdd])]);
+    return `학생 정보 관리에서 ${toAdd.length}명을 불러왔어요.`;
+  };
+
+  /** 지금 입력 상태를 지금 학생의 값으로 저장한 목록 */
+  const withCurrent = (done: boolean) =>
+    who ? { ...made, [who]: { bank, branch, issued, account, kind, paper, ledgersText, picture, pictureLabel, done: done || !!made[who]?.done } } : made;
+  const restore = (d: Draft) => {
+    setBank(d.bank);
+    setBranch(d.branch);
+    setIssued(d.issued);
+    setAccount(d.account);
+    setKind(d.kind);
+    setPaper(d.paper);
+    setLedgersText(d.ledgersText);
+    setPicture(d.picture);
+  };
+  /** 그 학생의 통장을 입력 상태로 펼침. 처음 만드는 학생은 바로 앞 학생의 값을 이어 받고 계좌번호만 하나 올림 */
+  const openStudent = (name: string, map: Record<string, Draft>, list = names) => {
+    setWho(name);
+    if (map[name]) return restore(map[name]);
+    const before = list.slice(0, list.indexOf(name)).reverse().find((n) => map[n]);
+    if (before) restore({ ...map[before], account: nextAccount(map[before].account) });
+  };
+  const removeName = (n: string) => {
+    const rest = names.filter((x) => x !== n);
+    const kept = Object.fromEntries(Object.entries(made).filter(([k]) => k !== n));
+    setNames(rest);
+    setMade(kept);
+    if (n !== who) return;
+    // 지금 학생을 뺐으면 남은 마지막 학생으로 (완료 단계에서 '이전'을 눌렀을 때 그 학생이 보임)
+    if (rest.length) openStudent(rest[rest.length - 1], kept, rest);
+    else setWho("");
+  };
+  /** 다른 학생의 어떤 단계로 옮김 (지금 학생의 값은 저장) */
+  const goStudent = (name: string, to: number, done: boolean) => {
+    const map = withCurrent(done);
+    goStep(to, () => {
+      setMade(map);
+      openStudent(name, map);
+    });
+  };
+  /** 단계 표시 · '이전'으로 옮길 때. 이름 단계로 나가면 지금까지 고른 값을 저장해 둠 */
+  const go = (n: number) => {
+    if (n !== 0 || step === DONE_STEP) return goStep(n);
+    const map = withCurrent(false);
+    goStep(0, () => setMade(map));
+  };
   /** 목록에서 from 번째 줄을 to 번째 자리로 옮김 */
   const moveName = (from: number, to: number) => {
     if (from === to || to < 0 || to >= names.length) return;
@@ -311,9 +402,26 @@ export default function BankbookApp({ students }: { students: Student[] }) {
   const last = step === STEPS.length - 1;
   /** 이름을 넣어야 이름 단계 다음으로 갈 수 있음 (입력칸에 쓰고 아직 추가하지 않은 이름도 '다음'을 누르면 넣음) */
   const canNext = step === 0 ? names.length > 0 || parseNames(pending).length > 0 : step === 1 ? !!pictureArt : true;
+  /** 이름 단계 → 아직 안 만든 첫 학생으로, 거래 내역 단계 → 다음 학생의 배경 단계로 (마지막 학생이면 완료로) */
   const next = () => {
-    if (step === 0 && pending.trim()) addNames(pending);
+    if (step === 0) {
+      const list = [...new Set([...names, ...parseNames(pending)])];
+      setNames(list);
+      setPending("");
+      const first = list.find((n) => !made[n]?.done) ?? list[0];
+      return goNext(() => openStudent(first, made, list));
+    }
+    if (step === DONE_STEP - 1) {
+      if (nextStudent) return goStudent(nextStudent, 1, true);
+      const map = withCurrent(true);
+      return goNext(() => setMade(map));
+    }
     goNext();
+  };
+  /** 배경 단계에서 '이전': 앞 학생의 거래 내역 단계로 (첫 학생이면 이름 단계로) */
+  const prev = () => {
+    if (step === 1 && whoIndex > 0) goStudent(names[whoIndex - 1], DONE_STEP - 1, false);
+    else go(step - 1);
   };
   const chip = (on: boolean) =>
     `rounded-lg px-2 py-2 text-sm font-semibold ring-1 ring-inset transition ${
@@ -356,10 +464,28 @@ export default function BankbookApp({ students }: { students: Student[] }) {
 
       <div className="grid gap-6 lg:grid-cols-[22rem_minmax(0,1fr)]">
         <div className="h-fit space-y-5 overflow-x-clip rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-          <StepProgress steps={STEPS} step={step} checking={checking} onGo={goStep} />
+          <StepProgress steps={STEPS} step={step} checking={checking} onGo={go} />
 
           <div className={`space-y-5 ${fadeClass}`}>
-          <StepHeading step={STEPS[step]} />
+          {step > 0 && step < DONE_STEP && who && (
+            // 2~4단계는 학생마다 반복하므로 지금 누구 통장인지 늘 보여 줌
+            <div className="rounded-xl bg-indigo-50 px-4 py-3 ring-1 ring-inset ring-indigo-200">
+              <div className="flex items-baseline justify-between gap-2">
+                <p className="min-w-0 truncate text-sm font-semibold text-indigo-900">
+                  <span className="text-lg font-bold">{who}</span> 학생 통장 만드는 중
+                </p>
+                <p className="shrink-0 text-xs font-semibold text-indigo-600">
+                  {whoIndex + 1} / {names.length}명
+                </p>
+              </div>
+              {names.length > 1 && (
+                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-indigo-100">
+                  <div className="h-full rounded-full bg-indigo-500 transition-[width] duration-500 motion-reduce:transition-none" style={{ width: `${((whoIndex + 1) / names.length) * 100}%` }} />
+                </div>
+              )}
+            </div>
+          )}
+          <StepHeading step={step === DONE_STEP - 1 && nextStudent ? { ...STEPS[step], hint: `다음을 누르면 ${nextStudent} 학생 통장으로 넘어가요.` } : STEPS[step]} />
 
           {step === 0 && (
             <div>
@@ -380,6 +506,7 @@ export default function BankbookApp({ students }: { students: Student[] }) {
                   추가
                 </button>
               </div>
+              <ImportStudentsButton className="mt-2" onImport={importStudents} />
               {names.length > 0 && (
                 <div className="mt-3">
                   <p className="mb-1.5 text-xs font-semibold text-slate-600">넣은 이름 {names.length}명</p>
@@ -471,7 +598,6 @@ export default function BankbookApp({ students }: { students: Student[] }) {
               </Field>
               <Field label="계좌번호">
                 <input value={account} maxLength={24} onChange={(e) => setAccount(e.target.value)} className={field} />
-                {names.length > 1 && <span className="mt-1 block text-xs text-slate-400">학생마다 끝 번호가 1씩 늘어나요.</span>}
               </Field>
               <div className="grid grid-cols-2 gap-2">
                 <Field label="통장 발행일">
@@ -569,7 +695,7 @@ export default function BankbookApp({ students }: { students: Student[] }) {
                         <span className="w-4 shrink-0 text-xs font-bold text-slate-400">{i + 1}</span>
                         <span className="min-w-0 flex-1 truncate font-semibold text-slate-800">{label}</span>
                         <span className="shrink-0 text-xs text-slate-500">
-                          {pictureLabel} · 거래 {ledgers}쪽
+                          {made[label]?.pictureLabel} · 거래 {ledgerCount(made[label]?.ledgersText ?? "")}쪽
                         </span>
                         {names.length > 1 ? (
                           <button
@@ -593,7 +719,7 @@ export default function BankbookApp({ students }: { students: Student[] }) {
                 <button
                   type="button"
                   onClick={savePdf}
-                  disabled={busy || !book}
+                  disabled={busy || !books.length}
                   className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-[15px] font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
                 >
                   {busy ? <Spinner className="h-5 w-5" /> : <DownloadIcon className="h-5 w-5" />}
@@ -614,7 +740,7 @@ export default function BankbookApp({ students }: { students: Student[] }) {
             last={last}
             canNext={canNext}
             checking={checking}
-            onPrev={() => goStep(step - 1)}
+            onPrev={prev}
             onNext={next}
             invalidMessage={step === 1 ? "표지 그림을 불러오는 중이에요. 잠시만 기다려 주세요." : "이름을 한 명 이상 넣어 주세요."}
           />
@@ -632,6 +758,7 @@ export default function BankbookApp({ students }: { students: Student[] }) {
             />
           )}
 
+          {step > 0 && step < DONE_STEP && who && <p className="text-sm font-semibold text-slate-700">{who} 학생의 통장</p>}
           <div className={step === DONE_STEP ? "hidden" : ""}>{slotGrid}</div>
 
         </section>
