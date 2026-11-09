@@ -63,8 +63,8 @@ const DONE_STEP = STEPS.length - 1;
 /** 쪽 크기는 A4 한 장에 4쪽이 들어가는 크기로 고정 */
 const LAYOUT = a4Layout(largestWidthFor(4));
 
-/** PDF 에서 쪽을 A4 보다 얼마나 크게 놓을지. 프린터가 인쇄 가능 영역(가장자리 약 4mm 제외)에 맞춰 3%쯤 줄여도 용지를 꽉 채움 */
-const PRINT_OVERSCAN = 1.03;
+/** 일반 프린터가 100%로 인쇄할 때 비워 두는 가장자리 (mm). 이 안쪽에 쪽을 놓아야 그림이 잘리지 않음 */
+const PRINT_SAFE_MARGIN = 5;
 
 /** 단계별로 미리보기에 보이는 화면. 같은 화면이면 단계를 옮겨도 미리보기를 다시 불러오지 않음 */
 const previewView = (step: number) => (step === 0 || step === 2 ? "info" : step === 3 ? "ledger" : step === DONE_STEP ? "download" : "all");
@@ -354,12 +354,11 @@ export default function BankbookApp({ students, onLoadStudents }: { students: St
       const [{ jsPDF }, css] = await Promise.all([import("jspdf"), embeddedFontCss(books.map((b) => bankbookText(b.book)).join(""))]);
       const { orientation, paper, cols, rows } = layout;
       const doc = new jsPDF({ orientation, unit: "mm", format: "a4" });
-      // 쪽이 A4 전체를 빈틈없이 채우도록 키우고, 프린터가 인쇄 가능 영역에 맞춰 줄여도 가장자리까지 차도록
-      // 가장자리를 조금(PRINT_OVERSCAN) 넘치게 놓음. 넘친 부분은 PDF 용지 밖이라 잘림
-      const w = (paper.w * PRINT_OVERSCAN) / cols;
-      const h = (paper.h * PRINT_OVERSCAN) / rows;
-      const left = (paper.w - paper.w * PRINT_OVERSCAN) / 2;
-      const top = (paper.h - paper.h * PRINT_OVERSCAN) / 2;
+      // 프린터가 인쇄하지 못하는 가장자리(PRINT_SAFE_MARGIN)를 뺀 영역을 쪽들이 빈틈없이 채우도록 놓음
+      const w = (paper.w - 2 * PRINT_SAFE_MARGIN) / cols;
+      const h = (paper.h - 2 * PRINT_SAFE_MARGIN) / rows;
+      const left = PRINT_SAFE_MARGIN;
+      const top = PRINT_SAFE_MARGIN;
       // 크게 인쇄할수록 그림을 더 촘촘하게 만듦
       const scale = Math.max(2, (2 * w) / BOOK_MM.w);
       doc.setLineDashPattern([1, 1], 0);
