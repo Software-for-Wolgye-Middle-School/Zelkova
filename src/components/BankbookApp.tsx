@@ -64,7 +64,7 @@ const DONE_STEP = STEPS.length - 1;
 const LAYOUT = a4Layout(largestWidthFor(4));
 
 /** 일반 프린터가 100%로 인쇄할 때 비워 두는 가장자리 (mm). 이 안쪽에 쪽을 놓아야 그림이 잘리지 않음 */
-const PRINT_SAFE_MARGIN = 5;
+const PRINT_SAFE_MARGIN = 3;
 
 /** 단계별로 미리보기에 보이는 화면. 같은 화면이면 단계를 옮겨도 미리보기를 다시 불러오지 않음 */
 const previewView = (step: number) => (step === 0 || step === 2 ? "info" : step === 3 ? "ledger" : step === DONE_STEP ? "download" : "all");
