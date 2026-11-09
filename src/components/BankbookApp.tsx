@@ -352,6 +352,10 @@ export default function BankbookApp({ students, onLoadStudents }: { students: St
       const { orientation, page, cols, left, top } = layout;
       const doc = new jsPDF({ orientation, unit: "mm", format: "a4" });
       const { w, h } = page;
+      // 인쇄할 때 '용지에 맞춤'으로 줄어들지 않고 실제 크기(100%)로 나오도록 PDF 에 표시
+      // (jsPDF 의 타입 정의에는 write 가 없지만 실제로는 있음)
+      const internal = doc.internal as typeof doc.internal & { write: (s: string) => void };
+      internal.events.subscribe("putCatalog", () => internal.write("/ViewerPreferences << /PrintScaling /None >>"));
       // 크게 인쇄할수록 그림을 더 촘촘하게 만듦
       const scale = Math.max(2, (2 * w) / BOOK_MM.w);
       doc.setLineDashPattern([1, 1], 0);
