@@ -347,15 +347,8 @@ export default function TimetableApp() {
       </header>
 
       {phase === "home" ? (
-        <Landing
-          onStartTimetable={restart} // 메인 화면에서 다시 열면 지난 결과 없이 항상 처음 단계부터
-          onStartPromise={() => setPhase("promise")}
-          onStartBankbook={() => setPhase("bankbook")}
-          onStartNameTag={() => setPhase("nametag")}
-          onStartMeal={() => setPhase("meal")}
-          onStartStudents={() => setPhase("students")}
-          onStartHandwriting={() => setPhase("handwriting")}
-        />
+        // 시간표는 메인 화면에서 다시 열면 지난 결과 없이 항상 처음 단계부터, 나머지는 도구 id 가 곧 화면 이름
+        <Landing onOpen={(id) => (id === "timetable" ? restart() : setPhase(id))} />
       ) : (
         <>
           <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8 sm:px-6 sm:py-12">
