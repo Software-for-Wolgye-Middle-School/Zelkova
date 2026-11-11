@@ -22,7 +22,7 @@ type Icon = ComponentType<SVGProps<SVGSVGElement>>;
 /** 메뉴 카드 하나. hue 는 마우스를 가까이 댔을 때 번지는 빛의 색 (HSL 색상각) */
 type Menu = { id: string; title: string; desc: string; icon: Icon; tile: string; hue: number; onClick: () => void };
 
-/** 등장 순서: 제목 → 부제 → 대표 카드 → 나머지 카드 (ms) */
+/** 등장 순서: 제목 → 대표 카드 → 나머지 카드 (ms) */
 const HERO_WORD_DELAY = 90;
 const appear = (delay: number) => ({
   initial: { opacity: 0, y: 18 },
@@ -63,25 +63,19 @@ export default function Landing({
         <ZelkovaScene className="absolute inset-0 -z-10 h-full w-full" />
 
         <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col items-center justify-between gap-10 px-4 pb-8 pt-10 sm:pt-14">
-          {/* 하늘 쪽: 제목과 짧은 소개. 단어가 차례로 떠오름 */}
+          {/* 하늘 쪽: 제목. 단어가 차례로 떠오름 */}
           <div className="text-center [text-shadow:0_1px_18px_rgba(255,255,255,0.9)]">
-            <RevealText className="rounded-full bg-white/70 px-3.5 py-1.5 text-xs font-semibold text-emerald-800 shadow-sm ring-1 ring-emerald-900/10 backdrop-blur sm:text-sm">
-              특수학급 선생님을 위한 교실 도우미
-            </RevealText>
-            <h1 id="landing-title" className="mt-4 text-4xl font-extrabold tracking-tight text-slate-900 sm:text-6xl">
-              <RevealText delay={HERO_WORD_DELAY} className="bg-gradient-to-br from-emerald-600 to-green-800 bg-clip-text text-transparent [text-shadow:none]">
+            <h1 id="landing-title" className="text-4xl font-extrabold tracking-tight text-slate-900 sm:text-6xl">
+              <RevealText className="bg-gradient-to-br from-emerald-600 to-green-800 bg-clip-text text-transparent [text-shadow:none]">
                 느티나무
               </RevealText>{" "}
-              <RevealText delay={HERO_WORD_DELAY * 2}>교실</RevealText> <RevealText delay={HERO_WORD_DELAY * 3}>도우미</RevealText>
+              <RevealText delay={HERO_WORD_DELAY}>교실</RevealText> <RevealText delay={HERO_WORD_DELAY * 2}>도우미</RevealText>
             </h1>
-            <p className="mt-3 text-[15px] font-medium text-slate-700 sm:text-lg">
-              <RevealText delay={HERO_WORD_DELAY * 5} className="text-balance">시간표 · 약속판 · 칭찬통장 · 이름표를 몇 번의 클릭으로 만들어요.</RevealText>
-            </p>
           </div>
 
           <div className="w-full space-y-3">
             {/* 대표 기능: 테두리를 따라 빛줄기가 돌고, 마우스를 따라 살짝 기울어짐 */}
-            <motion.div {...appear(0.55)}>
+            <motion.div {...appear(0.35)}>
               <Tilt rotationFactor={reduceMotion ? 0 : 3} springOptions={{ stiffness: 220, damping: 20 }}>
                 <BorderBeam radius={24} borderWidth={1.5} duration={7} size={120} colorFrom="#a5b4fc" colorTo="#f0abfc" className="rounded-3xl">
                   <button
@@ -105,7 +99,7 @@ export default function Landing({
             </motion.div>
 
             {/* 나머지 기능: 마우스를 가까이 대면 카드마다 제 색의 빛이 번짐 */}
-            <motion.div {...appear(0.7)}>
+            <motion.div {...appear(0.5)}>
               <GlowHover
                 className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"
                 maskSize={320}
