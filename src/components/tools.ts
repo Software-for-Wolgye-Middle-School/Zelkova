@@ -9,10 +9,11 @@ import { CalendarIcon, ClipboardCheckIcon, PencilIcon, TagIcon, UsersIcon, Utens
 /** 메인 화면 위쪽 탭: 누구를 위한 도구인지 */
 export type ToolCategory = "general" | "assistant" | "teacher";
 
-export const CATEGORIES: { id: ToolCategory; label: string }[] = [
-  { id: "general", label: "일반 업무" },
-  { id: "assistant", label: "특수학급 실무사" },
-  { id: "teacher", label: "특수학급 교사" },
+/** locked: 로그인해야 열 수 있는 탭 */
+export const CATEGORIES: { id: ToolCategory; label: string; locked: boolean }[] = [
+  { id: "general", label: "일반 업무", locked: false },
+  { id: "assistant", label: "특수학급 실무사", locked: true },
+  { id: "teacher", label: "특수학급 교사", locked: true },
 ];
 
 export type ToolId = "timetable" | "promise" | "bankbook" | "nametag" | "meal" | "handwriting" | "students";
@@ -24,14 +25,18 @@ export type Tool = {
   category: ToolCategory;
   /** 아이콘 칸의 색 (Tailwind 클래스) */
   tone: string;
+  /** 마우스를 가까이 댔을 때 카드에 번지는 빛의 색 (HSL 색상각) */
+  hue: number;
+  /** 탭 맨 위에 넓은 대표 카드로 보여 줌 */
+  featured?: boolean;
 };
 
 export const TOOLS: Tool[] = [
-  { id: "timetable", title: "특수학급 시간표 만들기", icon: CalendarIcon, category: "general", tone: "bg-green-100 text-green-700" },
-  { id: "promise", title: "나와의 약속판 만들기", icon: ClipboardCheckIcon, category: "general", tone: "bg-lime-100 text-lime-700" },
-  { id: "bankbook", title: "칭찬통장 만들기", icon: WalletIcon, category: "general", tone: "bg-amber-100 text-amber-700" },
-  { id: "nametag", title: "이름표 만들기", icon: TagIcon, category: "general", tone: "bg-emerald-100 text-emerald-700" },
-  { id: "meal", title: "급식표 조회하기", icon: UtensilsIcon, category: "general", tone: "bg-orange-100 text-orange-700" },
-  { id: "handwriting", title: "긍정 · 감성 필사 교실", icon: PencilIcon, category: "general", tone: "bg-teal-100 text-teal-700" },
-  { id: "students", title: "학생 정보 관리하기", icon: UsersIcon, category: "general", tone: "bg-stone-200 text-stone-700" },
+  { id: "timetable", title: "특수학급 시간표 만들기", icon: CalendarIcon, category: "general", tone: "bg-white/15 text-white", hue: 245, featured: true },
+  { id: "promise", title: "나와의 약속판 만들기", icon: ClipboardCheckIcon, category: "general", tone: "bg-pink-100 text-pink-600", hue: 330 },
+  { id: "bankbook", title: "칭찬통장 만들기", icon: WalletIcon, category: "general", tone: "bg-amber-100 text-amber-600", hue: 38 },
+  { id: "nametag", title: "이름표 만들기", icon: TagIcon, category: "general", tone: "bg-emerald-100 text-emerald-700", hue: 155 },
+  { id: "meal", title: "급식표 조회하기", icon: UtensilsIcon, category: "general", tone: "bg-sky-100 text-sky-700", hue: 200 },
+  { id: "handwriting", title: "긍정 · 감성 필사 교실", icon: PencilIcon, category: "general", tone: "bg-rose-100 text-rose-600", hue: 350 },
+  { id: "students", title: "학생 정보 관리하기", icon: UsersIcon, category: "general", tone: "bg-violet-100 text-violet-700", hue: 262 },
 ];

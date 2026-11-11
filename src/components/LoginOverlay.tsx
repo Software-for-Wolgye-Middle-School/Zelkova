@@ -15,11 +15,14 @@ export default function LoginOverlay({
   onSuccess,
   onExit,
   exitLabel = "메인 화면으로",
+  title = "학생 정보 관리",
 }: {
   checking?: boolean;
   onSuccess: () => void;
   onExit: () => void;
   exitLabel?: string;
+  /** 창 맨 위 제목 */
+  title?: string;
 }) {
   const [id, setId] = useState("");
   const [password, setPassword] = useState("");
@@ -61,7 +64,7 @@ export default function LoginOverlay({
             <LockIcon className="h-5 w-5" />
           </span>
           <h2 id="login-title" className="mt-4 text-lg font-bold text-slate-900">
-            학생 정보 관리
+            {title}
           </h2>
           <p className="mt-1 text-sm text-slate-500">아이디와 비밀번호를 입력해 주세요.</p>
           {/* 확인하는 동안에는 입력을 막아 결과가 돌아올 때 새로 쓴 비밀번호가 지워지지 않게 함 */}
