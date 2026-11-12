@@ -129,7 +129,13 @@ export default function Landing({ onOpen }: { onOpen: (id: ToolId) => void }) {
               })}
             </motion.div>
 
-            <div id="tool-panel" role="tabpanel" aria-labelledby={`tab-${tab}`} className="space-y-3">
+            {/* 탭마다 카드 수가 달라도 탭 줄이 위아래로 움직이지 않게: 모든 탭의 카드 자리를 같은 칸에 보이지 않게 겹쳐 두어
+                가장 긴 탭의 높이를 늘 차지함 (실제 카드는 그 위 맨 위부터 그림) */}
+            <div className="grid">
+              {CATEGORIES.map((c) => (
+                <ToolSizer key={c.id} tools={TOOLS.filter((t) => t.category === c.id)} />
+              ))}
+            <div id="tool-panel" role="tabpanel" aria-labelledby={`tab-${tab}`} className="space-y-3 [grid-area:1/1]">
               {/* 대표 기능: 테두리를 따라 빛줄기가 돌고, 마우스를 따라 살짝 기울어짐 */}
               {featured.map((t) => (
                 <motion.div key={t.id} {...appear(0.35)}>
@@ -195,6 +201,7 @@ export default function Landing({ onOpen }: { onOpen: (id: ToolId) => void }) {
                 </motion.div>
               )}
             </div>
+            </div>
           </div>
         </div>
       </section>
@@ -215,5 +222,31 @@ export default function Landing({ onOpen }: { onOpen: (id: ToolId) => void }) {
         />
       )}
     </MotionConfig>
+  );
+}
+
+/** 한 탭의 카드들이 차지하는 자리만 똑같이 만든 보이지 않는 틀 (화면 읽기 · 키보드에서도 숨김) */
+function ToolSizer({ tools }: { tools: typeof TOOLS }) {
+  const featured = tools.filter((t) => t.featured);
+  const rest = tools.filter((t) => !t.featured);
+  return (
+    <div aria-hidden="true" inert className="invisible space-y-3 [grid-area:1/1]">
+      {featured.map((t) => (
+        <div key={t.id} className="flex items-center gap-4 rounded-3xl p-4 sm:p-5">
+          <span className="h-12 w-12 shrink-0 sm:h-14 sm:w-14" />
+          <span className="text-lg font-bold sm:text-xl">{t.title}</span>
+        </div>
+      ))}
+      {rest.length > 0 && (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {rest.map((t) => (
+            <div key={t.id} className="flex items-center gap-3 rounded-2xl border p-3.5">
+              <span className="h-11 w-11 shrink-0" />
+              <span className="truncate text-[15px] font-bold">{t.title}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
