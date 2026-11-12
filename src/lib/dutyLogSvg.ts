@@ -68,7 +68,7 @@ export const dayTop = (d: number) => bodyTop + d * dayH;
 export const rowTop = (d: number, i: number) => dayTop(d) + i * GRID.rowH;
 
 /** 날짜 줄과 작성자 줄 */
-export const DATE_LINE = { y: 176, startX: 91, endX: 218, w: 108 };
+export const DATE_LINE = { y: 176, startX: 91, endX: 203, w: 92, /** 달력 단추가 차지하는 오른쪽 자리 */ icon: 12 };
 export const SIGN_BOX = { x: 424, y: 158, w: 128, h: 22 };
 export const NOTE_FONT = 11;
 export const NOTE_LINE = 13;
@@ -130,7 +130,7 @@ export function dutyLogSvg(log: DutyLog, withEntries = false) {
   out.push(`<rect width="${LOG_W}" height="${LOG_H}" fill="#fff"/>`);
   out.push(`<text x="${x0}" y="104" font-size="8.5" fill="${LINE}">${esc(headerText(log))}</text>`);
   out.push(`<text x="${LOG_W / 2}" y="142" text-anchor="middle" font-size="23" fill="${LINE}" stroke="${LINE}" stroke-width="0.5">특수교육실무사 활동일지</text>`);
-  out.push(`<text x="${(DATE_LINE.startX + DATE_LINE.endX) / 2 + 1}" y="${DATE_LINE.y}" text-anchor="middle" font-size="12" fill="${LINE}">~</text>`);
+  out.push(`<text x="${(DATE_LINE.startX + DATE_LINE.w + DATE_LINE.endX) / 2}" y="${DATE_LINE.y}" text-anchor="middle" font-size="12" fill="${LINE}">~</text>`);
   out.push(`<text x="${SIGN_BOX.x}" y="${DATE_LINE.y}" font-size="10.5" fill="${LINE}">작성자:</text>`);
   out.push(`<text x="${x5}" y="${DATE_LINE.y}" text-anchor="end" font-size="10.5" fill="${LINE}">(인)</text>`);
 
@@ -170,8 +170,8 @@ export function dutyLogSvg(log: DutyLog, withEntries = false) {
     const ink = `font-family='${INK_FONT}' fill="${INK}"`;
     const a = formatDate(log.start);
     const b = formatDate(log.end);
-    if (a) out.push(`<text x="${DATE_LINE.startX}" y="${DATE_LINE.y}" font-size="14" ${ink}>${esc(a)}</text>`);
-    if (b) out.push(`<text x="${DATE_LINE.endX}" y="${DATE_LINE.y}" font-size="14" ${ink}>${esc(b)}</text>`);
+    if (a) out.push(`<text x="${DATE_LINE.startX + (DATE_LINE.w - DATE_LINE.icon) / 2}" y="${DATE_LINE.y}" text-anchor="middle" font-size="14" ${ink}>${esc(a)}</text>`);
+    if (b) out.push(`<text x="${DATE_LINE.endX + (DATE_LINE.w - DATE_LINE.icon) / 2}" y="${DATE_LINE.y}" text-anchor="middle" font-size="14" ${ink}>${esc(b)}</text>`);
     log.checks.forEach((on, k) => {
       if (!on) return;
       const d = Math.floor(k / ROWS_PER_DAY);
@@ -181,7 +181,7 @@ export function dutyLogSvg(log: DutyLog, withEntries = false) {
     log.notes.forEach((note, d) => {
       const box = noteBox(d);
       wrapNote(note, box.w).forEach((line, li) => {
-        out.push(`<text x="${box.x}" y="${box.y + NOTE_FONT + li * NOTE_LINE - 1}" font-size="${NOTE_FONT + 1}" ${ink}>${esc(line)}</text>`);
+        out.push(`<text x="${box.x + box.w / 2}" y="${box.y + NOTE_FONT + li * NOTE_LINE - 1}" text-anchor="middle" font-size="${NOTE_FONT + 1}" ${ink}>${esc(line)}</text>`);
       });
     });
     if (log.signed) out.push(`<text x="${SIGN_BOX.x + 52}" y="${DATE_LINE.y + 1}" font-size="17" ${ink}>${WRITER}</text>`);
