@@ -30,6 +30,7 @@ import MealApp from "./MealApp";
 import StudentsApp from "./StudentsApp";
 import HandwritingApp from "./HandwritingApp";
 import DutyLogApp from "./DutyLogApp";
+import GuideChatApp from "./GuideChatApp";
 
 export type StudentDoc = { key: string; student: Student; blob: Blob; fileName: string; hours: number; subjectHours: [string, number][] };
 
@@ -69,7 +70,7 @@ function studentFileNames(students: Student[], term: string) {
   });
 }
 
-type Phase = "home" | "upload" | "generating" | "result" | "promise" | "bankbook" | "nametag" | "meal" | "students" | "handwriting" | "dutylog";
+type Phase = "home" | "upload" | "generating" | "result" | "promise" | "bankbook" | "nametag" | "meal" | "students" | "handwriting" | "dutylog" | "guide";
 
 /** 각 단계가 너무 빨리 지나가 깜빡이지 않도록 최소 표시 시간 */
 const MIN_STAGE_MS = 600;
@@ -386,11 +387,14 @@ export default function TimetableApp() {
             {phase === "handwriting" && <HandwritingApp />}
             {phase === "meal" && <MealApp />}
             {phase === "dutylog" && <DutyLogApp />}
+            {phase === "guide" && <GuideChatApp />}
           </main>
 
           <footer className="px-4 pb-6 text-center text-xs text-slate-400">
             {phase === "dutylog"
               ? null
+              : phase === "guide"
+              ? "질문과 등록된 학생의 학년 · 반 · 이름이 답을 만들기 위해 Google Gemini로 전송돼요."
               : phase === "handwriting"
               ? "필사 학습지는 이 컴퓨터의 브라우저 안에서만 만들어져요."
               : phase === "students"
@@ -403,6 +407,12 @@ export default function TimetableApp() {
           </footer>
         </>
       )}
+      <p className="px-4 pb-5 text-center text-xs text-slate-400">
+        개발자 연락 :{" "}
+        <a href="mailto:kjuho2021@gmail.com" className="font-medium text-slate-500 underline-offset-2 hover:text-indigo-600 hover:underline">
+          kjuho2021@gmail.com
+        </a>
+      </p>
     </div>
   );
 }
