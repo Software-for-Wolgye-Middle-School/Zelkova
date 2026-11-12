@@ -33,7 +33,6 @@ import { embeddedFontCss, svgToPng, withFont } from "@/lib/svgExport";
 import { DownloadIcon, Spinner } from "./icons";
 import DutyCalendar from "./DutyCalendar";
 import { STATUS_TEXT, useDutySync, type Status } from "./useDutySync";
-import { StepHeading, StepNav, StepProgress, useStepFlow, type Step } from "./StepFlow";
 
 /** 양식의 좌표(595 × 842 단위)를 화면 비율(%)로 */
 const pct = (x: number, y: number, w: number, h: number) => ({
@@ -59,23 +58,12 @@ function DateField({ value, onChange, x, label }: { value: string; onChange: (v:
   );
 }
 
-/** 입력하기 → 다운로드하기 (입력한 내용은 자동으로 서버에 저장됨) */
-const STEPS: readonly Step[] = [
-  {
-    title: "입력하기",
-    heading: "활동일지를 입력해 주세요",
-  },
-  { title: "다운로드", heading: "PDF로 내려받아요", hint: "입력한 활동일지를 인쇄할 수 있는 PDF로 받아요." },
-];
-
 type EditorProps = {
   /** 지금 쓰는 주 (월요일 날짜) */
   weekKey: string;
   log: DutyLog;
   status: Status;
   onChange: (change: (l: DutyLog) => DutyLog) => void;
-  /** 지금 서버에 저장 (다운로드 단계로 넘어갈 때 기다리지 않고 바로 올림) */
-  onSaveNow: () => Promise<boolean>;
   onBack: () => void;
 };
 
@@ -83,8 +71,8 @@ type EditorProps = {
 const FULL_ZOOM = 3;
 
 /** 한 주의 활동일지를 쓰는 화면 */
-function DutyLogEditor({ weekKey, log, status, onChange: update, onSaveNow, onBack }: EditorProps) {
-  const { step, checking, goStep, goNext, fadeClass } = useStepFlow();
+/** 단계 없이 한 화면: 칸을 고칠 때마다 바로 서버에 저장되고, 위의 단추로 PDF 를 받음 */
+function DutyLogEditor({ weekKey, log, status, onChange: update, onBack }: EditorProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /** 양식을 화면 가득 크게 보며 고치기 */
@@ -98,8 +86,6 @@ function DutyLogEditor({ weekKey, log, status, onChange: update, onSaveNow, onBa
   }, [full]);
 
   const blank = useMemo(() => dutyLogSvg(log), [log.start]); // eslint-disable-line react-hooks/exhaustive-deps -- 머리글의 학년도만 시작일에 따라 바뀜
-  /** 입력하기 다음 단계에서는 입력한 내용이 들어간 모습을 그대로 보여 줌 */
-  const filled = useMemo(() => dutyLogSvg(log, true), [log]);
 
   const toggle = (k: number) => update((l) => ({ ...l, checks: l.checks.map((c, i) => (i === k ? !c : c)) }));
   /** 요일 이름을 누르면 그날 항목을 모두 체크 (이미 모두 체크했으면 모두 해제) */
@@ -132,10 +118,8 @@ function DutyLogEditor({ weekKey, log, status, onChange: update, onSaveNow, onBa
   /** 양식 (입력하기에서는 칸을 눌러 바로 고침). 전체 화면에서도 같은 양식을 씀 */
   const sheet = (
         <div className="relative select-none" style={{ aspectRatio: `${LOG_W} / ${LOG_H}` }}>
-          <div className="absolute inset-0 [&>svg]:block [&>svg]:h-full [&>svg]:w-full" dangerouslySetInnerHTML={{ __html: step === 0 ? blank : filled }} />
+          <div className="absolute inset-0 [&>svg]:block [&>svg]:h-full [&>svg]:w-full" dangerouslySetInnerHTML={{ __html: blank }} />
 
-          {step === 0 && (
-            <>
           <DateField value={log.start} onChange={(v) => update((l) => ({ ...l, start: v }))} x={DATE_LINE.startX} label="시작 날짜" />
           <DateField value={log.end} onChange={(v) => update((l) => ({ ...l, end: v }))} x={DATE_LINE.endX} label="끝 날짜" />
 
@@ -192,8 +176,6 @@ function DutyLogEditor({ weekKey, log, status, onChange: update, onSaveNow, onBa
               />
             </div>
           ))}
-            </>
-          )}
         </div>
   );
   const fullBtn = (
@@ -222,39 +204,28 @@ function DutyLogEditor({ weekKey, log, status, onChange: update, onSaveNow, onBa
       </div>
 
       <div className="mx-auto mb-5 max-w-[720px] space-y-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-        <StepProgress steps={STEPS} step={step} checking={checking} onGo={(n) => goStep(n)} />
-
-        <div className={`space-y-4 ${fadeClass}`}>
-          <StepHeading step={STEPS[step]} />
-
-
-          {step === 1 && (
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={savePdf}
-                  disabled={busy}
-                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-[15px] font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
-                >
-                  {busy ? <Spinner className="h-5 w-5" /> : <DownloadIcon className="h-5 w-5" />}
-                  PDF 다운로드
-                </button>
-                <button type="button" onClick={onBack} className="rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-600 ring-1 ring-inset ring-slate-200 transition hover:bg-slate-50">
-                  달력으로 돌아가기
-                </button>
-              </div>
-              <p aria-live="polite" className={`text-xs font-medium ${STATUS_TEXT[status].tone}`}>
-                {STATUS_TEXT[status].text}
-              </p>
-              {error && (
-                <p role="alert" className="text-xs font-medium text-red-600">
-                  {error}
-                </p>
-              )}
-            </div>
-          )}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">활동일지를 입력해 주세요</h2>
+            <p aria-live="polite" className={`mt-0.5 text-xs font-medium ${STATUS_TEXT[status].tone}`}>
+              {STATUS_TEXT[status].text}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={savePdf}
+            disabled={busy}
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-[15px] font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
+          >
+            {busy ? <Spinner className="h-5 w-5" /> : <DownloadIcon className="h-5 w-5" />}
+            PDF 다운로드
+          </button>
         </div>
+        {error && (
+          <p role="alert" className="text-xs font-medium text-red-600">
+            {error}
+          </p>
+        )}
 
       {full ? (
         <p className="rounded-md bg-slate-50 px-3 py-6 text-center text-sm text-slate-500 ring-1 ring-slate-200">전체 화면에서 보고 있어요.</p>
@@ -290,17 +261,6 @@ function DutyLogEditor({ weekKey, log, status, onChange: update, onSaveNow, onBa
           document.body,
         )}
 
-        <StepNav
-          step={step}
-          last={step === STEPS.length - 1}
-          canNext
-          checking={checking}
-          onPrev={() => goStep(step - 1)}
-          onNext={() => {
-            void onSaveNow();
-            goNext();
-          }}
-        />
       </div>
     </div>
   );
@@ -308,7 +268,7 @@ function DutyLogEditor({ weekKey, log, status, onChange: update, onSaveNow, onBa
 
 /** 처음에는 달력(일정 + 등록한 활동일지)을 보여 주고, 날짜나 활동일지를 눌러 일정을 더하거나 활동일지를 씀 */
 export default function DutyLogApp() {
-  const { weeks, events, status, editWeek, saveEvent, removeEvent, saveNow } = useDutySync();
+  const { weeks, events, status, editWeek, saveEvent, removeEvent } = useDutySync();
   const [view, setView] = useState<{ mode: "calendar" } | { mode: "edit"; week: string }>({ mode: "calendar" });
 
   if (view.mode === "edit") {
@@ -319,7 +279,6 @@ export default function DutyLogApp() {
         log={weeks[key]?.log ?? weekLog(key)}
         status={status}
         onChange={(change) => editWeek(key, change)}
-        onSaveNow={saveNow}
         onBack={() => setView({ mode: "calendar" })}
       />
     );

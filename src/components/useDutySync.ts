@@ -185,7 +185,8 @@ export function useDutySync() {
     saveLocal(weeksRef.current);
     setWeeks(weeksRef.current);
     setStatus("saving");
-    scheduleRef.current(500);
+    // 고칠 때마다 바로 서버에 저장 (보내는 중에 또 고치면 끝나자마자 이어서 보냄)
+    scheduleRef.current(0);
   };
 
   /** 일정을 새로 저장하거나 고침 */
