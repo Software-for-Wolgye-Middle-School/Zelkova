@@ -7,14 +7,12 @@ import { BookCheckIcon, CalendarIcon, ChatIcon, ClipboardCheckIcon, PencilIcon, 
  */
 
 /** 메인 화면 위쪽 탭: 누구를 위한 도구인지 */
-export type ToolCategory = "general" | "assistant" | "teacher" | "agent";
+export type ToolCategory = "general" | "admin";
 
 /** locked: 로그인해야 열 수 있는 탭 */
 export const CATEGORIES: { id: ToolCategory; label: string; locked: boolean }[] = [
   { id: "general", label: "일반 업무", locked: false },
-  { id: "assistant", label: "특수학급 실무사", locked: true },
-  { id: "teacher", label: "특수학급 교사", locked: true },
-  { id: "agent", label: "사회복무요원", locked: true },
+  { id: "admin", label: "행정 업무", locked: true },
 ];
 
 export type ToolId = "timetable" | "promise" | "bankbook" | "nametag" | "meal" | "handwriting" | "students" | "dutylog" | "guide";
@@ -40,6 +38,6 @@ export const TOOLS: Tool[] = [
   { id: "meal", title: "급식표 조회하기", icon: UtensilsIcon, category: "general", tone: "bg-sky-100 text-sky-700", hue: 200 },
   { id: "handwriting", title: "긍정 · 감성 필사 교실", icon: PencilIcon, category: "general", tone: "bg-rose-100 text-rose-600", hue: 350 },
   { id: "students", title: "학생 정보 관리하기", icon: UsersIcon, category: "general", tone: "bg-violet-100 text-violet-700", hue: 262 },
-  { id: "dutylog", title: "특수교육실무사 활동일지", icon: BookCheckIcon, category: "assistant", tone: "bg-teal-100 text-teal-700", hue: 175 },
-  { id: "guide", title: "업무 안내", icon: ChatIcon, category: "agent", tone: "bg-sky-100 text-sky-700", hue: 210 },
+  { id: "dutylog", title: "특수교육실무사 활동일지", icon: BookCheckIcon, category: "admin", tone: "bg-teal-100 text-teal-700", hue: 175 },
+  { id: "guide", title: "사회복무요원 업무 안내", icon: ChatIcon, category: "admin", tone: "bg-sky-100 text-sky-700", hue: 210 },
 ];

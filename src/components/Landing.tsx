@@ -20,11 +20,13 @@ const appear = (delay: number) => ({
   transition: { delay, duration: 0.5, ease: [0.22, 1, 0.36, 1] as const },
 });
 
-// ---------------------------------------------------------------- 고른 탭: 주소의 #general · #assistant · #teacher · #agent 로 기억
+// ---------------------------------------------------------------- 고른 탭: 주소의 #general · #admin 으로 기억
 
 const TAB_EVENT = "zelkova:tab";
 const readTab = (): ToolCategory => {
   const hash = window.location.hash.slice(1);
+  // 예전 탭 주소(실무사 · 교사 · 사회복무요원)는 하나로 묶은 행정 업무로
+  if (hash === "assistant" || hash === "teacher" || hash === "agent") return "admin";
   return CATEGORIES.find((c) => c.id === hash)?.id ?? "general";
 };
 const subscribeTab = (onChange: () => void) => {
@@ -100,8 +102,8 @@ export default function Landing({ onOpen }: { onOpen: (id: ToolId) => void }) {
           </div>
 
           <div className="w-full space-y-3">
-            {/* 누구를 위한 도구인지 고르는 탭. 실무사 · 교사 탭은 로그인해야 열림 */}
-            <motion.div {...appear(0.3)} role="tablist" aria-label="누구를 위한 도구인가요" className="mx-auto flex w-full max-w-2xl rounded-2xl bg-white/70 p-1.5 shadow-lg shadow-emerald-950/10 ring-1 ring-white/80 backdrop-blur-md">
+            {/* 일반 업무 · 행정 업무 탭. 행정 업무 탭은 로그인해야 열림 */}
+            <motion.div {...appear(0.3)} role="tablist" aria-label="누구를 위한 도구인가요" className="mx-auto flex w-full max-w-md rounded-2xl bg-white/70 p-1.5 shadow-lg shadow-emerald-950/10 ring-1 ring-white/80 backdrop-blur-md">
               {CATEGORIES.map((c) => {
                 const selected = c.id === tab;
                 return (
