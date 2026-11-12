@@ -109,16 +109,15 @@ function DutyLogEditor({ weekKey, log, status, onChange: update, onSaveNow, onBa
     if (window.confirm(`이 주(${dotted(weekKey)} ~ ${dotted(addDays(weekKey, 4))})의 체크와 비고, 서명을 모두 지우고 새로 시작할까요?`)) update(() => weekLog(weekKey));
   };
 
+  /** 서버에 저장하고, 저장되면 바로 다음(다운로드) 단계로. 저장하지 못하면 이 단계에 남아 안내함 */
   const saveToServer = async () => {
+    if (saving || checking) return;
     setSaving(true);
     setSaveMsg(null);
     const ok = await onSaveNow();
     setSaving(false);
-    setSaveMsg(
-      ok
-        ? { ok: true, text: "서버에 저장했어요." }
-        : { ok: false, text: "서버에 저장하지 못했어요. 내용은 이 컴퓨터에 저장돼 있고, 서버가 돌아오면 자동으로 다시 저장해요." },
-    );
+    if (ok) return goNext();
+    setSaveMsg({ ok: false, text: "서버에 저장하지 못했어요. 내용은 이 컴퓨터에 저장돼 있고, 서버가 돌아오면 자동으로 다시 저장해요." });
   };
 
   const savePdf = async () => {
@@ -279,13 +278,13 @@ function DutyLogEditor({ weekKey, log, status, onChange: update, onSaveNow, onBa
         <StepNav
           step={step}
           last={step === STEPS.length - 1}
-          canNext={step === 0 || (step === 1 && status === "saved")}
+          canNext
           checking={checking}
           onPrev={() => goStep(step - 1)}
-          onNext={() => goNext()}
-          invalidMessage="먼저 '서버에 저장하기'를 눌러 저장해 주세요."
+          // 저장 단계에서는 '다음'도 서버에 저장한 뒤 넘어감
+          onNext={() => (step === 1 ? void saveToServer() : goNext())}
           extra={
-            step === 1 && (status === "offline" || status === "login") ? (
+            step === 1 && (saveMsg?.ok === false || status === "offline" || status === "login") ? (
               <button type="button" onClick={() => goNext()} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-500 transition hover:bg-slate-100">
                 저장 없이 넘어가기
               </button>
