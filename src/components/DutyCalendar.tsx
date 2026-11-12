@@ -448,9 +448,12 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onRemo
           </div>
 
           {eventCount === 0 && logs.length === 0 && <p className="mt-3 text-center text-sm text-slate-400">날짜 칸을 눌러 첫 일정을 만들어 보세요.</p>}
-          <p aria-live="polite" className={`mt-3 text-center text-xs font-medium ${STATUS_TEXT[status].tone}`}>
-            {STATUS_TEXT[status].text}
-          </p>
+          {/* 달력에서는 저장 상태를 따로 보이지 않고, 서버에 못 올린 경우만 알림 */}
+          {(status === "offline" || status === "login") && (
+            <p role="status" className={`mt-3 text-center text-xs font-medium ${STATUS_TEXT[status].tone}`}>
+              {STATUS_TEXT[status].text}
+            </p>
+          )}
 
           {previewItem && previewLog && (
             <>
