@@ -57,6 +57,17 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onSave
     return Array.from({ length: count }, (_, i) => isoOf(new Date(start.getFullYear(), start.getMonth(), start.getDate() + i)));
   }, [month]);
 
+  /** 작성한 활동일지를 연도별로 (최근 연도 · 최근 주가 앞) */
+  const logYears = useMemo(() => {
+    const byYear: Record<string, string[]> = {};
+    for (const key of Object.keys(weeks)) {
+      if (hasEntries(weeks[key].log)) (byYear[key.slice(0, 4)] ??= []).push(key);
+    }
+    return Object.entries(byYear)
+      .map(([year, keys]) => ({ year, keys: keys.sort().reverse() }))
+      .sort((a, b) => b.year.localeCompare(a.year));
+  }, [weeks]);
+
   const move = (delta: number) =>
     setMonth(({ y, m }) => {
       const d = new Date(y, m - 1 + delta, 1);
@@ -68,12 +79,50 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onSave
   };
 
   return (
-    <div className="fade-up mx-auto max-w-5xl">
+    <div className="fade-up mx-auto max-w-6xl">
       <div className="mb-5 text-center">
         <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-[28px]">특수교육실무사 활동일지</h1>
         <p className="mt-2 text-[15px] text-slate-500">날짜를 눌러 일정을 더하거나 그 주 활동일지를 써요. 초록색 표시는 활동일지를 쓴 날이에요.</p>
       </div>
 
+      <div className="grid gap-5 lg:grid-cols-[15rem_minmax(0,1fr)]">
+      <aside aria-label="연도별 활동일지" className="h-fit rounded-2xl border border-slate-200 bg-white p-3 shadow-sm lg:sticky lg:top-4">
+        <h2 className="mb-2 px-1 text-sm font-bold text-slate-800">등록된 활동일지</h2>
+        {logYears.length === 0 ? (
+          <p className="rounded-lg bg-slate-50 px-3 py-3 text-xs leading-relaxed text-slate-400">아직 쓴 활동일지가 없어요. 날짜를 눌러 활동일지를 써 보세요.</p>
+        ) : (
+          <div className="max-h-[28rem] space-y-1 overflow-y-auto pr-0.5">
+            {logYears.map(({ year, keys }) => (
+              <details key={year} open={year === String(month.y) || logYears.length === 1} className="group rounded-lg">
+                <summary className="flex cursor-pointer list-none items-center justify-between rounded-lg px-2 py-1.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 [&::-webkit-details-marker]:hidden">
+                  <span>{year}년</span>
+                  <span className="flex items-center gap-1.5 text-xs font-normal text-slate-400">
+                    {keys.length}주<span className="inline-block transition group-open:rotate-90">›</span>
+                  </span>
+                </summary>
+                <ul className="mb-1 mt-0.5 space-y-0.5 pl-1">
+                  {keys.map((k) => (
+                    <li key={k}>
+                      <button
+                        type="button"
+                        onClick={() => onOpenWeek(k)}
+                        className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs font-semibold text-slate-600 transition hover:bg-emerald-50 hover:text-emerald-800"
+                      >
+                        <span>
+                          {dotted(k).slice(5)} ~ {dotted(addDays(k, 4)).slice(5)}
+                        </span>
+                        {weeks[k].log.signed && <span className="rounded bg-emerald-100 px-1 text-[10px] font-semibold text-emerald-700">서명</span>}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            ))}
+          </div>
+        )}
+      </aside>
+
+      <div className="min-w-0">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-1.5">
           <button type="button" onClick={() => move(-1)} aria-label="이전 달" className="grid h-9 w-9 place-items-center rounded-lg text-lg text-slate-600 ring-1 ring-inset ring-slate-200 transition hover:bg-slate-50">
@@ -172,6 +221,8 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onSave
       <p aria-live="polite" className={`mt-3 text-center text-xs font-medium ${STATUS_TEXT[status].tone}`}>
         {STATUS_TEXT[status].text}
       </p>
+      </div>
+      </div>
 
       {open && (
         <DayDialog
