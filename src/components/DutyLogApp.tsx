@@ -79,6 +79,22 @@ type EditorProps = {
   onBack: () => void;
 };
 
+/** 전체 화면에서 고를 수 있는 배율 (1 = 화면 높이에 맞춤) */
+const ZOOMS = [1, 1.25, 1.5, 2, 2.5, 3];
+const zoomBtn =
+  "grid h-9 w-9 place-items-center rounded-full text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent";
+
+/** 돋보기 아이콘 (plus: 확대 +, 아니면 축소 -) */
+function ZoomIcon({ plus }: { plus: boolean }) {
+  return (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="10.5" cy="10.5" r="6.5" />
+      <path d="m20 20-4.6-4.6M7.5 10.5h6" />
+      {plus && <path d="M10.5 7.5v6" />}
+    </svg>
+  );
+}
+
 /** 한 주의 활동일지를 쓰는 화면 */
 function DutyLogEditor({ weekKey, log, status, onChange: update, onSaveNow, onBack }: EditorProps) {
   const { step, checking, goStep, goNext, fadeClass } = useStepFlow();
@@ -86,10 +102,26 @@ function DutyLogEditor({ weekKey, log, status, onChange: update, onSaveNow, onBa
   const [error, setError] = useState<string | null>(null);
   /** 양식을 화면 가득 크게 보며 고치기 */
   const [full, setFull] = useState(false);
+  /** 전체 화면에서 양식을 키운 배율 (ZOOMS 의 칸 번호) */
+  const [zoomAt, setZoomAt] = useState(0);
+  const zoom = ZOOMS[zoomAt];
+  const zoomBy = (d: 1 | -1) => setZoomAt((z) => Math.min(ZOOMS.length - 1, Math.max(0, z + d)));
+  const closeFull = () => {
+    setFull(false);
+    setZoomAt(0);
+  };
 
+  // 전체 화면: Esc 로 닫기, 글을 쓰는 중이 아니면 + · - 로 확대 · 축소, 0 으로 원래 크기
   useEffect(() => {
     if (!full) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setFull(false);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") return closeFull();
+      const typing = e.target instanceof HTMLElement && (e.target.tagName === "TEXTAREA" || e.target.tagName === "INPUT");
+      if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key === "+" || e.key === "=") zoomBy(1);
+      else if (e.key === "-") zoomBy(-1);
+      else if (e.key === "0") setZoomAt(0);
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [full]);
@@ -263,19 +295,35 @@ function DutyLogEditor({ weekKey, log, status, onChange: update, onSaveNow, onBa
       )}
       {full &&
         createPortal(
-          <div role="dialog" aria-label="활동일지 전체 화면" className="fixed inset-0 z-[70] grid place-items-center bg-slate-900/80 p-4">
-            <div
-              className="relative overflow-hidden rounded-md bg-white shadow-2xl [container-type:inline-size]"
-              style={{ width: `min(calc(100vw - 2rem), calc((100vh - 2rem) * ${LOG_W} / ${LOG_H}))` }}
-            >
-              {sheet}
+          <div role="dialog" aria-label="활동일지 전체 화면" className="fixed inset-0 z-[70] overflow-auto bg-slate-900/80">
+            {/* 키우면 화면보다 커지므로 위아래 · 좌우로 스크롤해서 고침 */}
+            <div className="flex min-h-full w-max min-w-full p-4 pt-16">
+              <div
+                className="relative m-auto shrink-0 overflow-hidden rounded-md bg-white shadow-2xl [container-type:inline-size]"
+                style={{ width: `calc(min(100vw - 2rem, (100vh - 5rem) * ${LOG_W} / ${LOG_H}) * ${zoom})` }}
+              >
+                {sheet}
+              </div>
+            </div>
+
+            {/* 돋보기: 축소 · 배율(누르면 원래 크기) · 확대 */}
+            <div className="fixed left-1/2 top-3 z-[71] flex -translate-x-1/2 items-center gap-1 rounded-full bg-white/95 p-1 shadow-lg ring-1 ring-slate-200">
+              <button type="button" onClick={() => zoomBy(-1)} disabled={zoomAt === 0} title="축소 (-)" aria-label="축소" className={zoomBtn}>
+                <ZoomIcon plus={false} />
+              </button>
+              <button type="button" onClick={() => setZoomAt(0)} title="원래 크기 (0)" aria-label="원래 크기로" className="min-w-[3.5rem] rounded-full px-2 py-1.5 text-sm font-semibold tabular-nums text-slate-700 transition hover:bg-slate-100">
+                {Math.round(zoom * 100)}%
+              </button>
+              <button type="button" onClick={() => zoomBy(1)} disabled={zoomAt === ZOOMS.length - 1} title="확대 (+)" aria-label="확대" className={zoomBtn}>
+                <ZoomIcon plus />
+              </button>
             </div>
             <button
               type="button"
-              onClick={() => setFull(false)}
+              onClick={closeFull}
               title="전체 화면 닫기"
               aria-label="전체 화면 닫기"
-              className="absolute right-4 top-4 grid h-10 w-10 place-items-center rounded-full bg-white/90 text-lg text-slate-700 shadow transition hover:bg-white"
+              className="fixed right-4 top-3 z-[71] grid h-10 w-10 place-items-center rounded-full bg-white/95 text-lg text-slate-700 shadow-lg transition hover:bg-white"
             >
               ✕
             </button>
