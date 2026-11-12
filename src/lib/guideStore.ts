@@ -2,7 +2,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 /**
- * 사회복무요원 업무 안내(인수인계) 글과 그 검색용 색인(RAG)을 저장하는 곳 (서버 전용).
+ * 사회복무요원 업무 안내(인수인계) 글을 저장하는 곳 (서버 전용).
  * 학생 이름 · 특성이 들어가는 글이라 코드(GitHub)에 넣지 않고, 학생 정보와 같은 저장소에 둠:
  * Upstash Redis 환경 변수가 있으면 거기에, 없으면 서버 디스크(STUDENTS_DATA_DIR, 기본값은 data 폴더)의 파일에 저장함.
  */
@@ -61,13 +61,3 @@ export async function writeGuide(input: unknown): Promise<Guide> {
   await writeJson("guide", guide);
   return guide;
 }
-
-/** 업무 안내를 나눈 조각과 각 조각의 임베딩 벡터. hash 는 어떤 글로 만든 색인인지 */
-export type GuideIndex = { hash: string; model: string; chunks: { text: string; vec: number[] }[] };
-
-export async function readGuideIndex(): Promise<GuideIndex | null> {
-  const data = (await readJson("guide-index")) as GuideIndex | null;
-  return data && typeof data.hash === "string" && Array.isArray(data.chunks) ? data : null;
-}
-
-export const writeGuideIndex = (index: GuideIndex) => writeJson("guide-index", index);
