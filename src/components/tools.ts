@@ -1,5 +1,5 @@
 import type { ComponentType, SVGProps } from "react";
-import { CalendarIcon, ClipboardCheckIcon, PencilIcon, TagIcon, UsersIcon, UtensilsIcon, WalletIcon } from "./icons";
+import { BookCheckIcon, CalendarIcon, ClipboardCheckIcon, PencilIcon, TagIcon, UsersIcon, UtensilsIcon, WalletIcon } from "./icons";
 
 /**
  * 메인 화면의 도구 목록. 새 도구는 TOOLS 에 한 줄 더하면 그 탭에 카드가 생김
@@ -16,7 +16,7 @@ export const CATEGORIES: { id: ToolCategory; label: string; locked: boolean }[] 
   { id: "teacher", label: "특수학급 교사", locked: true },
 ];
 
-export type ToolId = "timetable" | "promise" | "bankbook" | "nametag" | "meal" | "handwriting" | "students";
+export type ToolId = "timetable" | "promise" | "bankbook" | "nametag" | "meal" | "handwriting" | "students" | "dutylog";
 
 export type Tool = {
   id: ToolId;
@@ -39,4 +39,5 @@ export const TOOLS: Tool[] = [
   { id: "meal", title: "급식표 조회하기", icon: UtensilsIcon, category: "general", tone: "bg-sky-100 text-sky-700", hue: 200 },
   { id: "handwriting", title: "긍정 · 감성 필사 교실", icon: PencilIcon, category: "general", tone: "bg-rose-100 text-rose-600", hue: 350 },
   { id: "students", title: "학생 정보 관리하기", icon: UsersIcon, category: "general", tone: "bg-violet-100 text-violet-700", hue: 262 },
+  { id: "dutylog", title: "특수교육실무사 활동일지", icon: BookCheckIcon, category: "assistant", tone: "bg-teal-100 text-teal-700", hue: 175 },
 ];

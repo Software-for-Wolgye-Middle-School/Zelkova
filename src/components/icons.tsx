@@ -140,6 +140,14 @@ export const PencilIcon = (p: P) => (
   </Base>
 );
 
+export const BookCheckIcon = (p: P) => (
+  <Base {...p}>
+    <path d="M6 3h11a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6V3Z" />
+    <path d="M6 3v18" />
+    <path d="m10 11 2 2 4-4" />
+  </Base>
+);
+
 export const Spinner = ({ className = "", ...p }: P) => (
   <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className={`animate-spin ${className}`} {...p}>
     <circle cx="12" cy="12" r="9" stroke="currentColor" strokeOpacity="0.2" strokeWidth="3" />

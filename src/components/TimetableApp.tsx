@@ -29,6 +29,7 @@ import NameTagApp from "./NameTagApp";
 import MealApp from "./MealApp";
 import StudentsApp from "./StudentsApp";
 import HandwritingApp from "./HandwritingApp";
+import DutyLogApp from "./DutyLogApp";
 
 export type StudentDoc = { key: string; student: Student; blob: Blob; fileName: string; hours: number; subjectHours: [string, number][] };
 
@@ -68,7 +69,7 @@ function studentFileNames(students: Student[], term: string) {
   });
 }
 
-type Phase = "home" | "upload" | "generating" | "result" | "promise" | "bankbook" | "nametag" | "meal" | "students" | "handwriting";
+type Phase = "home" | "upload" | "generating" | "result" | "promise" | "bankbook" | "nametag" | "meal" | "students" | "handwriting" | "dutylog";
 
 /** 각 단계가 너무 빨리 지나가 깜빡이지 않도록 최소 표시 시간 */
 const MIN_STAGE_MS = 600;
@@ -384,10 +385,13 @@ export default function TimetableApp() {
             )}
             {phase === "handwriting" && <HandwritingApp />}
             {phase === "meal" && <MealApp />}
+            {phase === "dutylog" && <DutyLogApp />}
           </main>
 
           <footer className="px-4 pb-6 text-center text-xs text-slate-400">
-            {phase === "handwriting"
+            {phase === "dutylog"
+              ? "활동일지는 이 컴퓨터의 브라우저 안에만 저장되고, 밖으로 전송되지 않아요."
+              : phase === "handwriting"
               ? "필사 학습지는 이 컴퓨터의 브라우저 안에서만 만들어져요."
               : phase === "students"
               ? "학생 정보는 학교 서버에 저장되고, 로그인한 사람만 볼 수 있어요."
