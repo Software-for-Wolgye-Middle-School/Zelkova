@@ -52,6 +52,8 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onSave
     return { y, m };
   });
   const [pop, setPop] = useState<Pop | null>(null);
+  /** 목록에서 눌러 달력이 옮겨 간 활동일지 (막대를 잠깐 강조) */
+  const [focusKey, setFocusKey] = useState<string | null>(null);
   /** 지운 직후 '실행취소'를 보여 주는 안내 */
   const [undo, setUndo] = useState<DutyEvent | null>(null);
   const [tipHidden, setTipHidden] = useState(() => {
@@ -69,6 +71,12 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onSave
     const t = setTimeout(() => setUndo(null), UNDO_MS);
     return () => clearTimeout(t);
   }, [undo]);
+
+  useEffect(() => {
+    if (!focusKey) return;
+    const t = setTimeout(() => setFocusKey(null), 2500);
+    return () => clearTimeout(t);
+  }, [focusKey]);
 
   useEffect(() => {
     if (!pop) return;
@@ -149,6 +157,13 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onSave
       const d = new Date(y, m - 1 + delta, 1);
       return { y: d.getFullYear(), m: d.getMonth() + 1 };
     });
+  };
+  /** 목록에서 고른 활동일지가 있는 달로 달력을 옮기고 그 막대를 강조 */
+  const showLog = (item: LogItem) => {
+    const [y, m] = item.start.split("-").map(Number);
+    setPop(null);
+    setMonth({ y, m });
+    setFocusKey(item.key);
   };
   const goToday = () => {
     setPop(null);
@@ -232,16 +247,26 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onSave
                         <h3 className="px-2 text-xs font-bold text-slate-500">{m}월</h3>
                         <ul className="mt-0.5 space-y-0.5">
                           {list.map((item) => (
-                            <li key={item.key}>
+                            <li key={item.key} className={`flex items-center gap-1 rounded-md transition ${focusKey === item.key ? "bg-emerald-50" : ""}`}>
                               <button
                                 type="button"
-                                onClick={() => onOpenWeek(item.key)}
-                                className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs font-semibold text-slate-600 transition hover:bg-emerald-50 hover:text-emerald-800"
+                                onClick={() => showLog(item)}
+                                title="눌러서 달력에서 이 날짜로 이동"
+                                className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs font-semibold text-slate-600 transition hover:bg-emerald-50 hover:text-emerald-800"
                               >
                                 <span>
                                   {md(item.start)} ~ {md(item.end)}
                                 </span>
                                 {item.signed && <span className="rounded bg-emerald-100 px-1 text-[10px] font-semibold text-emerald-700">서명</span>}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => onOpenWeek(item.key)}
+                                aria-label={`${md(item.start)} ~ ${md(item.end)} 활동일지 열기`}
+                                title="활동일지 열기"
+                                className="shrink-0 rounded-md px-1.5 py-1 text-[11px] font-semibold text-emerald-700 transition hover:bg-emerald-100"
+                              >
+                                열기
                               </button>
                             </li>
                           ))}
@@ -362,7 +387,7 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onSave
                       type="button"
                       onClick={() => onOpenWeek(item.key)}
                       title={`활동일지 ${md(item.start)} ~ ${md(item.end)} — 눌러서 열기`}
-                      className={`absolute z-[1] truncate bg-emerald-600 px-2 text-left text-[11px] font-semibold leading-5 text-white transition hover:bg-emerald-700 ${fromStart ? "rounded-l-md" : ""} ${toEnd ? "rounded-r-md" : ""}`}
+                      className={`absolute z-[1] truncate bg-emerald-600 px-2 text-left text-[11px] font-semibold leading-5 text-white transition hover:bg-emerald-700 ${focusKey === item.key ? "ring-2 ring-emerald-300 ring-offset-1" : ""} ${fromStart ? "rounded-l-md" : ""} ${toEnd ? "rounded-r-md" : ""}`}
                       style={{
                         left: `calc(${(col / 7) * 100}% + ${fromStart ? 4 : 0}px)`,
                         width: `calc(${(span / 7) * 100}% - ${(fromStart ? 4 : 0) + (toEnd ? 4 : 0)}px)`,
