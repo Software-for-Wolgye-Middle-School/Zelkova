@@ -1,5 +1,6 @@
 import { connection } from "next/server";
 import { isAuthed } from "@/lib/auth";
+import { buildGuideIndex } from "@/lib/guideRag";
 import { readGuide, writeGuide } from "@/lib/guideStore";
 
 const NO_STORE = { "Cache-Control": "no-store" };
@@ -17,7 +18,11 @@ export async function PUT(request: Request) {
   const body = (await request.json().catch(() => null)) as { text?: unknown } | null;
   if (!body || typeof body.text !== "string") return Response.json({ error: "text 가 필요해요." }, { status: 400, headers: NO_STORE });
   try {
-    return Response.json(await writeGuide(body.text), { headers: NO_STORE });
+    const guide = await writeGuide(body.text);
+    // 저장하면서 RAG 색인도 바로 만들어 둠. 실패해도 저장은 된 것이고, 첫 질문 때 다시 만듦
+    const key = process.env.GEMINI_API_KEY;
+    if (key && guide.text) await buildGuideIndex(key, guide.text).catch((e) => console.error(e));
+    return Response.json(guide, { headers: NO_STORE });
   } catch (e) {
     console.error(e);
     return Response.json({ error: "업무 안내를 서버에 저장하지 못했어요." }, { status: 500, headers: NO_STORE });
