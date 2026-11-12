@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import ConfirmDialog from "./ConfirmDialog";
 import { dutyLogSvg, hasEntries, isoOf, LOG_FONTS_URL, LOG_H, LOG_W, logRange, mondayOf, type DutyLog } from "@/lib/dutyLogSvg";
 import { byTime, EVENT_MEMO_MAX, EVENT_TITLE_MAX, type DutyEvent } from "@/lib/dutyEvents";
 import type { DutyDocs, EventDocs } from "./dutyLogSync";
@@ -61,6 +62,8 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onRemo
   const [focusKey, setFocusKey] = useState<string | null>(null);
   /** 달력의 활동일지 막대를 눌러 옆에 미리 보는 활동일지와 그 자리(달력 영역 기준 px) */
   const [preview, setPreview] = useState<{ key: string; left: number; top: number } | null>(null);
+  /** 삭제할지 묻는 중인 활동일지 */
+  const [confirmDel, setConfirmDel] = useState<LogItem | null>(null);
   /** 지운 직후 '실행취소'를 보여 주는 안내 */
   const [undo, setUndo] = useState<DutyEvent | null>(null);
   /** 말풍선 위치의 기준이 되는 달력 영역 */
@@ -79,11 +82,12 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onRemo
   }, [focusKey]);
 
   useEffect(() => {
-    if (!preview) return;
+    // 삭제를 묻는 창이 떠 있으면 Esc 는 그 창만 닫음
+    if (!preview || confirmDel) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && setPreview(null);
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [preview]);
+  }, [preview, confirmDel]);
 
   useEffect(() => {
     if (!pop) return;
@@ -158,6 +162,24 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onRemo
       }));
   }, [logs]);
 
+  /** 오른쪽 목록: 연도 → 월 → 일정 (연도 · 월은 최근이 앞, 한 달 안에서는 날짜 · 시간 순) */
+  const eventTree = useMemo(() => {
+    const years: Record<string, Record<string, DutyEvent[]>> = {};
+    for (const doc of Object.values(events)) {
+      const ev = doc.event;
+      if (ev) ((years[ev.date.slice(0, 4)] ??= {})[ev.date.slice(5, 7)] ??= []).push(ev);
+    }
+    return Object.entries(years)
+      .sort(([a], [b]) => b.localeCompare(a))
+      .map(([year, months]) => ({
+        year,
+        count: Object.values(months).reduce((n, l) => n + l.length, 0),
+        months: Object.entries(months)
+          .sort(([a], [b]) => b.localeCompare(a))
+          .map(([m, list]) => ({ month: Number(m), list: [...list].sort((a, b) => a.date.localeCompare(b.date) || byTime(a, b)) })),
+      }));
+  }, [events]);
+
   const move = (delta: number) => {
     setPop(null);
     setMonth(({ y, m }) => {
@@ -187,6 +209,13 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onRemo
   };
   const previewItem = preview ? logs.find((l) => l.key === preview.key) : undefined;
   const previewLog = previewItem ? weeks[previewItem.key]?.log : undefined;
+  /** 오른쪽 목록에서 고른 일정이 있는 달로 달력을 옮기고, 누른 자리 옆에 그 일정을 보여 줌 */
+  const showEvent = (e: React.MouseEvent<HTMLElement>, ev: DutyEvent) => {
+    const [y, m] = ev.date.split("-").map(Number);
+    setPreview(null);
+    setMonth({ y, m });
+    openPop(e, "view", ev.date, ev.id);
+  };
   const goToday = () => {
     setPop(null);
     const [y, m] = today.split("-").map(Number);
@@ -213,12 +242,12 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onRemo
   const popEvent = pop?.eventId ? events[pop.eventId]?.event ?? undefined : undefined;
 
   return (
-    <div className="fade-up mx-auto max-w-6xl">
+    <div className="fade-up mx-auto max-w-7xl">
       <div className="mb-5 text-center">
         <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-[28px]">특수교육실무사 활동일지</h1>
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-[15rem_minmax(0,1fr)]">
+      <div className="grid gap-5 lg:grid-cols-[15rem_minmax(0,1fr)] xl:grid-cols-[15rem_minmax(0,1fr)_15rem]">
         <aside aria-label="연도별 활동일지" className="h-fit rounded-2xl border border-slate-200 bg-white p-3 shadow-sm lg:sticky lg:top-4">
           <h2 className="mb-2 px-1 text-sm font-bold text-slate-800">등록된 활동일지</h2>
           {tree.length === 0 ? (
@@ -383,11 +412,7 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onRemo
                 top={preview?.top ?? 0}
                 onClose={() => setPreview(null)}
                 onEdit={() => onOpenWeek(previewItem.key)}
-                onDelete={() => {
-                  if (!window.confirm(`활동일지 ${md(previewItem.start)} ~ ${md(previewItem.end)}를 삭제할까요? 체크와 비고, 서명이 모두 지워져요.`)) return;
-                  onRemoveWeek(previewItem.key);
-                  setPreview(null);
-                }}
+                onDelete={() => setConfirmDel(previewItem)}
               />
             </>
           )}
@@ -436,7 +461,72 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onRemo
             </>
           )}
         </div>
+
+        <aside aria-label="연도별 일정" className="h-fit rounded-2xl border border-slate-200 bg-white p-3 shadow-sm lg:col-start-2 xl:sticky xl:top-4 xl:col-start-3">
+          <h2 className="mb-2 px-1 text-sm font-bold text-slate-800">등록된 일정</h2>
+          {eventTree.length === 0 ? (
+            <p className="rounded-lg bg-slate-50 px-3 py-3 text-xs leading-relaxed text-slate-400">아직 등록한 일정이 없어요. 달력의 날짜 칸을 눌러 만들어 보세요.</p>
+          ) : (
+            <div className="max-h-[28rem] space-y-1 overflow-y-auto pr-0.5">
+              {eventTree.map(({ year, count, months }) => (
+                <details key={year} open={year === String(month.y) || eventTree.length === 1} className="group rounded-lg">
+                  <summary className="flex cursor-pointer list-none items-center justify-between rounded-lg px-2 py-1.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 [&::-webkit-details-marker]:hidden">
+                    <span>{year}년</span>
+                    <span className="flex items-center gap-1.5 text-xs font-normal text-slate-400">
+                      {count}개<span className="inline-block transition group-open:rotate-90">›</span>
+                    </span>
+                  </summary>
+                  <div className="mb-1 mt-0.5 space-y-1.5 pl-2">
+                    {months.map(({ month: m, list }) => (
+                      <section key={m}>
+                        <h3 className="px-2 text-xs font-bold text-slate-500">{m}월</h3>
+                        <ul className="mt-0.5 space-y-0.5">
+                          {list.map((ev) => (
+                            <li key={ev.id}>
+                              <button
+                                type="button"
+                                onClick={(e) => showEvent(e, ev)}
+                                title={`${label(ev.date)}${ev.time ? ` ${ev.time}` : ""} ${ev.title}`}
+                                className={`flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-xs font-semibold text-slate-600 transition hover:bg-indigo-50 hover:text-indigo-800 ${
+                                  pop?.eventId === ev.id ? "bg-indigo-50 text-indigo-800" : ""
+                                }`}
+                              >
+                                <span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-full bg-indigo-600" />
+                                <span className="shrink-0 font-normal text-slate-500">
+                                  {md(ev.date)}
+                                  {ev.time && ` ${ev.time}`}
+                                </span>
+                                <span className="truncate">{ev.title}</span>
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      </section>
+                    ))}
+                  </div>
+                </details>
+              ))}
+            </div>
+          )}
+        </aside>
       </div>
+
+      {confirmDel && (
+        <ConfirmDialog
+          title="활동일지를 삭제할까요?"
+          confirmLabel="삭제"
+          onConfirm={() => {
+            onRemoveWeek(confirmDel.key);
+            setConfirmDel(null);
+            setPreview(null);
+          }}
+          onCancel={() => setConfirmDel(null)}
+        >
+          활동일지 {md(confirmDel.start)} ~ {md(confirmDel.end)}의 체크와 비고, 서명이 모두 지워져요.
+          <br />
+          지운 뒤에는 되돌릴 수 없어요.
+        </ConfirmDialog>
+      )}
 
       {undo && (
         <div role="status" className="fade-up fixed bottom-5 left-1/2 z-[60] flex -translate-x-1/2 items-center gap-3 rounded-xl bg-slate-800 px-4 py-3 text-sm text-white shadow-xl">
