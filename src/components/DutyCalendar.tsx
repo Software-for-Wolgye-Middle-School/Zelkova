@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import ConfirmDialog from "./ConfirmDialog";
 import { PencilIcon, TrashIcon } from "./icons";
+import { SLIDE_MS } from "./StepFlow";
 import { dutyLogSvg, hasEntries, isoOf, LOG_FONTS_URL, LOG_H, LOG_W, logRange, mondayOf, type DutyLog } from "@/lib/dutyLogSvg";
 import { byTime, EVENT_MEMO_MAX, EVENT_TITLE_MAX, type DutyEvent } from "@/lib/dutyEvents";
 import type { DutyDocs, EventDocs } from "./dutyLogSync";
@@ -35,6 +36,8 @@ const label = (iso: string) => {
 const pad = (n: number) => String(n).padStart(2, "0");
 
 /** 쓴 활동일지 하나: key 는 그 주 월요일 날짜, start ~ end 는 양식에 적은 날짜 */
+type Month = { y: number; m: number };
+
 type LogItem = { key: string; start: string; end: string };
 
 /** 누른 자리 옆에 띄우는 말풍선: 만들기 · 보기 · 고치기 · 그날 일정 목록 */
@@ -54,11 +57,17 @@ type Props = {
 /** 활동일지 첫 화면: 구글 캘린더처럼 달력에 일정과 작성한 활동일지를 보여 줌. 날짜를 누르면 그 옆에 말풍선이 떠서 바로 일정을 만듦 */
 export default function DutyCalendar({ weeks, events, status, onOpenWeek, onRemoveWeek, onSaveEvent, onRemoveEvent }: Props) {
   const [today] = useState(() => isoOf(new Date()));
-  const [month, setMonth] = useState(() => {
+  const [month, setMonth] = useState<Month>(() => {
     const [y, m] = today.split("-").map(Number);
     return { y, m };
   });
   const [pop, setPop] = useState<Pop | null>(null);
+  /** 달을 넘기는 중: 앞 달(from)과 들어오는 방향. slid 가 되면 새 달이 제자리로 미끄러짐 */
+  const [anim, setAnim] = useState<{ from: Month; dir: 1 | -1; slid: boolean } | null>(null);
+  const animTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** 왼쪽 활동일지 · 일정 목록을 펼쳤는지 */
+  const [openLogs, setOpenLogs] = useState(true);
+  const [openEvents, setOpenEvents] = useState(true);
   /** 목록에서 눌러 달력이 옮겨 간 활동일지 (막대를 잠깐 강조) */
   const [focusKey, setFocusKey] = useState<string | null>(null);
   /** 달력의 활동일지 막대를 눌러 옆에 미리 보는 활동일지와 그 자리(달력 영역 기준 px) */
@@ -121,15 +130,16 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onRemo
   const logOn = (date: string) => logs.find((l) => l.start <= date && date <= l.end);
 
   // 그 달을 덮는 주(일요일 시작)들
-  const rows = useMemo(() => {
-    const first = new Date(month.y, month.m - 1, 1);
-    const days = new Date(month.y, month.m, 0).getDate();
-    const start = new Date(month.y, month.m - 1, 1 - first.getDay());
+  /** 그 달을 덮는 주(일요일 시작)들 */
+  const weeksOf = ({ y, m }: Month) => {
+    const first = new Date(y, m - 1, 1);
+    const days = new Date(y, m, 0).getDate();
+    const start = new Date(y, m - 1, 1 - first.getDay());
     const count = Math.ceil((first.getDay() + days) / 7);
     return Array.from({ length: count }, (_, r) =>
       Array.from({ length: 7 }, (_, c) => isoOf(new Date(start.getFullYear(), start.getMonth(), start.getDate() + r * 7 + c))),
     );
-  }, [month]);
+  };
 
   /** 그 줄(주)에 걸친 활동일지 막대들: 이어지는 날짜를 한 덩어리로 (겹치면 아래 줄에 쌓음) */
   const barsOf = (row: string[]) => {
@@ -181,19 +191,27 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onRemo
       }));
   }, [events]);
 
+  /** 달을 바꿈: 뒤 달이면 오른쪽에서, 앞 달이면 왼쪽에서 새 달이 밀려 들어옴 */
+  const changeMonth = (next: Month) => {
+    const diff = next.y * 12 + next.m - (month.y * 12 + month.m);
+    if (diff === 0) return;
+    if (animTimer.current) clearTimeout(animTimer.current);
+    setAnim({ from: month, dir: diff > 0 ? 1 : -1, slid: false });
+    setMonth(next);
+    requestAnimationFrame(() => requestAnimationFrame(() => setAnim((a) => a && { ...a, slid: true })));
+    animTimer.current = setTimeout(() => setAnim(null), SLIDE_MS);
+  };
   const move = (delta: number) => {
     setPop(null);
-    setMonth(({ y, m }) => {
-      const d = new Date(y, m - 1 + delta, 1);
-      return { y: d.getFullYear(), m: d.getMonth() + 1 };
-    });
+    const d = new Date(month.y, month.m - 1 + delta, 1);
+    changeMonth({ y: d.getFullYear(), m: d.getMonth() + 1 });
   };
   /** 목록에서 고른 활동일지가 있는 달로 달력을 옮기고 그 막대를 강조 */
   const showLog = (item: LogItem) => {
     const [y, m] = item.start.split("-").map(Number);
     setPop(null);
     setPreview(null);
-    setMonth({ y, m });
+    changeMonth({ y, m });
     setFocusKey(item.key);
   };
   /** 달력의 활동일지 막대를 누르면 누른 자리 바로 아래(아래가 모자라면 위)에 미리보기를 띄움 */
@@ -214,13 +232,13 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onRemo
   const showEvent = (e: React.MouseEvent<HTMLElement>, ev: DutyEvent) => {
     const [y, m] = ev.date.split("-").map(Number);
     setPreview(null);
-    setMonth({ y, m });
+    changeMonth({ y, m });
     openPop(e, "view", ev.date, ev.id);
   };
   const goToday = () => {
     setPop(null);
     const [y, m] = today.split("-").map(Number);
-    setMonth({ y, m });
+    changeMonth({ y, m });
   };
 
   /** 누른 것(칸 · 일정 · 단추) 바로 옆에 말풍선을 띄움: 오른쪽에 자리가 없으면 왼쪽에, 아래가 모자라면 위로 올림 */
@@ -242,6 +260,88 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onRemo
 
   const popEvent = pop?.eventId ? events[pop.eventId]?.event ?? undefined : undefined;
 
+  /** 한 달 칸들 (달을 넘기는 동안에는 앞 달과 새 달을 함께 그림) */
+  const monthGrid = (shown: Month) => (
+    <>
+      {weeksOf(shown).map((row) => {
+        const { bars, laneCount } = barsOf(row);
+        return (
+          <div key={row[0]} className="relative grid grid-cols-7">
+            {row.map((date, dow) => {
+              const inMonth = date.startsWith(`${shown.y}-${pad(shown.m)}`);
+              const list = byDate[date] ?? [];
+              const chips = list.slice(0, MAX_CHIPS);
+              const more = list.length - chips.length;
+              const covered = !!logOn(date);
+              const selected = pop?.date === date && (pop.mode === "create" || pop.mode === "day");
+              return (
+                <div key={date} className={`relative min-h-[5.5rem] border-b border-r border-slate-100 sm:min-h-[7rem] ${selected ? "bg-indigo-50/60" : inMonth ? "bg-white" : "bg-slate-50/70"}`}>
+                  <button
+                    type="button"
+                    onClick={(e) => openPop(e, "create", date)}
+                    aria-label={`${label(date)} 일정 만들기${covered ? " (활동일지 작성됨)" : ""}`}
+                    title="눌러서 일정 만들기"
+                    className="absolute inset-0 cursor-pointer transition hover:bg-indigo-50/50 focus-visible:z-10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-400"
+                  />
+                  <div className="pointer-events-none relative flex h-full flex-col gap-0.5 p-1">
+                    <span
+                      className={`mb-0.5 grid h-6 w-6 place-items-center self-start rounded-full text-xs font-semibold ${
+                        date === today ? "bg-indigo-600 text-white" : !inMonth ? "text-slate-300" : dow === 0 ? "text-red-500" : dow === 6 ? "text-sky-600" : "text-slate-700"
+                      }`}
+                    >
+                      {Number(date.slice(8))}
+                    </span>
+                    {/* 활동일지 막대가 지나가는 자리 */}
+                    {laneCount > 0 && <div style={{ height: `${laneCount * BAR_STEP - 0.15}rem` }} aria-hidden="true" />}
+                    {chips.map((ev) => (
+                      <button
+                        key={ev.id}
+                        type="button"
+                        onClick={(e) => openPop(e, "view", date, ev.id)}
+                        title={`${ev.time ? `${ev.time} ` : ""}${ev.title}`}
+                        className={`pointer-events-auto flex items-center gap-1 truncate rounded px-1.5 py-0.5 text-left text-[11px] font-semibold transition ${
+                          ev.time ? "text-slate-700 hover:bg-slate-100" : "bg-indigo-600 text-white hover:bg-indigo-700"
+                        }`}
+                      >
+                        {ev.time && <span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-full bg-indigo-600" />}
+                        {ev.time && <span className="shrink-0 font-normal text-slate-500">{ev.time}</span>}
+                        <span className="truncate">{ev.title}</span>
+                      </button>
+                    ))}
+                    {more > 0 && (
+                      <button type="button" onClick={(e) => openPop(e, "day", date)} className="pointer-events-auto self-start rounded px-1 text-[11px] font-semibold text-slate-500 hover:bg-slate-100">
+                        +{more}개 더보기
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+            {/* 이어지는 날짜는 막대 하나로 */}
+            {bars.map(({ item, col, span, lane, fromStart, toEnd }) => (
+              <button
+                key={`${item.key}-${col}`}
+                type="button"
+                onClick={(e) => openPreview(e, item)}
+                aria-pressed={preview?.key === item.key}
+                title={`활동일지 ${md(item.start)} ~ ${md(item.end)} — 눌러서 미리 보기`}
+                className={`absolute z-[1] truncate bg-emerald-600 px-2 text-left text-[11px] font-semibold leading-5 text-white transition hover:bg-emerald-700 ${focusKey === item.key ? "ring-2 ring-emerald-300 ring-offset-1" : ""} ${fromStart ? "rounded-l-md" : ""} ${toEnd ? "rounded-r-md" : ""}`}
+                style={{
+                  left: `calc(${(col / 7) * 100}% + ${fromStart ? 4 : 0}px)`,
+                  width: `calc(${(span / 7) * 100}% - ${(fromStart ? 4 : 0) + (toEnd ? 4 : 0)}px)`,
+                  top: `${BAR_TOP + lane * BAR_STEP}rem`,
+                  height: `${BAR_H}rem`,
+                }}
+              >
+                활동일지 {md(item.start)} ~ {md(item.end)}
+              </button>
+            ))}
+          </div>
+        );
+      })}
+    </>
+  );
+
   return (
     <div className="fade-up mx-auto max-w-6xl">
       <div className="mb-5 text-center">
@@ -251,8 +351,20 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onRemo
       <div className="grid gap-5 lg:grid-cols-[15rem_minmax(0,1fr)]">
         <div className="h-fit space-y-5 lg:sticky lg:top-4">
           <aside aria-label="연도별 활동일지" className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-            <h2 className="mb-2 px-1 text-sm font-bold text-slate-800">활동일지</h2>
-            {tree.length === 0 ? (
+            <h2 className="mb-1">
+              <button
+                type="button"
+                onClick={() => setOpenLogs((o) => !o)}
+                aria-expanded={openLogs}
+                className="flex w-full items-center justify-between rounded-lg px-1 py-1 text-sm font-bold text-slate-800 transition hover:bg-slate-50"
+              >
+                활동일지
+                <span aria-hidden="true" className={`inline-block text-slate-400 transition ${openLogs ? "rotate-90" : ""}`}>
+                  ›
+                </span>
+              </button>
+            </h2>
+            {!openLogs ? null : tree.length === 0 ? (
               <p className="rounded-lg bg-slate-50 px-3 py-3 text-xs leading-relaxed text-slate-400">아직 쓴 활동일지가 없어요. 날짜를 눌러 「활동일지」 탭에서 써 보세요.</p>
             ) : (
               <div className="max-h-[28rem] space-y-1 overflow-y-auto pr-0.5">
@@ -295,8 +407,20 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onRemo
 
           </aside>
           <aside aria-label="연도별 일정" className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-            <h2 className="mb-2 px-1 text-sm font-bold text-slate-800">일정</h2>
-            {eventTree.length === 0 ? (
+            <h2 className="mb-1">
+              <button
+                type="button"
+                onClick={() => setOpenEvents((o) => !o)}
+                aria-expanded={openEvents}
+                className="flex w-full items-center justify-between rounded-lg px-1 py-1 text-sm font-bold text-slate-800 transition hover:bg-slate-50"
+              >
+                일정
+                <span aria-hidden="true" className={`inline-block text-slate-400 transition ${openEvents ? "rotate-90" : ""}`}>
+                  ›
+                </span>
+              </button>
+            </h2>
+            {!openEvents ? null : eventTree.length === 0 ? (
               <p className="rounded-lg bg-slate-50 px-3 py-3 text-xs leading-relaxed text-slate-400">아직 등록한 일정이 없어요. 달력의 날짜 칸을 눌러 만들어 보세요.</p>
             ) : (
               <div className="max-h-[28rem] space-y-1 overflow-y-auto pr-0.5">
@@ -344,20 +468,21 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onRemo
         </div>
 
         <div ref={areaRef} className="relative min-w-0">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          {/* 가운데: ‹ 년 월 › · 왼쪽 끝: 오늘 */}
+          <div className="relative mb-3 flex items-center justify-center">
+            <button type="button" onClick={goToday} className="absolute left-0 rounded-lg px-3 py-2 text-sm font-semibold text-slate-700 ring-1 ring-inset ring-slate-300 transition hover:bg-slate-50">
+              오늘
+            </button>
             <div className="flex items-center gap-1.5">
-              <button type="button" onClick={goToday} className="rounded-lg px-3 py-2 text-sm font-semibold text-slate-700 ring-1 ring-inset ring-slate-300 transition hover:bg-slate-50">
-                오늘
-              </button>
               <button type="button" onClick={() => move(-1)} aria-label="이전 달" className="grid h-9 w-9 place-items-center rounded-full text-lg text-slate-600 transition hover:bg-slate-100">
                 ‹
               </button>
+              <h2 className="min-w-[8.5rem] text-center text-xl font-bold text-slate-900" aria-live="polite">
+                {month.y}년 {month.m}월
+              </h2>
               <button type="button" onClick={() => move(1)} aria-label="다음 달" className="grid h-9 w-9 place-items-center rounded-full text-lg text-slate-600 transition hover:bg-slate-100">
                 ›
               </button>
-              <h2 className="ml-1 text-xl font-bold text-slate-900" aria-live="polite">
-                {month.y}년 {month.m}월
-              </h2>
             </div>
           </div>
 
@@ -369,82 +494,20 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onRemo
                 </div>
               ))}
             </div>
-            {rows.map((row) => {
-              const { bars, laneCount } = barsOf(row);
-              return (
-                <div key={row[0]} className="relative grid grid-cols-7">
-                  {row.map((date, dow) => {
-                    const inMonth = date.startsWith(`${month.y}-${pad(month.m)}`);
-                    const list = byDate[date] ?? [];
-                    const shown = list.slice(0, MAX_CHIPS);
-                    const more = list.length - shown.length;
-                    const covered = !!logOn(date);
-                    const selected = pop?.date === date && (pop.mode === "create" || pop.mode === "day");
-                    return (
-                      <div key={date} className={`relative min-h-[5.5rem] border-b border-r border-slate-100 sm:min-h-[7rem] ${selected ? "bg-indigo-50/60" : inMonth ? "bg-white" : "bg-slate-50/70"}`}>
-                        <button
-                          type="button"
-                          onClick={(e) => openPop(e, "create", date)}
-                          aria-label={`${label(date)} 일정 만들기${covered ? " (활동일지 작성됨)" : ""}`}
-                          title="눌러서 일정 만들기"
-                          className="absolute inset-0 cursor-pointer transition hover:bg-indigo-50/50 focus-visible:z-10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-400"
-                        />
-                        <div className="pointer-events-none relative flex h-full flex-col gap-0.5 p-1">
-                          <span
-                            className={`mb-0.5 grid h-6 w-6 place-items-center self-start rounded-full text-xs font-semibold ${
-                              date === today ? "bg-indigo-600 text-white" : !inMonth ? "text-slate-300" : dow === 0 ? "text-red-500" : dow === 6 ? "text-sky-600" : "text-slate-700"
-                            }`}
-                          >
-                            {Number(date.slice(8))}
-                          </span>
-                          {/* 활동일지 막대가 지나가는 자리 */}
-                          {laneCount > 0 && <div style={{ height: `${laneCount * BAR_STEP - 0.15}rem` }} aria-hidden="true" />}
-                          {shown.map((ev) => (
-                            <button
-                              key={ev.id}
-                              type="button"
-                              onClick={(e) => openPop(e, "view", date, ev.id)}
-                              title={`${ev.time ? `${ev.time} ` : ""}${ev.title}`}
-                              className={`pointer-events-auto flex items-center gap-1 truncate rounded px-1.5 py-0.5 text-left text-[11px] font-semibold transition ${
-                                ev.time ? "text-slate-700 hover:bg-slate-100" : "bg-indigo-600 text-white hover:bg-indigo-700"
-                              }`}
-                            >
-                              {ev.time && <span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-full bg-indigo-600" />}
-                              {ev.time && <span className="shrink-0 font-normal text-slate-500">{ev.time}</span>}
-                              <span className="truncate">{ev.title}</span>
-                            </button>
-                          ))}
-                          {more > 0 && (
-                            <button type="button" onClick={(e) => openPop(e, "day", date)} className="pointer-events-auto self-start rounded px-1 text-[11px] font-semibold text-slate-500 hover:bg-slate-100">
-                              +{more}개 더보기
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                  {/* 이어지는 날짜는 막대 하나로 */}
-                  {bars.map(({ item, col, span, lane, fromStart, toEnd }) => (
-                    <button
-                      key={`${item.key}-${col}`}
-                      type="button"
-                      onClick={(e) => openPreview(e, item)}
-                      aria-pressed={preview?.key === item.key}
-                      title={`활동일지 ${md(item.start)} ~ ${md(item.end)} — 눌러서 미리 보기`}
-                      className={`absolute z-[1] truncate bg-emerald-600 px-2 text-left text-[11px] font-semibold leading-5 text-white transition hover:bg-emerald-700 ${focusKey === item.key ? "ring-2 ring-emerald-300 ring-offset-1" : ""} ${fromStart ? "rounded-l-md" : ""} ${toEnd ? "rounded-r-md" : ""}`}
-                      style={{
-                        left: `calc(${(col / 7) * 100}% + ${fromStart ? 4 : 0}px)`,
-                        width: `calc(${(span / 7) * 100}% - ${(fromStart ? 4 : 0) + (toEnd ? 4 : 0)}px)`,
-                        top: `${BAR_TOP + lane * BAR_STEP}rem`,
-                        height: `${BAR_H}rem`,
-                      }}
-                    >
-                      활동일지 {md(item.start)} ~ {md(item.end)}
-                    </button>
-                  ))}
+            <div className="relative overflow-hidden">
+              {/* 달을 넘길 때: 지금 달은 제자리에 두고, 새 달이 옆에서 들어와 덮음 (칭찬통장 미리보기처럼) */}
+              {anim && (
+                <div className="pointer-events-none absolute inset-x-0 top-0 z-0" aria-hidden="true">
+                  {monthGrid(anim.from)}
                 </div>
-              );
-            })}
+              )}
+              <div
+                className={`relative z-[2] bg-white ${anim ? "shadow-[0_0_24px_rgba(15,23,42,0.18)]" : ""} ${anim?.slid ? "transition-transform ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none" : ""}`}
+                style={{ transform: anim && !anim.slid ? `translateX(${anim.dir * 105}%)` : undefined, transitionDuration: `${SLIDE_MS}ms` }}
+              >
+                {monthGrid(month)}
+              </div>
+            </div>
           </div>
 
           {eventCount === 0 && logs.length === 0 && <p className="mt-3 text-center text-sm text-slate-400">날짜 칸을 눌러 첫 일정을 만들어 보세요.</p>}
