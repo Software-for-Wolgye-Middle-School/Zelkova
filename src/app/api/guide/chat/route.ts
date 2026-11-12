@@ -11,8 +11,8 @@ import { readStudents } from "@/lib/studentStore";
  */
 
 const NO_STORE = { "Cache-Control": "no-store" };
-// 새 프로젝트의 키는 2.5 Flash 를 쓸 수 없어 Google 이 권하는 모델로 바꿈 (GEMINI_MODEL 로 바꿀 수 있음)
-const MODEL = process.env.GEMINI_MODEL ?? "gemini-3.8-flash";
+// 무료 사용량을 넉넉히 쓰려고 가벼운 Flash-Lite 를 씀 (GEMINI_MODEL 로 바꿀 수 있음)
+const MODEL = process.env.GEMINI_MODEL ?? "gemini-3.5-flash-lite";
 /**
  * 답하기 전 '생각'은 출력 한도를 써서 답이 끊길 수 있으므로 가볍게: Gemini 3 부터는 thinkingLevel, 2.x 는 thinkingBudget
  */
