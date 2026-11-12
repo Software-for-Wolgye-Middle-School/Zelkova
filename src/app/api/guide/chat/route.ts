@@ -60,12 +60,13 @@ export async function POST(request: Request) {
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: await systemPrompt() }] },
         contents: turns.map((t) => ({ role: t.role, parts: [{ text: t.text }] })),
-        generationConfig: { temperature: 0.4, maxOutputTokens: 1024 },
+        // 2.5 Flash 는 답하기 전에 '생각'하는 토큰도 출력 한도에서 써서 답이 중간에 끊겼음 → 생각은 끄고 한도를 넉넉히
+        generationConfig: { temperature: 0.4, maxOutputTokens: 4096, thinkingConfig: { thinkingBudget: 0 } },
       }),
       cache: "no-store",
     });
     const data = (await res.json().catch(() => null)) as {
-      candidates?: { content?: { parts?: { text?: string }[] } }[];
+      candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[];
       error?: { message?: string };
     } | null;
     if (!res.ok) {
@@ -73,6 +74,7 @@ export async function POST(request: Request) {
       return fail("Gemini 에서 답을 받지 못했어요. 잠시 뒤 다시 해 주세요.", 502);
     }
     const text = data?.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("").trim();
+    if (data?.candidates?.[0]?.finishReason === "MAX_TOKENS") console.warn("Gemini 답이 출력 한도에서 잘렸어요.");
     if (!text) return fail("Gemini 가 답을 만들지 못했어요. 질문을 바꿔 다시 해 주세요.", 502);
     return Response.json({ text }, { headers: NO_STORE });
   } catch (e) {

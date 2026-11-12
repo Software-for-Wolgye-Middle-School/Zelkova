@@ -141,7 +141,24 @@ body {
   animation: word-in 0.45s ease-out both;
 }
 
+/* 업무 안내 예시 질문: 왼쪽에서 오른쪽으로 끝없이 흘러감 (목록을 두 번 이어 붙여 절반만큼 움직임) */
+@keyframes marquee-right {
+  from {
+    transform: translateX(-50%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+.marquee-track {
+  animation: marquee-right 40s linear infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .marquee {
+    overflow-x: auto;
+  }
+  .marquee-track,
   .word-in,
   .cell-fill,
   .shimmer::after,
