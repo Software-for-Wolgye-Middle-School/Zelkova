@@ -62,15 +62,14 @@ function DateField({ value, onChange, x, label }: { value: string; onChange: (v:
   );
 }
 
-/** 입력하기 → 서버에 저장하기 → 다운로드하기 */
+/** 입력하기 → 다운로드하기 (입력한 내용은 자동으로 서버에 저장됨) */
 const STEPS: readonly Step[] = [
   {
     title: "입력하기",
     heading: "활동일지를 입력해 주세요",
     hint: "칸을 눌러 체크하고, 날짜 · 비고를 적고, 작성자를 눌러 서명을 넣어요. 요일 이름을 누르면 그날을 한꺼번에 체크해요.",
   },
-  { title: "서버에 저장", heading: "서버에 저장해 주세요", hint: "입력한 내용은 이 컴퓨터에도 먼저 저장돼 있어요." },
-  { title: "다운로드", heading: "PDF로 내려받아요", hint: "서버에 저장한 활동일지를 인쇄할 수 있는 PDF로 받아요." },
+  { title: "다운로드", heading: "PDF로 내려받아요", hint: "입력한 활동일지를 인쇄할 수 있는 PDF로 받아요." },
 ];
 
 type EditorProps = {
@@ -79,7 +78,7 @@ type EditorProps = {
   log: DutyLog;
   status: Status;
   onChange: (change: (l: DutyLog) => DutyLog) => void;
-  /** 지금 서버에 저장 (올리지 못한 내용이 없으면 true) */
+  /** 지금 서버에 저장 (다운로드 단계로 넘어갈 때 기다리지 않고 바로 올림) */
   onSaveNow: () => Promise<boolean>;
   onBack: () => void;
 };
@@ -89,8 +88,6 @@ function DutyLogEditor({ weekKey, log, status, onChange: update, onSaveNow, onBa
   const { step, checking, goStep, goNext, fadeClass } = useStepFlow();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [saveMsg, setSaveMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const blank = useMemo(() => dutyLogSvg(log), [log.start]); // eslint-disable-line react-hooks/exhaustive-deps -- 머리글의 학년도만 시작일에 따라 바뀜
   /** 입력하기 다음 단계에서는 입력한 내용이 들어간 모습을 그대로 보여 줌 */
@@ -107,17 +104,6 @@ function DutyLogEditor({ weekKey, log, status, onChange: update, onSaveNow, onBa
   const setNote = (d: number, text: string) => update((l) => ({ ...l, notes: l.notes.map((n, i) => (i === d ? text : n)) }));
   const reset = () => {
     if (window.confirm(`이 주(${dotted(weekKey)} ~ ${dotted(addDays(weekKey, 4))})의 체크와 비고, 서명을 모두 지우고 새로 시작할까요?`)) update(() => weekLog(weekKey));
-  };
-
-  /** 서버에 저장하고, 저장되면 바로 다음(다운로드) 단계로. 저장하지 못하면 이 단계에 남아 안내함 */
-  const saveToServer = async () => {
-    if (saving || checking) return;
-    setSaving(true);
-    setSaveMsg(null);
-    const ok = await onSaveNow();
-    setSaving(false);
-    if (ok) return goNext();
-    setSaveMsg({ ok: false, text: "서버에 저장하지 못했어요. 내용은 이 컴퓨터에 저장돼 있고, 서버가 돌아오면 자동으로 다시 저장해요." });
   };
 
   const savePdf = async () => {
@@ -163,28 +149,6 @@ function DutyLogEditor({ weekKey, log, status, onChange: update, onSaveNow, onBa
 
           {step === 1 && (
             <div className="space-y-3">
-              <button
-                type="button"
-                onClick={saveToServer}
-                disabled={saving}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-[15px] font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
-              >
-                {saving && <Spinner className="h-5 w-5" />}
-                서버에 저장하기
-              </button>
-              <p aria-live="polite" className={`text-xs font-medium ${STATUS_TEXT[status].tone}`}>
-                {STATUS_TEXT[status].text}
-              </p>
-              {saveMsg && (
-                <p role="status" className={`text-xs font-medium ${saveMsg.ok ? "text-emerald-600" : "text-red-600"}`}>
-                  {saveMsg.text}
-                </p>
-              )}
-            </div>
-          )}
-
-          {step === 2 && (
-            <div className="space-y-3">
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
@@ -199,6 +163,9 @@ function DutyLogEditor({ weekKey, log, status, onChange: update, onSaveNow, onBa
                   달력으로 돌아가기
                 </button>
               </div>
+              <p aria-live="polite" className={`text-xs font-medium ${STATUS_TEXT[status].tone}`}>
+                {STATUS_TEXT[status].text}
+              </p>
               {error && (
                 <p role="alert" className="text-xs font-medium text-red-600">
                   {error}
@@ -281,15 +248,10 @@ function DutyLogEditor({ weekKey, log, status, onChange: update, onSaveNow, onBa
           canNext
           checking={checking}
           onPrev={() => goStep(step - 1)}
-          // 저장 단계에서는 '다음'도 서버에 저장한 뒤 넘어감
-          onNext={() => (step === 1 ? void saveToServer() : goNext())}
-          extra={
-            step === 1 && (saveMsg?.ok === false || status === "offline" || status === "login") ? (
-              <button type="button" onClick={() => goNext()} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-500 transition hover:bg-slate-100">
-                저장 없이 넘어가기
-              </button>
-            ) : undefined
-          }
+          onNext={() => {
+            void onSaveNow();
+            goNext();
+          }}
         />
       </div>
     </div>

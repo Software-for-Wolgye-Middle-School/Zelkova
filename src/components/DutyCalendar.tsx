@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { hasEntries, isoOf, logRange, mondayOf } from "@/lib/dutyLogSvg";
+import { dutyLogSvg, hasEntries, isoOf, LOG_FONTS_URL, LOG_H, LOG_W, logRange, mondayOf, type DutyLog } from "@/lib/dutyLogSvg";
 import { byTime, EVENT_MEMO_MAX, EVENT_TITLE_MAX, type DutyEvent } from "@/lib/dutyEvents";
 import type { DutyDocs, EventDocs } from "./dutyLogSync";
 import { newEventId } from "./dutyLogSync";
@@ -29,7 +29,7 @@ const label = (iso: string) => {
 const pad = (n: number) => String(n).padStart(2, "0");
 
 /** 쓴 활동일지 하나: key 는 그 주 월요일 날짜, start ~ end 는 양식에 적은 날짜 */
-type LogItem = { key: string; start: string; end: string; signed: boolean };
+type LogItem = { key: string; start: string; end: string };
 
 /** 누른 자리 옆에 띄우는 말풍선: 만들기 · 보기 · 고치기 · 그날 일정 목록 */
 type Pop = { mode: "create" | "view" | "edit" | "day"; date: string; eventId?: string; left: number; top: number };
@@ -53,6 +53,10 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onSave
   const [pop, setPop] = useState<Pop | null>(null);
   /** 목록에서 눌러 달력이 옮겨 간 활동일지 (막대를 잠깐 강조) */
   const [focusKey, setFocusKey] = useState<string | null>(null);
+  /** 목록에서 눌러 옆에 미리 보는 활동일지와 그 자리(목록 기준 px) */
+  const [preview, setPreview] = useState<{ key: string; top: number } | null>(null);
+  /** 미리보기 위치의 기준이 되는 왼쪽 목록 */
+  const asideRef = useRef<HTMLElement>(null);
   /** 지운 직후 '실행취소'를 보여 주는 안내 */
   const [undo, setUndo] = useState<DutyEvent | null>(null);
   /** 말풍선 위치의 기준이 되는 달력 영역 */
@@ -69,6 +73,13 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onSave
     const t = setTimeout(() => setFocusKey(null), 2500);
     return () => clearTimeout(t);
   }, [focusKey]);
+
+  useEffect(() => {
+    if (!preview) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setPreview(null);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [preview]);
 
   useEffect(() => {
     if (!pop) return;
@@ -92,7 +103,7 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onSave
     () =>
       Object.keys(weeks)
         .filter((k) => hasEntries(weeks[k].log))
-        .map((key) => ({ key, ...logRange(key, weeks[key].log), signed: weeks[key].log.signed }))
+        .map((key) => ({ key, ...logRange(key, weeks[key].log) }))
         .sort((a, b) => a.start.localeCompare(b.start) || a.key.localeCompare(b.key)),
     [weeks],
   );
@@ -150,13 +161,18 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onSave
       return { y: d.getFullYear(), m: d.getMonth() + 1 };
     });
   };
-  /** 목록에서 고른 활동일지가 있는 달로 달력을 옮기고 그 막대를 강조 */
-  const showLog = (item: LogItem) => {
+  /** 목록에서 고른 활동일지를 옆에 미리 보여 주고, 달력도 그 달로 옮겨 막대를 강조 */
+  const showLog = (e: React.MouseEvent<HTMLElement>, item: LogItem) => {
     const [y, m] = item.start.split("-").map(Number);
+    const area = asideRef.current?.getBoundingClientRect();
+    const r = e.currentTarget.getBoundingClientRect();
     setPop(null);
     setMonth({ y, m });
     setFocusKey(item.key);
+    setPreview(preview?.key === item.key ? null : { key: item.key, top: area ? Math.max(0, r.top - area.top - 8) : 0 });
   };
+  const previewItem = preview ? logs.find((l) => l.key === preview.key) : undefined;
+  const previewLog = previewItem ? weeks[previewItem.key]?.log : undefined;
   const goToday = () => {
     setPop(null);
     const [y, m] = today.split("-").map(Number);
@@ -189,7 +205,7 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onSave
       </div>
 
       <div className="grid gap-5 lg:grid-cols-[15rem_minmax(0,1fr)]">
-        <aside aria-label="연도별 활동일지" className="h-fit rounded-2xl border border-slate-200 bg-white p-3 shadow-sm lg:sticky lg:top-4">
+        <aside ref={asideRef} aria-label="연도별 활동일지" className="relative z-30 h-fit rounded-2xl border border-slate-200 bg-white p-3 shadow-sm lg:sticky lg:top-4">
           <h2 className="mb-2 px-1 text-sm font-bold text-slate-800">등록된 활동일지</h2>
           {tree.length === 0 ? (
             <p className="rounded-lg bg-slate-50 px-3 py-3 text-xs leading-relaxed text-slate-400">아직 쓴 활동일지가 없어요. 날짜를 눌러 「활동일지」 탭에서 써 보세요.</p>
@@ -209,26 +225,17 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onSave
                         <h3 className="px-2 text-xs font-bold text-slate-500">{m}월</h3>
                         <ul className="mt-0.5 space-y-0.5">
                           {list.map((item) => (
-                            <li key={item.key} className={`flex items-center gap-1 rounded-md transition ${focusKey === item.key ? "bg-emerald-50" : ""}`}>
+                            <li key={item.key}>
                               <button
                                 type="button"
-                                onClick={() => showLog(item)}
-                                title="눌러서 달력에서 이 날짜로 이동"
-                                className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs font-semibold text-slate-600 transition hover:bg-emerald-50 hover:text-emerald-800"
+                                onClick={(e) => showLog(e, item)}
+                                aria-pressed={preview?.key === item.key}
+                                title="눌러서 미리 보기"
+                                className={`flex w-full items-center rounded-md px-2 py-1.5 text-left text-xs font-semibold transition hover:bg-emerald-50 hover:text-emerald-800 ${
+                                  preview?.key === item.key ? "bg-emerald-100 text-emerald-800" : focusKey === item.key ? "bg-emerald-50 text-slate-600" : "text-slate-600"
+                                }`}
                               >
-                                <span>
-                                  {md(item.start)} ~ {md(item.end)}
-                                </span>
-                                {item.signed && <span className="rounded bg-emerald-100 px-1 text-[10px] font-semibold text-emerald-700">서명</span>}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => onOpenWeek(item.key)}
-                                aria-label={`${md(item.start)} ~ ${md(item.end)} 활동일지 열기`}
-                                title="활동일지 열기"
-                                className="shrink-0 rounded-md px-1.5 py-1 text-[11px] font-semibold text-emerald-700 transition hover:bg-emerald-100"
-                              >
-                                열기
+                                {md(item.start)} ~ {md(item.end)}
                               </button>
                             </li>
                           ))}
@@ -239,6 +246,20 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onSave
                 </details>
               ))}
             </div>
+          )}
+
+          {previewItem && previewLog && (
+            <>
+              {/* 미리보기 밖을 누르면 닫힘 */}
+              <div className="fixed inset-0 z-40" onClick={() => setPreview(null)} aria-hidden="true" />
+              <LogPreview
+                item={previewItem}
+                log={previewLog}
+                top={preview?.top ?? 0}
+                onClose={() => setPreview(null)}
+                onEdit={() => onOpenWeek(previewItem.key)}
+              />
+            </>
           )}
         </aside>
 
@@ -421,6 +442,38 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onSave
 }
 
 const iconBtn = "grid h-8 w-8 place-items-center rounded-full text-slate-500 transition hover:bg-slate-100 hover:text-slate-800";
+
+/** 목록에서 고른 활동일지를 목록 바로 옆에 미리 보여 줌. 연필을 누르면 고치는 화면으로 */
+function LogPreview({ item, log, top, onClose, onEdit }: { item: LogItem; log: DutyLog; top: number; onClose: () => void; onEdit: () => void }) {
+  const svg = useMemo(() => dutyLogSvg(log, true), [log]);
+  return (
+    <div
+      role="dialog"
+      aria-label={`${md(item.start)} ~ ${md(item.end)} 활동일지 미리보기`}
+      style={{ ["--t" as string]: `${top}px` }}
+      className="fade-up fixed inset-x-3 bottom-3 z-50 max-h-[85vh] overflow-y-auto rounded-2xl bg-white p-3 shadow-2xl ring-1 ring-slate-200 lg:absolute lg:inset-x-auto lg:bottom-auto lg:left-[calc(100%+0.75rem)] lg:top-[var(--t)] lg:w-[26rem]"
+    >
+      {/* 양식 글꼴 (React 가 문서 head 로 옮겨 한 번만 불러옴) */}
+      <link rel="stylesheet" href={LOG_FONTS_URL} precedence="default" />
+      <div className="mb-2 flex items-center justify-between gap-2 pl-1">
+        <h3 className="text-sm font-bold text-slate-800">
+          활동일지 {md(item.start)} ~ {md(item.end)}
+        </h3>
+        <div className="flex items-center gap-0.5">
+          <button type="button" onClick={onEdit} title="수정" aria-label="활동일지 수정" className={iconBtn}>
+            ✎
+          </button>
+          <button type="button" onClick={onClose} title="닫기" aria-label="닫기" className={iconBtn}>
+            ✕
+          </button>
+        </div>
+      </div>
+      <div className="overflow-hidden rounded-md bg-white ring-1 ring-slate-200">
+        <div className="[&>svg]:block [&>svg]:h-full [&>svg]:w-full" style={{ aspectRatio: `${LOG_W} / ${LOG_H}` }} dangerouslySetInnerHTML={{ __html: svg }} />
+      </div>
+    </div>
+  );
+}
 
 /** 일정을 눌렀을 때: 내용 보기 + 고치기 · 삭제 · 닫기 */
 function ViewCard({ event, onClose, onEdit, onDelete }: { event: DutyEvent; onClose: () => void; onEdit: () => void; onDelete: () => void }) {
