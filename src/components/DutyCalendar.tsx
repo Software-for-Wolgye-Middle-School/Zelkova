@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { dutyLogSvg, hasEntries, isoOf, LOG_FONTS_URL, LOG_H, LOG_W, logRange, mondayOf, type DutyLog } from "@/lib/dutyLogSvg";
 import { byTime, EVENT_MEMO_MAX, EVENT_TITLE_MAX, type DutyEvent } from "@/lib/dutyEvents";
 import type { DutyDocs, EventDocs } from "./dutyLogSync";
@@ -42,12 +43,14 @@ type Props = {
   events: EventDocs;
   status: Status;
   onOpenWeek: (monday: string) => void;
+  /** 그 주의 활동일지를 지움 */
+  onRemoveWeek: (monday: string) => void;
   onSaveEvent: (event: DutyEvent) => void;
   onRemoveEvent: (id: string) => void;
 };
 
 /** 활동일지 첫 화면: 구글 캘린더처럼 달력에 일정과 작성한 활동일지를 보여 줌. 날짜를 누르면 그 옆에 말풍선이 떠서 바로 일정을 만듦 */
-export default function DutyCalendar({ weeks, events, status, onOpenWeek, onSaveEvent, onRemoveEvent }: Props) {
+export default function DutyCalendar({ weeks, events, status, onOpenWeek, onRemoveWeek, onSaveEvent, onRemoveEvent }: Props) {
   const [today] = useState(() => isoOf(new Date()));
   const [month, setMonth] = useState(() => {
     const [y, m] = today.split("-").map(Number);
@@ -380,6 +383,11 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onSave
                 top={preview?.top ?? 0}
                 onClose={() => setPreview(null)}
                 onEdit={() => onOpenWeek(previewItem.key)}
+                onDelete={() => {
+                  if (!window.confirm(`활동일지 ${md(previewItem.start)} ~ ${md(previewItem.end)}를 삭제할까요? 체크와 비고, 서명이 모두 지워져요.`)) return;
+                  onRemoveWeek(previewItem.key);
+                  setPreview(null);
+                }}
               />
             </>
           )}
@@ -454,11 +462,50 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onSave
   );
 }
 
+/** 네 귀퉁이가 바깥으로 벌어진 전체 화면 아이콘 */
+function FullscreenIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
+    </svg>
+  );
+}
+
 const iconBtn = "grid h-8 w-8 place-items-center rounded-full text-slate-500 transition hover:bg-slate-100 hover:text-slate-800";
 
-/** 달력에서 누른 활동일지 막대 바로 옆에 미리 보여 줌. 연필을 누르면 고치는 화면으로 */
-function LogPreview({ item, log, left, top, onClose, onEdit }: { item: LogItem; log: DutyLog; left: number; top: number; onClose: () => void; onEdit: () => void }) {
+/** 달력에서 누른 활동일지 막대 바로 옆에 미리 보여 줌. 연필은 고치기, 쓰레기통은 삭제, 양식 왼쪽 위 단추는 전체 화면 */
+function LogPreview({
+  item,
+  log,
+  left,
+  top,
+  onClose,
+  onEdit,
+  onDelete,
+}: {
+  item: LogItem;
+  log: DutyLog;
+  left: number;
+  top: number;
+  onClose: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
   const svg = useMemo(() => dutyLogSvg(log, true), [log]);
+  const [full, setFull] = useState(false);
+
+  // 전체 화면에서 Esc 는 전체 화면만 닫음 (미리보기는 그대로)
+  useEffect(() => {
+    if (!full) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      setFull(false);
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [full]);
+
   return (
     <div
       role="dialog"
@@ -476,14 +523,48 @@ function LogPreview({ item, log, left, top, onClose, onEdit }: { item: LogItem; 
           <button type="button" onClick={onEdit} title="수정" aria-label="활동일지 수정" className={iconBtn}>
             ✎
           </button>
+          <button type="button" onClick={onDelete} title="삭제" aria-label="활동일지 삭제" className={`${iconBtn} hover:bg-red-50 hover:text-red-600`}>
+            🗑
+          </button>
           <button type="button" onClick={onClose} title="닫기" aria-label="닫기" className={iconBtn}>
             ✕
           </button>
         </div>
       </div>
-      <div className="overflow-hidden rounded-md bg-white ring-1 ring-slate-200">
+      <div className="relative overflow-hidden rounded-md bg-white ring-1 ring-slate-200">
         <div className="[&>svg]:block [&>svg]:h-full [&>svg]:w-full" style={{ aspectRatio: `${LOG_W} / ${LOG_H}` }} dangerouslySetInnerHTML={{ __html: svg }} />
+        <button
+          type="button"
+          onClick={() => setFull(true)}
+          title="전체 화면으로 보기"
+          aria-label="활동일지 전체 화면으로 보기"
+          className="absolute left-1.5 top-1.5 grid h-8 w-8 place-items-center rounded-lg bg-white/90 text-slate-600 shadow-sm ring-1 ring-slate-200 transition hover:bg-slate-100 hover:text-slate-900"
+        >
+          <FullscreenIcon />
+        </button>
       </div>
+
+      {full &&
+        createPortal(
+          <div role="dialog" aria-label={`${md(item.start)} ~ ${md(item.end)} 활동일지 전체 화면`} className="fixed inset-0 z-[70] grid place-items-center bg-slate-900/80 p-4" onClick={() => setFull(false)}>
+            <div
+              className="relative max-h-full max-w-full overflow-hidden rounded-md bg-white shadow-2xl [&>svg]:block [&>svg]:h-full [&>svg]:w-full"
+              style={{ aspectRatio: `${LOG_W} / ${LOG_H}`, height: "calc(100vh - 2rem)" }}
+              onClick={(e) => e.stopPropagation()}
+              dangerouslySetInnerHTML={{ __html: svg }}
+            />
+            <button
+              type="button"
+              onClick={() => setFull(false)}
+              title="전체 화면 닫기"
+              aria-label="전체 화면 닫기"
+              className="absolute right-4 top-4 grid h-10 w-10 place-items-center rounded-full bg-white/90 text-lg text-slate-700 shadow transition hover:bg-white"
+            >
+              ✕
+            </button>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

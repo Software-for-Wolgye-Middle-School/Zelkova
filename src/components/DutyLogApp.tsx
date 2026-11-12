@@ -9,7 +9,6 @@ import {
   dayTop,
   dutyLogSvg,
   dutyLogText,
-  addDays,
   weekLog,
   GRID,
   INK_FONT,
@@ -34,9 +33,6 @@ import { DownloadIcon, Spinner } from "./icons";
 import DutyCalendar from "./DutyCalendar";
 import { STATUS_TEXT, useDutySync, type Status } from "./useDutySync";
 import { StepHeading, StepNav, StepProgress, useStepFlow, type Step } from "./StepFlow";
-
-/** 2026-11-09 → 2026.11.09 */
-const dotted = (iso: string) => iso.replace(/-/g, ".");
 
 /** 양식의 좌표(595 × 842 단위)를 화면 비율(%)로 */
 const pct = (x: number, y: number, w: number, h: number) => ({
@@ -67,7 +63,6 @@ const STEPS: readonly Step[] = [
   {
     title: "입력하기",
     heading: "활동일지를 입력해 주세요",
-    hint: "칸을 눌러 체크하고, 날짜 · 비고를 적고, 작성자를 눌러 서명을 넣어요. 요일 이름을 누르면 그날을 한꺼번에 체크해요.",
   },
   { title: "다운로드", heading: "PDF로 내려받아요", hint: "입력한 활동일지를 인쇄할 수 있는 PDF로 받아요." },
 ];
@@ -102,9 +97,6 @@ function DutyLogEditor({ weekKey, log, status, onChange: update, onSaveNow, onBa
       return { ...l, checks: l.checks.map((c, k) => (range.includes(k) ? !all : c)) };
     });
   const setNote = (d: number, text: string) => update((l) => ({ ...l, notes: l.notes.map((n, i) => (i === d ? text : n)) }));
-  const reset = () => {
-    if (window.confirm(`이 주(${dotted(weekKey)} ~ ${dotted(addDays(weekKey, 4))})의 체크와 비고, 서명을 모두 지우고 새로 시작할까요?`)) update(() => weekLog(weekKey));
-  };
 
   const savePdf = async () => {
     setBusy(true);
@@ -141,11 +133,6 @@ function DutyLogEditor({ weekKey, log, status, onChange: update, onSaveNow, onBa
         <div className={`space-y-4 ${fadeClass}`}>
           <StepHeading step={STEPS[step]} />
 
-          {step === 0 && (
-            <button type="button" onClick={reset} className="rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 ring-1 ring-inset ring-slate-200 transition hover:bg-slate-50">
-              새로 시작
-            </button>
-          )}
 
           {step === 1 && (
             <div className="space-y-3">
@@ -282,6 +269,7 @@ export default function DutyLogApp() {
       events={events}
       status={status}
       onOpenWeek={(week) => setView({ mode: "edit", week })}
+      onRemoveWeek={(week) => editWeek(week, () => weekLog(week))}
       onSaveEvent={saveEvent}
       onRemoveEvent={removeEvent}
     />
