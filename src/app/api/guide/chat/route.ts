@@ -71,6 +71,8 @@ export async function POST(request: Request) {
     } | null;
     if (!res.ok) {
       console.error("Gemini", res.status, data?.error?.message);
+      // 무료 등급은 하루 요청 수가 정해져 있어 다 쓰면 다음 날까지 막힘
+      if (res.status === 429) return fail("오늘 쓸 수 있는 Gemini 사용량을 모두 썼어요. 내일 다시 물어봐 주세요.", 429);
       return fail("Gemini 에서 답을 받지 못했어요. 잠시 뒤 다시 해 주세요.", 502);
     }
     const text = data?.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("").trim();
