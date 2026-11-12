@@ -1,16 +1,16 @@
 import { connection } from "next/server";
 import { isAuthed } from "@/lib/auth";
-import { isWeekKey, readDutyWeeks, sanitizeDutyLog, writeDutyWeek } from "@/lib/dutyLogStore";
+import { isWeekKey, readDutyDoc, sanitizeDutyLog, writeDutyWeek } from "@/lib/dutyLogStore";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 /** 활동일지는 로그인한 사람만 보고 고칠 수 있음 */
 const unauthorized = () => Response.json({ error: "로그인이 필요해요." }, { status: 401, headers: NO_STORE });
 
-/** 저장된 모든 주의 활동일지 (주의 월요일 날짜 → 내용) */
+/** 저장된 모든 활동일지(주의 월요일 날짜 → 내용)와 달력 일정(id → 일정) */
 export async function GET(request: Request) {
   await connection();
   if (!isAuthed(request)) return unauthorized();
-  return Response.json({ weeks: await readDutyWeeks() }, { headers: NO_STORE });
+  return Response.json(await readDutyDoc(), { headers: NO_STORE });
 }
 
 /** 한 주의 활동일지를 저장 */

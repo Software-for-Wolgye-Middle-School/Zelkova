@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   checkPath,
   DATE_LINE,
@@ -34,7 +34,9 @@ import {
 } from "@/lib/dutyLogSvg";
 import { embeddedFontCss, svgToPng, withFont } from "@/lib/svgExport";
 import { DownloadIcon, Spinner } from "./icons";
-import { editStamp, fetchServer, loadLocal, pushServer, saveLocal, type DutyDocs } from "./dutyLogSync";
+import DutyCalendar from "./DutyCalendar";
+import { STATUS_TEXT, useDutySync, type Status } from "./useDutySync";
+import type { DutyDocs } from "./dutyLogSync";
 
 /** 쓴 내용이 있는 주들 (최근 주가 앞) */
 const weeksWithEntries = (docs: DutyDocs) =>
@@ -70,147 +72,22 @@ function DateField({ value, onChange, x, label }: { value: string; onChange: (v:
   );
 }
 
-/** 서버 저장 상태 */
-type Status = "checking" | "saving" | "saved" | "offline" | "login";
-
-const STATUS_TEXT: Record<Status, { text: string; tone: string }> = {
-  checking: { text: "서버와 맞춰 보는 중…", tone: "text-slate-400" },
-  saving: { text: "저장 중…", tone: "text-slate-500" },
-  saved: { text: "✓ 서버에 저장됐어요", tone: "text-emerald-600" },
-  offline: { text: "서버에 연결되지 않아 이 컴퓨터에 먼저 저장했어요. 연결되면 자동으로 서버에 저장돼요.", tone: "text-amber-600" },
-  login: { text: "로그인이 풀려 이 컴퓨터에 먼저 저장했어요. 다시 로그인하면 자동으로 서버에 저장돼요.", tone: "text-amber-600" },
+type EditorProps = {
+  /** 지금 보고 있는 주 (월요일 날짜) */
+  weekKey: string;
+  log: DutyLog;
+  /** 기록한 주들 (최근 주가 앞) */
+  savedWeeks: string[];
+  status: Status;
+  onChange: (change: (l: DutyLog) => DutyLog) => void;
+  onWeek: (key: string) => void;
+  onBack: () => void;
 };
 
-const RETRY_MS = [3000, 8000, 20000, 60000];
-
-export default function DutyLogApp() {
-  // 이 컴퓨터에 저장된 기록을 불러와 이번 주부터 보여 주고, 서버에 더 나중에 고친 기록이 있으면 아래에서 그쪽으로 바꿈
-  const [initial] = useState(() => ({ docs: loadLocal(), key: mondayOf(isoOf(new Date())) }));
-  const docsRef = useRef<DutyDocs>(initial.docs);
-  /** 지금 보고 있는 주 (월요일 날짜) */
-  const weekRef = useRef(initial.key);
-  const [weekKey, setWeekKey] = useState(initial.key);
-  const [log, setLog] = useState<DutyLog>(() => initial.docs[initial.key]?.log ?? weekLog(initial.key));
-  const [savedWeeks, setSavedWeeks] = useState(() => weeksWithEntries(initial.docs));
-  const [status, setStatus] = useState<Status>("checking");
+/** 한 주의 활동일지를 쓰는 화면 */
+function DutyLogEditor({ weekKey, log, savedWeeks, status, onChange: update, onWeek: goWeek, onBack }: EditorProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  /** 서버에 저장을 예약 (debounce 없이 바로 하려면 0) */
-  const scheduleRef = useRef<(ms: number) => void>(() => {});
-
-  useEffect(() => {
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let sending = false;
-    let failures = 0;
-
-    /** 아직 서버에 올리지 못한 주들 */
-    const unsynced = () => Object.keys(docsRef.current).filter((k) => !docsRef.current[k].synced);
-    /** 서버의 기록으로 바꿈 */
-    const adopt = (key: string, doc: { log: DutyLog; updatedAt: number }) => {
-      docsRef.current = { ...docsRef.current, [key]: { ...doc, synced: true } };
-      saveLocal(docsRef.current);
-      if (key === weekRef.current) setLog(doc.log);
-      setSavedWeeks(weeksWithEntries(docsRef.current));
-    };
-    const schedule = (ms: number) => {
-      clearTimeout(timer);
-      timer = setTimeout(() => void flush(), ms);
-    };
-    async function flush() {
-      if (cancelled || sending) return; // 보내는 중에 또 고친 내용은 아래 끝에서 이어서 보냄
-      sending = true;
-      let failed: "auth" | "fail" | null = null;
-      for (const key of unsynced()) {
-        const snap = docsRef.current[key];
-        const result = await pushServer(key, { log: snap.log, updatedAt: snap.updatedAt });
-        if (cancelled) return;
-        if (result.kind === "ok") {
-          // 보내는 사이에 또 고쳤다면 그 내용은 다음 저장에서 올라감
-          if (docsRef.current[key]?.updatedAt === snap.updatedAt) docsRef.current = { ...docsRef.current, [key]: { ...snap, synced: true } };
-        } else if (result.kind === "stale") {
-          // 다른 곳에서 더 나중에 고친 내용이 서버에 있음
-          if (result.doc.updatedAt >= (docsRef.current[key]?.updatedAt ?? 0)) adopt(key, result.doc);
-        } else {
-          failed = result.kind;
-          break;
-        }
-      }
-      sending = false;
-      saveLocal(docsRef.current);
-      if (failed) {
-        setStatus(failed === "auth" ? "login" : "offline");
-        schedule(RETRY_MS[Math.min(failures++, RETRY_MS.length - 1)]); // 서버가 돌아올 때까지 계속 다시 시도
-        return;
-      }
-      failures = 0;
-      if (unsynced().length) schedule(0);
-      else setStatus("saved");
-    }
-    scheduleRef.current = schedule;
-
-    (async () => {
-      const server = await fetchServer();
-      if (cancelled) return;
-      if (server.kind !== "ok") {
-        setStatus(server.kind === "auth" ? "login" : "offline");
-        if (unsynced().length) schedule(RETRY_MS[0]);
-        return;
-      }
-      for (const [key, doc] of Object.entries(server.weeks)) {
-        const local = docsRef.current[key];
-        if (!local || doc.updatedAt > local.updatedAt) adopt(key, doc);
-      }
-      // 서버에 없는 주(서버가 비었거나 처음 저장하는 주)는 이 컴퓨터의 내용을 올림
-      for (const [key, doc] of Object.entries(docsRef.current)) {
-        if (!server.weeks[key] && hasEntries(doc.log)) docsRef.current = { ...docsRef.current, [key]: { ...doc, synced: false } };
-      }
-      if (unsynced().length) schedule(0);
-      else setStatus("saved");
-    })();
-
-    // 연결이 돌아오거나 탭으로 돌아왔을 때 바로 다시 시도, 탭을 닫는 중에도 올리지 못한 내용은 마지막으로 보냄
-    const retryNow = () => {
-      if (unsynced().length) schedule(0);
-    };
-    const onHide = () => {
-      for (const key of unsynced()) {
-        const d = docsRef.current[key];
-        void pushServer(key, { log: d.log, updatedAt: d.updatedAt }, true);
-      }
-    };
-    const onVisible = () => document.visibilityState === "visible" && retryNow();
-    window.addEventListener("online", retryNow);
-    window.addEventListener("pagehide", onHide);
-    document.addEventListener("visibilitychange", onVisible);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-      window.removeEventListener("online", retryNow);
-      window.removeEventListener("pagehide", onHide);
-      document.removeEventListener("visibilitychange", onVisible);
-      onHide(); // 다른 화면으로 나갈 때도 올리지 못한 내용은 보냄
-    };
-  }, []);
-
-  /** 고친 내용을 지금 보고 있는 주의 기록으로 먼저 이 컴퓨터에 저장하고, 곧이어 서버에 저장 */
-  const update = (change: (l: DutyLog) => DutyLog) => {
-    const key = weekRef.current;
-    const next = change(docsRef.current[key]?.log ?? weekLog(key));
-    docsRef.current = { ...docsRef.current, [key]: { log: next, updatedAt: editStamp(), synced: false } };
-    saveLocal(docsRef.current);
-    setLog(next);
-    setSavedWeeks(weeksWithEntries(docsRef.current));
-    setStatus("saving");
-    scheduleRef.current(500);
-  };
-
-  /** 다른 주의 기록을 펼침 (아직 쓴 적 없는 주는 빈 양식) */
-  const goWeek = (key: string) => {
-    weekRef.current = key;
-    setWeekKey(key);
-    setLog(docsRef.current[key]?.log ?? weekLog(key));
-  };
 
   const blank = useMemo(() => dutyLogSvg(log), [log.start]); // eslint-disable-line react-hooks/exhaustive-deps -- 머리글의 학년도만 시작일에 따라 바뀜
 
@@ -224,7 +101,7 @@ export default function DutyLogApp() {
     });
   const setNote = (d: number, text: string) => update((l) => ({ ...l, notes: l.notes.map((n, i) => (i === d ? text : n)) }));
   const reset = () => {
-    if (window.confirm(`이 주(${dotted(weekKey)} ~ ${dotted(addDays(weekKey, 4))})의 체크와 비고, 서명을 모두 지우고 새로 시작할까요?`)) update(() => weekLog(weekRef.current));
+    if (window.confirm(`이 주(${dotted(weekKey)} ~ ${dotted(addDays(weekKey, 4))})의 체크와 비고, 서명을 모두 지우고 새로 시작할까요?`)) update(() => weekLog(weekKey));
   };
 
   const savePdf = async () => {
@@ -249,6 +126,9 @@ export default function DutyLogApp() {
     <div className="fade-up mx-auto max-w-3xl">
       {/* 화면 글꼴 (React 가 문서 head 로 옮겨 한 번만 불러옴) */}
       <link rel="stylesheet" href={LOG_FONTS_URL} precedence="default" />
+      <button type="button" onClick={onBack} className="mb-3 inline-flex items-center gap-1 rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 ring-1 ring-inset ring-slate-200 transition hover:bg-slate-50">
+        ‹ 달력으로
+      </button>
       <div className="mb-6 text-center">
         <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-[28px]">특수교육실무사 활동일지</h1>
         <p className="mt-2 text-[15px] text-slate-500">
@@ -385,5 +265,37 @@ export default function DutyLogApp() {
         </div>
       </div>
     </div>
+  );
+}
+
+/** 처음에는 달력(일정 + 등록한 활동일지)을 보여 주고, 날짜나 활동일지를 눌러 일정을 더하거나 활동일지를 씀 */
+export default function DutyLogApp() {
+  const { weeks, events, status, editWeek, saveEvent, removeEvent } = useDutySync();
+  const [view, setView] = useState<{ mode: "calendar" } | { mode: "edit"; week: string }>({ mode: "calendar" });
+  const savedWeeks = useMemo(() => weeksWithEntries(weeks as DutyDocs), [weeks]);
+
+  if (view.mode === "edit") {
+    const key = view.week;
+    return (
+      <DutyLogEditor
+        weekKey={key}
+        log={weeks[key]?.log ?? weekLog(key)}
+        savedWeeks={savedWeeks}
+        status={status}
+        onChange={(change) => editWeek(key, change)}
+        onWeek={(week) => setView({ mode: "edit", week })}
+        onBack={() => setView({ mode: "calendar" })}
+      />
+    );
+  }
+  return (
+    <DutyCalendar
+      weeks={weeks}
+      events={events}
+      status={status}
+      onOpenWeek={(week) => setView({ mode: "edit", week })}
+      onSaveEvent={saveEvent}
+      onRemoveEvent={removeEvent}
+    />
   );
 }
