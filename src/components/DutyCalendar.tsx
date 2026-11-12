@@ -148,22 +148,22 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onRemo
     return { bars, laneCount: lanes.length };
   };
 
-  /** 왼쪽 목록: 연도 → 월 → 활동일지 (최근이 앞). 월은 시작일이 있는 달 */
+  /** 왼쪽 목록: 연도 → 월 → 활동일지 (모두 날짜순, 이른 것이 앞). 월은 시작일이 있는 달 */
   const tree = useMemo(() => {
     const years: Record<string, Record<string, LogItem[]>> = {};
     for (const item of logs) ((years[item.start.slice(0, 4)] ??= {})[item.start.slice(5, 7)] ??= []).push(item);
     return Object.entries(years)
-      .sort(([a], [b]) => b.localeCompare(a))
+      .sort(([a], [b]) => a.localeCompare(b))
       .map(([year, months]) => ({
         year,
         count: Object.values(months).reduce((n, l) => n + l.length, 0),
         months: Object.entries(months)
-          .sort(([a], [b]) => b.localeCompare(a))
-          .map(([m, list]) => ({ month: Number(m), list: [...list].reverse() })),
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([m, list]) => ({ month: Number(m), list })),
       }));
   }, [logs]);
 
-  /** 오른쪽 목록: 연도 → 월 → 일정 (연도 · 월은 최근이 앞, 한 달 안에서는 날짜 · 시간 순) */
+  /** 일정 목록: 연도 → 월 → 일정 (모두 날짜 · 시간 순, 이른 것이 앞) */
   const eventTree = useMemo(() => {
     const years: Record<string, Record<string, DutyEvent[]>> = {};
     for (const doc of Object.values(events)) {
@@ -171,12 +171,12 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onRemo
       if (ev) ((years[ev.date.slice(0, 4)] ??= {})[ev.date.slice(5, 7)] ??= []).push(ev);
     }
     return Object.entries(years)
-      .sort(([a], [b]) => b.localeCompare(a))
+      .sort(([a], [b]) => a.localeCompare(b))
       .map(([year, months]) => ({
         year,
         count: Object.values(months).reduce((n, l) => n + l.length, 0),
         months: Object.entries(months)
-          .sort(([a], [b]) => b.localeCompare(a))
+          .sort(([a], [b]) => a.localeCompare(b))
           .map(([m, list]) => ({ month: Number(m), list: [...list].sort((a, b) => a.date.localeCompare(b.date) || byTime(a, b)) })),
       }));
   }, [events]);
