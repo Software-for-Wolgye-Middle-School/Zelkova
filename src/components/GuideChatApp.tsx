@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { checkAdmin } from "./auth";
 import { ArrowRightIcon, PencilIcon, SparkleIcon, Spinner } from "./icons";
+import LoginOverlay from "./LoginOverlay";
 
 type Msg = { role: "user" | "model"; text: string };
 
@@ -46,6 +48,14 @@ export default function GuideChatApp() {
   const [animIndex, setAnimIndex] = useState(-1);
   /** 업무 안내(인수인계) 글을 고치는 중 */
   const [editing, setEditing] = useState(false);
+  /** 업무 안내 편집은 관리자만: 관리자가 아니면 관리자 로그인 창을 띄움 */
+  const [adminLogin, setAdminLogin] = useState(false);
+  const [adminMsg, setAdminMsg] = useState<string | null>(null);
+  const openEditor = async () => {
+    setAdminMsg(null);
+    if (await checkAdmin()) setEditing(true);
+    else setAdminLogin(true);
+  };
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -86,7 +96,7 @@ export default function GuideChatApp() {
         {!editing && (
           <button
             type="button"
-            onClick={() => setEditing(true)}
+            onClick={() => void openEditor()}
             className="mx-auto mt-3 inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold text-slate-600 ring-1 ring-inset ring-slate-200 transition hover:bg-slate-50 sm:absolute sm:right-0 sm:top-1 sm:mt-0"
           >
             <PencilIcon className="h-4 w-4" />
@@ -94,6 +104,24 @@ export default function GuideChatApp() {
           </button>
         )}
       </div>
+
+      {adminMsg && (
+        <p role="alert" className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-center text-sm font-medium text-amber-800">
+          {adminMsg}
+        </p>
+      )}
+      {adminLogin && (
+        <LoginOverlay
+          title="관리자 로그인"
+          exitLabel="닫기"
+          onExit={() => setAdminLogin(false)}
+          onSuccess={async () => {
+            setAdminLogin(false);
+            if (await checkAdmin()) setEditing(true);
+            else setAdminMsg("업무 안내 편집은 관리자 계정으로만 할 수 있어요.");
+          }}
+        />
+      )}
 
       {editing ? (
         <GuideEditor onClose={() => setEditing(false)} />

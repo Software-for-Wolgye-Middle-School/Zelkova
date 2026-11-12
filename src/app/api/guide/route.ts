@@ -1,19 +1,19 @@
 import { connection } from "next/server";
-import { isAuthed } from "@/lib/auth";
+import { isAdmin } from "@/lib/auth";
 import { readGuide, writeGuide } from "@/lib/guideStore";
 
 const NO_STORE = { "Cache-Control": "no-store" };
-/** 업무 안내 글에는 학생 정보가 들어 있으니 로그인한 사람만 보고 고칠 수 있음 */
-const unauthorized = () => Response.json({ error: "로그인이 필요해요." }, { status: 401, headers: NO_STORE });
+/** 업무 안내 글은 관리자만 보고 고칠 수 있음 (챗봇은 서버 안에서 바로 읽으므로 이 길을 거치지 않음) */
+const unauthorized = () => Response.json({ error: "관리자만 업무 안내를 편집할 수 있어요." }, { status: 403, headers: NO_STORE });
 
 export async function GET(request: Request) {
   await connection();
-  if (!isAuthed(request)) return unauthorized();
+  if (!isAdmin(request)) return unauthorized();
   return Response.json(await readGuide(), { headers: NO_STORE });
 }
 
 export async function PUT(request: Request) {
-  if (!isAuthed(request)) return unauthorized();
+  if (!isAdmin(request)) return unauthorized();
   const body = (await request.json().catch(() => null)) as { text?: unknown } | null;
   if (!body || typeof body.text !== "string") return Response.json({ error: "text 가 필요해요." }, { status: 400, headers: NO_STORE });
   try {

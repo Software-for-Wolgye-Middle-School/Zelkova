@@ -9,6 +9,16 @@ export async function checkAuth(): Promise<boolean> {
   }
 }
 
+/** 관리자(업무 안내 편집 등)로 로그인되어 있는지 */
+export async function checkAdmin(): Promise<boolean> {
+  try {
+    const res = await fetch("/api/auth", { cache: "no-store" });
+    return res.ok && ((await res.json()) as { admin?: boolean }).admin === true;
+  } catch {
+    return false;
+  }
+}
+
 /** 로그인. 실패하면 화면에 보여 줄 문구 */
 export async function login(id: string, password: string): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
