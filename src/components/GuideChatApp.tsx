@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowRightIcon, SparkleIcon, Spinner } from "./icons";
+import { ArrowRightIcon, PencilIcon, SparkleIcon, Spinner } from "./icons";
 
 type Msg = { role: "user" | "model"; text: string };
 
@@ -44,6 +44,8 @@ export default function GuideChatApp() {
   const [error, setError] = useState<string | null>(null);
   /** 방금 받은 답 (이 답만 낱말이 차례로 나타남) */
   const [animIndex, setAnimIndex] = useState(-1);
+  /** 업무 안내(인수인계) 글을 고치는 중 */
+  const [editing, setEditing] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -78,10 +80,25 @@ export default function GuideChatApp() {
 
   return (
     <div className="fade-up mx-auto flex max-w-3xl flex-col">
-      <div className="mb-5 text-center">
+      <div className="relative mb-5 text-center">
         <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-[28px]">업무 안내</h1>
-        <p className="mt-1 text-sm text-slate-500">학교 업무나 우리 반 학생에 대해 궁금한 걸 물어보세요.</p>
+        <p className="mt-1 text-sm text-slate-500">{editing ? "챗봇이 참고할 인수인계 내용을 적어 주세요." : "학교 업무나 우리 반 학생에 대해 궁금한 걸 물어보세요."}</p>
+        {!editing && (
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="mx-auto mt-3 inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold text-slate-600 ring-1 ring-inset ring-slate-200 transition hover:bg-slate-50 sm:absolute sm:right-0 sm:top-1 sm:mt-0"
+          >
+            <PencilIcon className="h-4 w-4" />
+            업무 안내 편집
+          </button>
+        )}
       </div>
+
+      {editing ? (
+        <GuideEditor onClose={() => setEditing(false)} />
+      ) : (
+        <>
 
       <div className="flex h-[min(70vh,40rem)] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="flex-1 space-y-4 overflow-y-auto p-4 sm:p-5" aria-live="polite">
@@ -175,6 +192,115 @@ export default function GuideChatApp() {
           새 대화 시작
         </button>
       )}
+        </>
+      )}
+    </div>
+  );
+}
+
+/** 업무 안내 글 최대 길이 (서버 guideStore 의 GUIDE_MAX 와 같음) */
+const GUIDE_MAX = 20000;
+
+/** 2026-11-12 오후 3:05 */
+const when = (ms: number) => new Date(ms).toLocaleString("ko-KR", { year: "numeric", month: "long", day: "numeric", hour: "numeric", minute: "2-digit" });
+
+/**
+ * 챗봇이 참고하는 업무 안내(인수인계) 글을 고치는 곳. 학생 정보가 들어가므로 코드가 아니라 서버 저장소에 저장함 (/api/guide)
+ */
+function GuideEditor({ onClose }: { onClose: () => void }) {
+  const [text, setText] = useState("");
+  const [saved, setSaved] = useState<{ text: string; updatedAt: number | null } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/guide", { cache: "no-store" })
+      .then(async (res) => {
+        const data = (await res.json().catch(() => null)) as { text?: string; updatedAt?: number | null; error?: string } | null;
+        if (!res.ok || !data) throw new Error(data?.error ?? "업무 안내를 불러오지 못했어요.");
+        if (cancelled) return;
+        setSaved({ text: data.text ?? "", updatedAt: data.updatedAt ?? null });
+        setText(data.text ?? "");
+      })
+      .catch((e: unknown) => !cancelled && setMsg({ ok: false, text: e instanceof Error ? e.message : "업무 안내를 불러오지 못했어요." }));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const dirty = saved !== null && text.trim() !== saved.text;
+
+  const save = async () => {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const res = await fetch("/api/guide", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
+      const data = (await res.json().catch(() => null)) as { text?: string; updatedAt?: number; error?: string } | null;
+      if (!res.ok || !data) throw new Error(data?.error ?? "저장하지 못했어요. 잠시 뒤 다시 해 주세요.");
+      setSaved({ text: data.text ?? "", updatedAt: data.updatedAt ?? null });
+      setText(data.text ?? "");
+      setMsg({ ok: true, text: "✓ 저장했어요. 이제 챗봇이 이 내용으로 답해요." });
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof Error ? e.message : "저장하지 못했어요." });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const close = () => {
+    if (dirty && !window.confirm("저장하지 않은 내용이 있어요. 그래도 닫을까요?")) return;
+    onClose();
+  };
+
+  return (
+    <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+      {saved === null && !msg ? (
+        <div className="flex h-64 items-center justify-center gap-2 text-sm text-slate-500">
+          <Spinner className="h-5 w-5" /> 불러오는 중…
+        </div>
+      ) : (
+        <>
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            maxLength={GUIDE_MAX}
+            aria-label="업무 안내 내용"
+            placeholder={"예)\n[출근 · 아침 일과]\n- 08:20 까지 교실로 출근\n\n[학생별 지원]\n- 이동 수업 · 급식 · 쉬는 시간에 할 일"}
+            className="h-[min(60vh,32rem)] w-full resize-y rounded-xl border border-slate-200 px-4 py-3 text-[15px] leading-relaxed outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100"
+          />
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+            <span>{saved?.updatedAt ? `마지막 저장: ${when(saved.updatedAt)}` : "아직 저장한 적이 없어요."}</span>
+            <span className="tabular-nums">
+              {text.length.toLocaleString()} / {GUIDE_MAX.toLocaleString()}자
+            </span>
+          </div>
+          <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800">
+            이 내용은 학교 서버 저장소에만 저장되고 로그인한 사람만 볼 수 있어요. 챗봇이 답을 만들 때 Google Gemini로 함께 전송돼요.
+          </p>
+        </>
+      )}
+
+      {msg && (
+        <p role="status" className={`text-sm font-medium ${msg.ok ? "text-emerald-600" : "text-red-600"}`}>
+          {msg.text}
+        </p>
+      )}
+
+      <div className="flex items-center justify-end gap-2">
+        <button type="button" onClick={close} className="rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-600 ring-1 ring-inset ring-slate-200 transition hover:bg-slate-50">
+          채팅으로 돌아가기
+        </button>
+        <button
+          type="button"
+          onClick={() => void save()}
+          disabled={busy || !dirty}
+          className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
+        >
+          {busy && <Spinner className="h-4 w-4" />}
+          저장
+        </button>
+      </div>
     </div>
   );
 }

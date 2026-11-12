@@ -1,9 +1,10 @@
 import { isAuthed } from "@/lib/auth";
-import { SERVICE_GUIDE } from "@/lib/serviceGuide";
+import { readGuide } from "@/lib/guideStore";
+import { DEFAULT_GUIDE } from "@/lib/serviceGuide";
 import { readStudents } from "@/lib/studentStore";
 
 /**
- * 사회복무요원 업무 안내 챗봇: 학교 업무 안내와 등록된 학생 정보를 바탕으로 Google Gemini 가 답함.
+ * 사회복무요원 업무 안내 챗봇: 앱에서 저장한 업무 안내(인수인계)와 등록된 학생 정보를 바탕으로 Google Gemini 가 답함.
  * 학생 정보를 쓰므로 로그인한 사람만 쓸 수 있고, Gemini API 키(GEMINI_API_KEY)는 서버에만 둠
  */
 
@@ -26,7 +27,7 @@ function cleanTurns(input: unknown): Turn[] {
 }
 
 async function systemPrompt() {
-  const students = await readStudents();
+  const [students, guide] = await Promise.all([readStudents(), readGuide()]);
   const list = students.length
     ? students.map((s) => `- ${s.grade}학년 ${s.cls}반 ${s.name}${s.subjects.length ? ` (특수학급에서 듣는 과목: ${s.subjects.join(", ")})` : ""}`).join("\n")
     : "(아직 등록된 학생이 없어요)";
@@ -37,7 +38,7 @@ async function systemPrompt() {
 - 필요하면 목록(•)을 써서 단계별로 알려 줘.
 
 [업무 안내]
-${SERVICE_GUIDE}
+${guide.text || DEFAULT_GUIDE}
 
 [학생 목록]
 ${list}`;
