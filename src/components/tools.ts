@@ -28,6 +28,8 @@ export type Tool = {
   hue: number;
   /** 탭 맨 위에 넓은 대표 카드로 보여 줌 */
   featured?: boolean;
+  /** 열 때 로그인해야 함 (잠긴 탭의 도구는 따로 적지 않아도 로그인 필요) */
+  login?: boolean;
 };
 
 export const TOOLS: Tool[] = [
@@ -37,7 +39,10 @@ export const TOOLS: Tool[] = [
   { id: "nametag", title: "이름표 만들기", icon: TagIcon, category: "general", tone: "bg-emerald-100 text-emerald-700", hue: 155 },
   { id: "meal", title: "급식표 조회하기", icon: UtensilsIcon, category: "general", tone: "bg-sky-100 text-sky-700", hue: 200 },
   { id: "handwriting", title: "긍정 · 감성 필사 교실", icon: PencilIcon, category: "general", tone: "bg-rose-100 text-rose-600", hue: 350 },
-  { id: "students", title: "학생 정보 관리하기", icon: UsersIcon, category: "general", tone: "bg-violet-100 text-violet-700", hue: 262 },
+  { id: "students", title: "학생 정보 관리하기", icon: UsersIcon, category: "general", tone: "bg-violet-100 text-violet-700", hue: 262, login: true },
   { id: "dutylog", title: "특수교육실무사 활동일지", icon: BookCheckIcon, category: "admin", tone: "bg-teal-100 text-teal-700", hue: 175 },
   { id: "guide", title: "사회복무요원 업무 안내", icon: ChatIcon, category: "admin", tone: "bg-sky-100 text-sky-700", hue: 210 },
 ];
+
+/** 로그인해야 쓸 수 있는 도구인지 (카드에 자물쇠 표시) */
+export const needsLogin = (t: Tool) => !!t.login || !!CATEGORIES.find((c) => c.id === t.category)?.locked;

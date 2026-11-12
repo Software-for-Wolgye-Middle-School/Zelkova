@@ -8,7 +8,7 @@ import LoginOverlay from "./LoginOverlay";
 import BorderBeam from "./smoothui/border-beam";
 import GlowHover from "./smoothui/glow-hover-card";
 import RevealText from "./smoothui/reveal-text";
-import { CATEGORIES, TOOLS, type ToolCategory, type ToolId } from "./tools";
+import { CATEGORIES, needsLogin, TOOLS, type ToolCategory, type ToolId } from "./tools";
 import { Tilt } from "./unlumen/tilt";
 import ZelkovaScene from "./ZelkovaScene";
 
@@ -149,7 +149,15 @@ export default function Landing({ onOpen }: { onOpen: (id: ToolId) => void }) {
                         <span className={`grid h-12 w-12 shrink-0 place-items-center rounded-2xl ring-1 ring-white/25 sm:h-14 sm:w-14 ${t.tone}`}>
                           <t.icon className="h-6 w-6 sm:h-7 sm:w-7" />
                         </span>
-                        <span className="min-w-0 flex-1 text-lg font-bold sm:text-xl">{t.title}</span>
+                        <span className="flex min-w-0 flex-1 items-center gap-2 text-lg font-bold sm:text-xl">
+                          {t.title}
+                          {needsLogin(t) && (
+                            <span title="로그인이 필요해요" className="shrink-0 text-white/70">
+                              <LockIcon className="h-4 w-4" aria-hidden="true" />
+                              <span className="sr-only">(로그인 필요)</span>
+                            </span>
+                          )}
+                        </span>
                         <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white text-indigo-600 shadow transition group-hover:translate-x-0.5">
                           <ArrowRightIcon className="h-5 w-5" />
                         </span>
@@ -178,7 +186,15 @@ export default function Landing({ onOpen }: { onOpen: (id: ToolId) => void }) {
                           <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl ${t.tone}`}>
                             <t.icon className="h-5 w-5" />
                           </span>
-                          <span className="min-w-0 flex-1 truncate text-[15px] font-bold text-slate-900">{t.title}</span>
+                          <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                            <span className="truncate text-[15px] font-bold text-slate-900">{t.title}</span>
+                            {needsLogin(t) && (
+                              <span title="로그인이 필요해요" className="shrink-0 text-slate-400">
+                                <LockIcon className="h-3.5 w-3.5" aria-hidden="true" />
+                                <span className="sr-only">(로그인 필요)</span>
+                              </span>
+                            )}
+                          </span>
                           <ArrowRightIcon className="h-4 w-4 shrink-0 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700" />
                         </button>
                       ),
