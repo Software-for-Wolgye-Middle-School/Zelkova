@@ -187,7 +187,7 @@ export default function Landing({ onOpen }: { onOpen: (id: ToolId) => void }) {
                             <t.icon className="h-5 w-5" />
                           </span>
                           <span className="flex min-w-0 flex-1 items-center gap-1.5">
-                            <span className="truncate text-[15px] font-bold text-slate-900">{t.title}</span>
+                            <span className="break-keep text-[15px] font-bold leading-snug text-slate-900">{t.title}</span>
                             {needsLogin(t) && (
                               <span title="로그인이 필요해요" className="shrink-0 text-slate-400">
                                 <LockIcon className="h-3.5 w-3.5" aria-hidden="true" />
@@ -258,7 +258,11 @@ function ToolSizer({ tools }: { tools: typeof TOOLS }) {
           {rest.map((t) => (
             <div key={t.id} className="flex items-center gap-3 rounded-2xl border p-3.5">
               <span className="h-11 w-11 shrink-0" />
-              <span className="truncate text-[15px] font-bold">{t.title}</span>
+              <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                <span className="break-keep text-[15px] font-bold leading-snug">{t.title}</span>
+                {needsLogin(t) && <span className="h-3.5 w-3.5 shrink-0" />}
+              </span>
+              <span className="h-4 w-4 shrink-0" />
             </div>
           ))}
         </div>
