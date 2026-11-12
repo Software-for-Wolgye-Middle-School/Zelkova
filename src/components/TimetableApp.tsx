@@ -329,7 +329,7 @@ export default function TimetableApp() {
 
   return (
     <div className="flex min-h-full flex-1 flex-col">
-      <header className="border-b border-slate-200/80 bg-white/80 backdrop-blur">
+      <header className="relative z-40 border-b border-slate-200/80 bg-white/80 backdrop-blur">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-3.5 sm:px-6">
           <button
             type="button"
@@ -345,6 +345,7 @@ export default function TimetableApp() {
             </span>
             <span className="text-[15px] font-semibold tracking-tight text-slate-900">느티나무 교실 도우미</span>
           </button>
+          <DevContact />
         </div>
       </header>
 
@@ -407,12 +408,65 @@ export default function TimetableApp() {
           </footer>
         </>
       )}
-      <p className="px-4 pb-5 text-center text-xs text-slate-400">
-        개발자 연락 :{" "}
-        <a href="mailto:kjuho2021@gmail.com" className="font-medium text-slate-500 underline-offset-2 hover:text-indigo-600 hover:underline">
-          kjuho2021@gmail.com
-        </a>
-      </p>
+    </div>
+  );
+}
+
+const DEV_EMAIL = "kjuho2021@gmail.com";
+
+/** 오른쪽 위 「개발자 연락하기」: 누르면 아래에 이메일 주소가 뜨고, 메일 쓰기 · 주소 복사를 할 수 있음 */
+function DevContact() {
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => !boxRef.current?.contains(e.target as Node) && setOpen(false);
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(DEV_EMAIL);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // 복사가 막힌 브라우저에서는 주소를 보고 직접 적으면 됨
+    }
+  };
+
+  return (
+    <div ref={boxRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        className="rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 ring-1 ring-inset ring-slate-200 transition hover:bg-slate-50 hover:text-slate-900"
+      >
+        개발자 연락하기
+      </button>
+      {open && (
+        <div role="dialog" aria-label="개발자 연락처" className="fade-up absolute right-0 top-full z-50 mt-2 w-72 rounded-xl bg-white p-4 shadow-xl ring-1 ring-slate-200">
+          <p className="text-xs font-semibold text-slate-500">개발자 이메일</p>
+          <p className="mt-1 select-all break-all text-[15px] font-semibold text-slate-900">{DEV_EMAIL}</p>
+          <div className="mt-3 flex gap-2">
+            <a href={`mailto:${DEV_EMAIL}`} className="flex-1 rounded-lg bg-indigo-600 px-3 py-2 text-center text-sm font-semibold text-white transition hover:bg-indigo-700">
+              메일 쓰기
+            </a>
+            <button type="button" onClick={() => void copy()} className="flex-1 rounded-lg px-3 py-2 text-sm font-semibold text-slate-700 ring-1 ring-inset ring-slate-200 transition hover:bg-slate-50">
+              {copied ? "✓ 복사했어요" : "주소 복사"}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

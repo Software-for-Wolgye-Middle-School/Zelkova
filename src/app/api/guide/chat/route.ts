@@ -11,7 +11,12 @@ import { readStudents } from "@/lib/studentStore";
  */
 
 const NO_STORE = { "Cache-Control": "no-store" };
-const MODEL = process.env.GEMINI_MODEL ?? "gemini-2.5-flash";
+// 새 프로젝트의 키는 2.5 Flash 를 쓸 수 없어 Google 이 권하는 모델로 바꿈 (GEMINI_MODEL 로 바꿀 수 있음)
+const MODEL = process.env.GEMINI_MODEL ?? "gemini-3.8-flash";
+/**
+ * 답하기 전 '생각'은 출력 한도를 써서 답이 끊길 수 있으므로 가볍게: Gemini 3 부터는 thinkingLevel, 2.x 는 thinkingBudget
+ */
+const THINKING = /^gemini-2\./.test(MODEL) ? { thinkingBudget: 0 } : { thinkingLevel: "low" };
 /** 대화가 길어져도 최근 것만 보냄 (보내는 양을 줄이려고 짧게) */
 const MAX_TURNS = 6;
 const MAX_CHARS = 2000;
@@ -72,8 +77,7 @@ export async function POST(request: Request) {
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: await systemPrompt(key, ragQuery) }] },
         contents: turns.map((t) => ({ role: t.role, parts: [{ text: t.text }] })),
-        // 2.5 Flash 는 답하기 전에 '생각'하는 토큰도 출력 한도에서 써서 답이 중간에 끊겼음 → 생각은 끄고 한도를 넉넉히
-        generationConfig: { temperature: 0.4, maxOutputTokens: 4096, thinkingConfig: { thinkingBudget: 0 } },
+        generationConfig: { temperature: 0.4, maxOutputTokens: 8192, thinkingConfig: THINKING },
       }),
       cache: "no-store",
     });
