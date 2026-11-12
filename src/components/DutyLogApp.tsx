@@ -9,7 +9,11 @@ import {
   dayTop,
   dutyLogSvg,
   dutyLogText,
-  emptyLog,
+  addDays,
+  hasEntries,
+  isoOf,
+  mondayOf,
+  weekLog,
   GRID,
   INK_FONT,
   ITEMS,
@@ -30,17 +34,17 @@ import {
 } from "@/lib/dutyLogSvg";
 import { embeddedFontCss, svgToPng, withFont } from "@/lib/svgExport";
 import { DownloadIcon, Spinner } from "./icons";
-import { editStamp, fetchServer, loadLocal, pushServer, saveLocal, type DutyDoc } from "./dutyLogSync";
+import { editStamp, fetchServer, loadLocal, pushServer, saveLocal, type DutyDocs } from "./dutyLogSync";
 
-const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+/** 쓴 내용이 있는 주들 (최근 주가 앞) */
+const weeksWithEntries = (docs: DutyDocs) =>
+  Object.keys(docs)
+    .filter((k) => hasEntries(docs[k].log))
+    .sort()
+    .reverse();
 
-/** 이번 주 월요일 ~ 금요일 */
-function thisWeek(): DutyLog {
-  const now = new Date();
-  const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7));
-  const friday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 4);
-  return emptyLog(iso(monday), iso(friday));
-}
+/** 2026-11-09 → 2026.11.09 */
+const dotted = (iso: string) => iso.replace(/-/g, ".");
 
 /** 양식의 좌표(595 × 842 단위)를 화면 비율(%)로 */
 const pct = (x: number, y: number, w: number, h: number) => ({
@@ -80,10 +84,14 @@ const STATUS_TEXT: Record<Status, { text: string; tone: string }> = {
 const RETRY_MS = [3000, 8000, 20000, 60000];
 
 export default function DutyLogApp() {
-  // 이 컴퓨터에 저장된 내용이 있으면 이어서 쓰고, 서버에 더 나중에 고친 내용이 있으면 아래에서 그쪽으로 바꿈
-  const [initial] = useState<DutyDoc>(() => loadLocal() ?? { log: thisWeek(), updatedAt: 0, synced: true });
-  const docRef = useRef<DutyDoc>(initial);
-  const [log, setLog] = useState<DutyLog>(initial.log);
+  // 이 컴퓨터에 저장된 기록을 불러와 이번 주부터 보여 주고, 서버에 더 나중에 고친 기록이 있으면 아래에서 그쪽으로 바꿈
+  const [initial] = useState(() => ({ docs: loadLocal(), key: mondayOf(isoOf(new Date())) }));
+  const docsRef = useRef<DutyDocs>(initial.docs);
+  /** 지금 보고 있는 주 (월요일 날짜) */
+  const weekRef = useRef(initial.key);
+  const [weekKey, setWeekKey] = useState(initial.key);
+  const [log, setLog] = useState<DutyLog>(() => initial.docs[initial.key]?.log ?? weekLog(initial.key));
+  const [savedWeeks, setSavedWeeks] = useState(() => weeksWithEntries(initial.docs));
   const [status, setStatus] = useState<Status>("checking");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -94,52 +102,50 @@ export default function DutyLogApp() {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let sending = false;
-    let again = false;
     let failures = 0;
 
-    const adopt = (doc: { log: DutyLog; updatedAt: number }) => {
-      docRef.current = { ...doc, synced: true };
-      saveLocal(docRef.current);
-      setLog(doc.log);
-      setStatus("saved");
+    /** 아직 서버에 올리지 못한 주들 */
+    const unsynced = () => Object.keys(docsRef.current).filter((k) => !docsRef.current[k].synced);
+    /** 서버의 기록으로 바꿈 */
+    const adopt = (key: string, doc: { log: DutyLog; updatedAt: number }) => {
+      docsRef.current = { ...docsRef.current, [key]: { ...doc, synced: true } };
+      saveLocal(docsRef.current);
+      if (key === weekRef.current) setLog(doc.log);
+      setSavedWeeks(weeksWithEntries(docsRef.current));
     };
     const schedule = (ms: number) => {
       clearTimeout(timer);
       timer = setTimeout(() => void flush(), ms);
     };
     async function flush() {
-      if (cancelled) return;
-      if (sending) {
-        again = true;
-        return;
-      }
-      const snap = docRef.current;
-      if (snap.synced) return;
+      if (cancelled || sending) return; // 보내는 중에 또 고친 내용은 아래 끝에서 이어서 보냄
       sending = true;
-      const result = await pushServer({ log: snap.log, updatedAt: snap.updatedAt });
-      sending = false;
-      if (cancelled) return;
-      if (result.kind === "ok") {
-        failures = 0;
-        // 보내는 사이에 또 고쳤다면 그 내용은 다음 저장에서 올라감
-        if (docRef.current.updatedAt === snap.updatedAt) {
-          docRef.current = { ...snap, synced: true };
-          saveLocal(docRef.current);
-          setStatus("saved");
+      let failed: "auth" | "fail" | null = null;
+      for (const key of unsynced()) {
+        const snap = docsRef.current[key];
+        const result = await pushServer(key, { log: snap.log, updatedAt: snap.updatedAt });
+        if (cancelled) return;
+        if (result.kind === "ok") {
+          // 보내는 사이에 또 고쳤다면 그 내용은 다음 저장에서 올라감
+          if (docsRef.current[key]?.updatedAt === snap.updatedAt) docsRef.current = { ...docsRef.current, [key]: { ...snap, synced: true } };
+        } else if (result.kind === "stale") {
+          // 다른 곳에서 더 나중에 고친 내용이 서버에 있음
+          if (result.doc.updatedAt >= (docsRef.current[key]?.updatedAt ?? 0)) adopt(key, result.doc);
+        } else {
+          failed = result.kind;
+          break;
         }
-      } else if (result.kind === "stale") {
-        // 다른 곳에서 더 나중에 고친 내용이 서버에 있음
-        failures = 0;
-        if (result.doc.updatedAt >= docRef.current.updatedAt) adopt(result.doc);
-      } else {
-        setStatus(result.kind === "auth" ? "login" : "offline");
+      }
+      sending = false;
+      saveLocal(docsRef.current);
+      if (failed) {
+        setStatus(failed === "auth" ? "login" : "offline");
         schedule(RETRY_MS[Math.min(failures++, RETRY_MS.length - 1)]); // 서버가 돌아올 때까지 계속 다시 시도
         return;
       }
-      if (again) {
-        again = false;
-        schedule(0);
-      }
+      failures = 0;
+      if (unsynced().length) schedule(0);
+      else setStatus("saved");
     }
     scheduleRef.current = schedule;
 
@@ -147,28 +153,31 @@ export default function DutyLogApp() {
       const server = await fetchServer();
       if (cancelled) return;
       if (server.kind !== "ok") {
-        if (docRef.current.synced) setStatus(server.kind === "auth" ? "login" : "offline");
-        else {
-          setStatus(server.kind === "auth" ? "login" : "offline");
-          schedule(RETRY_MS[0]);
-        }
+        setStatus(server.kind === "auth" ? "login" : "offline");
+        if (unsynced().length) schedule(RETRY_MS[0]);
         return;
       }
-      const local = docRef.current;
-      if (server.doc && server.doc.updatedAt > local.updatedAt) adopt(server.doc);
-      else if (!local.synced || (!server.doc && local.updatedAt > 0)) {
-        docRef.current = { ...local, synced: false };
-        schedule(0);
-      } else setStatus("saved");
+      for (const [key, doc] of Object.entries(server.weeks)) {
+        const local = docsRef.current[key];
+        if (!local || doc.updatedAt > local.updatedAt) adopt(key, doc);
+      }
+      // 서버에 없는 주(서버가 비었거나 처음 저장하는 주)는 이 컴퓨터의 내용을 올림
+      for (const [key, doc] of Object.entries(docsRef.current)) {
+        if (!server.weeks[key] && hasEntries(doc.log)) docsRef.current = { ...docsRef.current, [key]: { ...doc, synced: false } };
+      }
+      if (unsynced().length) schedule(0);
+      else setStatus("saved");
     })();
 
     // 연결이 돌아오거나 탭으로 돌아왔을 때 바로 다시 시도, 탭을 닫는 중에도 올리지 못한 내용은 마지막으로 보냄
     const retryNow = () => {
-      if (!docRef.current.synced) schedule(0);
+      if (unsynced().length) schedule(0);
     };
     const onHide = () => {
-      const d = docRef.current;
-      if (!d.synced) void pushServer({ log: d.log, updatedAt: d.updatedAt }, true);
+      for (const key of unsynced()) {
+        const d = docsRef.current[key];
+        void pushServer(key, { log: d.log, updatedAt: d.updatedAt }, true);
+      }
     };
     const onVisible = () => document.visibilityState === "visible" && retryNow();
     window.addEventListener("online", retryNow);
@@ -184,14 +193,23 @@ export default function DutyLogApp() {
     };
   }, []);
 
-  /** 고친 내용을 먼저 이 컴퓨터에 저장하고, 곧이어 서버에 저장 */
+  /** 고친 내용을 지금 보고 있는 주의 기록으로 먼저 이 컴퓨터에 저장하고, 곧이어 서버에 저장 */
   const update = (change: (l: DutyLog) => DutyLog) => {
-    const next = change(docRef.current.log);
-    docRef.current = { log: next, updatedAt: editStamp(), synced: false };
-    saveLocal(docRef.current);
+    const key = weekRef.current;
+    const next = change(docsRef.current[key]?.log ?? weekLog(key));
+    docsRef.current = { ...docsRef.current, [key]: { log: next, updatedAt: editStamp(), synced: false } };
+    saveLocal(docsRef.current);
     setLog(next);
+    setSavedWeeks(weeksWithEntries(docsRef.current));
     setStatus("saving");
     scheduleRef.current(500);
+  };
+
+  /** 다른 주의 기록을 펼침 (아직 쓴 적 없는 주는 빈 양식) */
+  const goWeek = (key: string) => {
+    weekRef.current = key;
+    setWeekKey(key);
+    setLog(docsRef.current[key]?.log ?? weekLog(key));
   };
 
   const blank = useMemo(() => dutyLogSvg(log), [log.start]); // eslint-disable-line react-hooks/exhaustive-deps -- 머리글의 학년도만 시작일에 따라 바뀜
@@ -206,7 +224,7 @@ export default function DutyLogApp() {
     });
   const setNote = (d: number, text: string) => update((l) => ({ ...l, notes: l.notes.map((n, i) => (i === d ? text : n)) }));
   const reset = () => {
-    if (window.confirm("체크와 비고, 서명을 모두 지우고 이번 주로 새로 시작할까요?")) update(thisWeek);
+    if (window.confirm(`이 주(${dotted(weekKey)} ~ ${dotted(addDays(weekKey, 4))})의 체크와 비고, 서명을 모두 지우고 새로 시작할까요?`)) update(() => weekLog(weekRef.current));
   };
 
   const savePdf = async () => {
@@ -218,7 +236,7 @@ export default function DutyLogApp() {
       const blob = await svgToPng(withFont(dutyLogSvg(log, true), printCss + inkCss), LOG_W, LOG_H, 3.5, "image/jpeg");
       const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
       doc.addImage(new Uint8Array(await blob.arrayBuffer()), "JPEG", 0, 0, 210, 297);
-      doc.save(`특수교육실무사 활동일지 (${log.start || "날짜 없음"}).pdf`);
+      doc.save(`특수교육실무사 활동일지 (${log.start || weekKey}).pdf`);
     } catch (e) {
       console.error(e);
       setError("PDF로 저장하지 못했어요. 잠시 뒤 다시 해 주세요.");
@@ -234,8 +252,51 @@ export default function DutyLogApp() {
       <div className="mb-6 text-center">
         <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-[28px]">특수교육실무사 활동일지</h1>
         <p className="mt-2 text-[15px] text-slate-500">
-          칸을 눌러 체크하고, 날짜 · 비고를 적고, 작성자를 눌러 서명을 넣어요. 요일 이름을 누르면 그날을 한꺼번에 체크해요.
+          주마다 한 장씩 기록돼요. 칸을 눌러 체크하고, 날짜 · 비고를 적고, 작성자를 눌러 서명을 넣어요. 요일 이름을 누르면 그날을 한꺼번에 체크해요.
         </p>
+      </div>
+
+      {/* 주 고르기: 날짜별(주별) 기록 */}
+      <div className="mb-4 space-y-2">
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          <button type="button" onClick={() => goWeek(addDays(weekKey, -7))} aria-label="지난주" className="rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 ring-1 ring-inset ring-slate-200 transition hover:bg-slate-50">
+            ‹ 지난주
+          </button>
+          <label className="flex items-center gap-2 rounded-lg bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 ring-1 ring-inset ring-slate-200">
+            <span className="text-xs text-slate-500">날짜로 찾기</span>
+            <input
+              type="date"
+              value={weekKey}
+              onChange={(e) => e.target.value && goWeek(mondayOf(e.target.value))}
+              aria-label="이 날짜가 있는 주로 이동"
+              className="rounded border-0 bg-transparent p-0 text-sm outline-none focus:ring-2 focus:ring-indigo-200"
+            />
+          </label>
+          <button type="button" onClick={() => goWeek(addDays(weekKey, 7))} aria-label="다음주" className="rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 ring-1 ring-inset ring-slate-200 transition hover:bg-slate-50">
+            다음주 ›
+          </button>
+          <button type="button" onClick={() => goWeek(mondayOf(isoOf(new Date())))} className="rounded-lg px-3 py-2 text-sm font-semibold text-indigo-600 ring-1 ring-inset ring-indigo-200 transition hover:bg-indigo-50">
+            이번 주
+          </button>
+        </div>
+        <p className="text-center text-sm font-semibold text-slate-700">
+          {dotted(weekKey)} ~ {dotted(addDays(weekKey, 4))}
+        </p>
+        {savedWeeks.length > 0 && (
+          <div className="mx-auto flex max-h-24 max-w-xl flex-wrap justify-center gap-1.5 overflow-y-auto" role="group" aria-label="기록한 주">
+            {savedWeeks.map((k) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => goWeek(k)}
+                aria-pressed={k === weekKey}
+                className={`rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset transition ${k === weekKey ? "bg-indigo-50 text-indigo-700 ring-indigo-300" : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"}`}
+              >
+                {dotted(k).slice(2)} 주
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="mb-4 flex flex-wrap items-center justify-center gap-2">

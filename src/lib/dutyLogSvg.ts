@@ -53,6 +53,24 @@ export const emptyLog = (start = "", end = ""): DutyLog => ({
   signed: false,
 });
 
+/** Date → YYYY-MM-DD (이 컴퓨터의 시간대 기준) */
+export const isoOf = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const parseIso = (iso: string) => {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d);
+};
+/** 그 날짜에서 n일 뒤 */
+export const addDays = (iso: string, n: number) => {
+  const d = parseIso(iso);
+  return isoOf(new Date(d.getFullYear(), d.getMonth(), d.getDate() + n));
+};
+/** 그 날짜가 속한 주의 월요일 (일요일은 그 전 주) — 활동일지는 이 날짜를 열쇠로 주마다 한 장 */
+export const mondayOf = (iso: string) => addDays(iso, -((parseIso(iso).getDay() + 6) % 7));
+/** 그 주(월요일 날짜)의 빈 활동일지: 월요일 ~ 금요일 */
+export const weekLog = (monday: string) => emptyLog(monday, addDays(monday, 4));
+/** 쓴 내용이 있는지 (체크 · 비고 · 서명) */
+export const hasEntries = (log: DutyLog) => log.signed || log.checks.some(Boolean) || log.notes.some((n) => n.trim());
+
 /** 양식의 칸 위치 */
 export const GRID = {
   /** 세로선: 바깥 왼쪽 · 요일 앞 · 지원 내용 앞 · 체크 앞 · 비고 앞 · 바깥 오른쪽 */
