@@ -214,7 +214,7 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onSave
               <b>1.</b> 달력에서 <b>날짜 칸을 누르면</b> 그 옆에 작은 창이 떠요. 제목만 쓰고 Enter를 누르면 일정이 저장돼요.
             </li>
             <li>
-              <b>2.</b> 창 위쪽의 <b>「활동일지」</b> 탭이나 아래 <b>「활동일지 쓰기」</b> 단추로 그 날짜의 활동일지를 써요.
+              <b>2.</b> 창 위쪽의 <b>「활동일지」</b> 탭에서 <b>「활동일지 쓰기」</b>를 누르면 그 날짜의 활동일지를 쓸 수 있어요.
             </li>
             <li>
               <b>3.</b> 만든 일정을 누르면 <b>고치기 · 삭제</b>를 할 수 있고, 잘못 지워도 바로 <b>실행취소</b>할 수 있어요.
@@ -295,22 +295,6 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onSave
               <h2 className="ml-1 text-xl font-bold text-slate-900" aria-live="polite">
                 {month.y}년 {month.m}월
               </h2>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={(e) => openPop(e, "create", today)}
-                className="inline-flex items-center gap-1.5 rounded-full bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow ring-1 ring-slate-200 transition hover:bg-slate-50 hover:shadow-md"
-              >
-                <span className="text-lg leading-none text-indigo-600">＋</span> 일정 만들기
-              </button>
-              <button
-                type="button"
-                onClick={() => onOpenWeek(logOn(today)?.key ?? mondayOf(today))}
-                className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-emerald-600/30 transition hover:bg-emerald-700"
-              >
-                이번 주 활동일지 쓰기
-              </button>
             </div>
           </div>
 
