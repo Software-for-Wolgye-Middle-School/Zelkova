@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   checkPath,
   DATE_LINE,
@@ -83,6 +84,15 @@ function DutyLogEditor({ weekKey, log, status, onChange: update, onSaveNow, onBa
   const { step, checking, goStep, goNext, fadeClass } = useStepFlow();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** 양식을 화면 가득 크게 보며 고치기 */
+  const [full, setFull] = useState(false);
+
+  useEffect(() => {
+    if (!full) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setFull(false);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [full]);
 
   const blank = useMemo(() => dutyLogSvg(log), [log.start]); // eslint-disable-line react-hooks/exhaustive-deps -- 머리글의 학년도만 시작일에 따라 바뀜
   /** 입력하기 다음 단계에서는 입력한 내용이 들어간 모습을 그대로 보여 줌 */
@@ -116,53 +126,8 @@ function DutyLogEditor({ weekKey, log, status, onChange: update, onSaveNow, onBa
     }
   };
 
-  return (
-    <div className="fade-up mx-auto max-w-4xl">
-      {/* 화면 글꼴 (React 가 문서 head 로 옮겨 한 번만 불러옴) */}
-      <link rel="stylesheet" href={LOG_FONTS_URL} precedence="default" />
-      <button type="button" onClick={onBack} className="mb-3 inline-flex items-center gap-1 rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 ring-1 ring-inset ring-slate-200 transition hover:bg-slate-50">
-        ‹ 달력으로
-      </button>
-      <div className="mb-5 text-center">
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-[28px]">특수교육실무사 활동일지</h1>
-      </div>
-
-      <div className="mx-auto mb-5 max-w-[720px] space-y-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-        <StepProgress steps={STEPS} step={step} checking={checking} onGo={(n) => goStep(n)} />
-
-        <div className={`space-y-4 ${fadeClass}`}>
-          <StepHeading step={STEPS[step]} />
-
-
-          {step === 1 && (
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={savePdf}
-                  disabled={busy}
-                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-[15px] font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
-                >
-                  {busy ? <Spinner className="h-5 w-5" /> : <DownloadIcon className="h-5 w-5" />}
-                  PDF 다운로드
-                </button>
-                <button type="button" onClick={onBack} className="rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-600 ring-1 ring-inset ring-slate-200 transition hover:bg-slate-50">
-                  달력으로 돌아가기
-                </button>
-              </div>
-              <p aria-live="polite" className={`text-xs font-medium ${STATUS_TEXT[status].tone}`}>
-                {STATUS_TEXT[status].text}
-              </p>
-              {error && (
-                <p role="alert" className="text-xs font-medium text-red-600">
-                  {error}
-                </p>
-              )}
-            </div>
-          )}
-        </div>
-
-      <div className="mx-auto w-full overflow-hidden rounded-md bg-white ring-1 ring-slate-200 [container-type:inline-size]">
+  /** 양식 (입력하기에서는 칸을 눌러 바로 고침). 전체 화면에서도 같은 양식을 씀 */
+  const sheet = (
         <div className="relative select-none" style={{ aspectRatio: `${LOG_W} / ${LOG_H}` }}>
           <div className="absolute inset-0 [&>svg]:block [&>svg]:h-full [&>svg]:w-full" dangerouslySetInnerHTML={{ __html: step === 0 ? blank : filled }} />
 
@@ -227,7 +192,96 @@ function DutyLogEditor({ weekKey, log, status, onChange: update, onSaveNow, onBa
             </>
           )}
         </div>
+  );
+  const fullBtn = (
+    <button
+      type="button"
+      onClick={() => setFull(true)}
+      title="전체 화면으로 보기"
+      aria-label="활동일지 전체 화면으로 보기"
+      className="absolute left-1.5 top-1.5 z-10 grid h-8 w-8 place-items-center rounded-lg bg-white/90 text-slate-600 shadow-sm ring-1 ring-slate-200 transition hover:bg-slate-100 hover:text-slate-900"
+    >
+      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
+      </svg>
+    </button>
+  );
+
+  return (
+    <div className="fade-up mx-auto max-w-4xl">
+      {/* 화면 글꼴 (React 가 문서 head 로 옮겨 한 번만 불러옴) */}
+      <link rel="stylesheet" href={LOG_FONTS_URL} precedence="default" />
+      <button type="button" onClick={onBack} className="mb-3 inline-flex items-center gap-1 rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 ring-1 ring-inset ring-slate-200 transition hover:bg-slate-50">
+        ‹ 달력으로
+      </button>
+      <div className="mb-5 text-center">
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-[28px]">특수교육실무사 활동일지</h1>
       </div>
+
+      <div className="mx-auto mb-5 max-w-[720px] space-y-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        <StepProgress steps={STEPS} step={step} checking={checking} onGo={(n) => goStep(n)} />
+
+        <div className={`space-y-4 ${fadeClass}`}>
+          <StepHeading step={STEPS[step]} />
+
+
+          {step === 1 && (
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={savePdf}
+                  disabled={busy}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-[15px] font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
+                >
+                  {busy ? <Spinner className="h-5 w-5" /> : <DownloadIcon className="h-5 w-5" />}
+                  PDF 다운로드
+                </button>
+                <button type="button" onClick={onBack} className="rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-600 ring-1 ring-inset ring-slate-200 transition hover:bg-slate-50">
+                  달력으로 돌아가기
+                </button>
+              </div>
+              <p aria-live="polite" className={`text-xs font-medium ${STATUS_TEXT[status].tone}`}>
+                {STATUS_TEXT[status].text}
+              </p>
+              {error && (
+                <p role="alert" className="text-xs font-medium text-red-600">
+                  {error}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+
+      {full ? (
+        <p className="rounded-md bg-slate-50 px-3 py-6 text-center text-sm text-slate-500 ring-1 ring-slate-200">전체 화면에서 보고 있어요.</p>
+      ) : (
+        <div className="relative mx-auto w-full overflow-hidden rounded-md bg-white ring-1 ring-slate-200 [container-type:inline-size]">
+          {sheet}
+          {fullBtn}
+        </div>
+      )}
+      {full &&
+        createPortal(
+          <div role="dialog" aria-label="활동일지 전체 화면" className="fixed inset-0 z-[70] grid place-items-center bg-slate-900/80 p-4">
+            <div
+              className="relative overflow-hidden rounded-md bg-white shadow-2xl [container-type:inline-size]"
+              style={{ width: `min(calc(100vw - 2rem), calc((100vh - 2rem) * ${LOG_W} / ${LOG_H}))` }}
+            >
+              {sheet}
+            </div>
+            <button
+              type="button"
+              onClick={() => setFull(false)}
+              title="전체 화면 닫기"
+              aria-label="전체 화면 닫기"
+              className="absolute right-4 top-4 grid h-10 w-10 place-items-center rounded-full bg-white/90 text-lg text-slate-700 shadow transition hover:bg-white"
+            >
+              ✕
+            </button>
+          </div>,
+          document.body,
+        )}
 
         <StepNav
           step={step}
