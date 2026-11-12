@@ -8,12 +8,29 @@ type Msg = { role: "user" | "model"; text: string };
 /** 처음 화면에 보여 주는 질문 예시 (누르면 바로 물어봄) */
 const SUGGESTIONS = ["출근하면 제일 먼저 뭘 해야 하나요?", "우리 반 학생들을 알려 주세요", "급식 시간에는 어떻게 도와요?", "학생이 갑자기 사라지면 어떻게 해요?"];
 
-/** Gemini 답에 섞인 마크다운 굵은 글씨(**…**)는 그대로 굵게 보여 줌 */
-function Rich({ text }: { text: string }) {
+/** 낱말 하나가 나타나는 간격 (ms) */
+const WORD_MS = 28;
+
+/**
+ * Gemini 답을 보여 줌: 마크다운 굵은 글씨(**…**)는 굵게, 목록 표시(* )는 •로.
+ * animate 이면 낱말이 왼쪽부터 차례로 흐릿하게 나타남 (처음 그려질 때 한 번만)
+ */
+function Rich({ text, animate }: { text: string; animate: boolean }) {
+  let n = 0;
+  const words = (s: string) =>
+    s.split(/(\s+)/).map((w, i) =>
+      !w || /^\s+$/.test(w) || !animate ? (
+        w
+      ) : (
+        <span key={i} className="word-in" style={{ animationDelay: `${n++ * WORD_MS}ms` }}>
+          {w}
+        </span>
+      ),
+    );
   return (
     <>
       {text.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
-        part.startsWith("**") && part.endsWith("**") ? <b key={i}>{part.slice(2, -2)}</b> : <span key={i}>{part.replace(/^\* /gm, "• ")}</span>,
+        part.startsWith("**") && part.endsWith("**") ? <b key={i}>{words(part.slice(2, -2))}</b> : <span key={i}>{words(part.replace(/^\* /gm, "• "))}</span>,
       )}
     </>
   );
@@ -25,6 +42,8 @@ export default function GuideChatApp() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** 방금 받은 답 (이 답만 낱말이 차례로 나타남) */
+  const [animIndex, setAnimIndex] = useState(-1);
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -44,6 +63,7 @@ export default function GuideChatApp() {
       const res = await fetch("/api/guide/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages: next }) });
       const data = (await res.json().catch(() => null)) as { text?: string; error?: string } | null;
       if (!res.ok || !data?.text) throw new Error(data?.error ?? "답을 받지 못했어요. 잠시 뒤 다시 해 주세요.");
+      setAnimIndex(next.length);
       setMessages((m) => [...m, { role: "model", text: data.text! }]);
     } catch (e) {
       setError(e instanceof Error ? e.message : "답을 받지 못했어요.");
@@ -92,7 +112,7 @@ export default function GuideChatApp() {
                   <SparkleIcon className="h-4 w-4" />
                 </span>
                 <p className="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl rounded-tl-md bg-slate-100 px-4 py-2.5 text-[15px] leading-relaxed text-slate-800">
-                  <Rich text={m.text} />
+                  <Rich text={m.text} animate={i === animIndex} />
                 </p>
               </div>
             ),
