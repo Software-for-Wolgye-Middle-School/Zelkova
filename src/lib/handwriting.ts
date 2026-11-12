@@ -107,7 +107,8 @@ export type Options = { mode: Mode; cell: number; font: FontKind; guide: boolean
 
 // ---------------------------------------------------------------- 배치 (단위 mm)
 const PAGE = { w: 210, h: 297, margin: 14 };
-const HEADER_MM = 40;
+/** 첫 쪽 위쪽의 제목 · 날짜 · 이름 자리 (다음 쪽부터는 없이 바로 칸이 시작) */
+const HEADER_MM = 30;
 const FOOTER_MM = 8;
 /** 문구 사이 · 한 문구 안의 줄 사이 간격 */
 const ITEM_GAP_MM = 8;
@@ -149,19 +150,20 @@ export type PlacedLine = { y: number; text: string };
  * 결과는 쪽마다 놓인 줄 목록
  */
 export function paginate(phrases: string[], o: Options): PlacedLine[][] {
-  const top = PAGE.margin + HEADER_MM;
+  const firstTop = PAGE.margin + HEADER_MM;
+  const laterTop = PAGE.margin;
   const bottom = PAGE.h - PAGE.margin - FOOTER_MM;
   const pairH = (o.mode === "blank" ? 1 : 2) * o.cell;
   const pages: PlacedLine[][] = [];
   let page: PlacedLine[] = [];
-  let y = top;
+  let y = firstTop;
   for (const phrase of phrases) {
     splitLines(phrase, o.cell).forEach((text, j) => {
       const gap = page.length ? (j === 0 ? ITEM_GAP_MM : LINE_GAP_MM) : 0;
       if (page.length && y + gap + pairH > bottom) {
         pages.push(page);
         page = [];
-        y = top;
+        y = laterTop;
       } else {
         y += gap;
       }
@@ -220,10 +222,13 @@ export function pageSvg(lines: PlacedLine[], index: number, o: Options) {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${PAGE.w} ${PAGE.h}" width="${SHEET_PX.w}" height="${SHEET_PX.h}">
   <rect width="${PAGE.w}" height="${PAGE.h}" fill="#fff"/>
   <g font-family='${ui}' fill="#222">
-    <text x="${PAGE.w / 2}" y="${PAGE.margin + 8}" font-size="8" font-weight="700" text-anchor="middle" letter-spacing="0.3">오늘의 바른 글씨 쓰기</text>
+    ${
+      index === 0
+        ? `<text x="${PAGE.w / 2}" y="${PAGE.margin + 8}" font-size="8" font-weight="700" text-anchor="middle" letter-spacing="0.3">오늘의 바른 글씨 쓰기</text>
     <text x="${PAGE.margin}" y="${PAGE.margin + 19}" font-size="4">날짜 : ____월 ____일</text>
-    <text x="${right}" y="${PAGE.margin + 19}" font-size="4" text-anchor="end">이름 : ______________</text>
-    <text x="${PAGE.w / 2}" y="${PAGE.margin + 27}" font-size="3.4" fill="#666" text-anchor="middle">바른 자세로 연필을 바르게 쥐고, 한 글자씩 또박또박 정성껏 써 보아요.</text>
+    <text x="${right}" y="${PAGE.margin + 19}" font-size="4" text-anchor="end">이름 : ______________</text>`
+        : ""
+    }
     <text x="${PAGE.margin}" y="${PAGE.h - PAGE.margin}" font-size="3.4" fill="#777">선생님 확인 ☐</text>
     <text x="${right}" y="${PAGE.h - PAGE.margin}" font-size="3.4" fill="#777" text-anchor="end">${index + 1}쪽</text>
   </g>
