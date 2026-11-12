@@ -148,22 +148,57 @@ const fitFont = (text: string, width: number, max: number) => {
   return Math.max(11, Math.min(max, (width - 16) / Math.max(units, 1)));
 };
 
+/** 거래 내역 표의 자리 (펀치홀(위에서 15mm ± 2.5mm) 아래에서 시작). 화면에서 칸 위에 입력칸을 겹쳐 놓을 때도 씀 */
+const LEDGER_GRID = { x0: 40, x1: BOOK_W - 40, top: 126, bottom: BOOK_H - 28, headH: 54 };
+const LEDGER_COLS: [string, number][] = [
+  ["날짜", 0.16],
+  ["내용", 0.42],
+  ["적립P", 0.14],
+  ["차감P", 0.14],
+  ["계", 0.14],
+];
+
+/** 거래 내역의 row 번째 줄 col 번째 칸의 자리 (그림 단위) */
+export function ledgerCell(row: number, col: number) {
+  const { x0, x1, top, bottom, headH } = LEDGER_GRID;
+  const w = x1 - x0;
+  const rowH = (bottom - top - headH) / LEDGER_ROWS;
+  const x = x0 + LEDGER_COLS.slice(0, col).reduce((sum, [, r]) => sum + r * w, 0);
+  return { x, y: top + headH + row * rowH, w: LEDGER_COLS[col][1] * w, h: rowH };
+}
+
+/** 칸에 쓴 글자의 크기: 칸 너비 안에 들어가는 만큼 (날짜 · 적립P · 차감P · 계는 26, 내용은 24가 최대) */
+export const ledgerFont = (text: string, col: number) => fitFont(text, ledgerCell(0, col).w, col === 1 ? 24 : 26);
+
+/**
+ * 날짜 칸에 쓴 글을 2026.11.12 형식으로 맞춤. 2026-11-12 · 2026/11/12 · 26.11.12 · 20261112 처럼 써도 되고,
+ * 연도를 빼고 11.12 · 1112 로 쓰면 fallbackYear 를 붙임. 날짜로 읽을 수 없으면 null
+ */
+export function normalizeLedgerDate(text: string, fallbackYear: number): string | null {
+  const t = text.trim();
+  let y: number | undefined;
+  let m: number;
+  let d: number;
+  const digits = /^(d{4})(d{2})(d{2})$/.exec(t);
+  const short = /^(d{2})(d{2})$/.exec(t);
+  const parts = /^(?:(d{2}|d{4})s*[-./]s*)?(d{1,2})s*[-./]s*(d{1,2})s*.?$/.exec(t);
+  if (digits) [y, m, d] = [Number(digits[1]), Number(digits[2]), Number(digits[3])];
+  else if (short) [m, d] = [Number(short[1]), Number(short[2])];
+  else if (parts) [y, m, d] = [parts[1] ? Number(parts[1]) : undefined, Number(parts[2]), Number(parts[3])];
+  else return null;
+  if (y !== undefined && y < 100) y += 2000;
+  const year = y ?? fallbackYear;
+  const date = new Date(year, m - 1, d);
+  if (date.getFullYear() !== year || date.getMonth() !== m - 1 || date.getDate() !== d) return null;
+  return `${year}.${String(m).padStart(2, "0")}.${String(d).padStart(2, "0")}`;
+}
+
 /** 거래 내역 한 쪽 (6줄). rows: 이 쪽에 들어갈 줄들 */
 function ledgerSvg(rows: LedgerRow[] = []) {
-  const x0 = 40;
-  const x1 = BOOK_W - 40;
-  const top = 126; // 펀치홀(위에서 15mm ± 2.5mm) 아래에서 시작
-  const bottom = BOOK_H - 28;
+  const { x0, x1, top, bottom, headH } = LEDGER_GRID;
   const rowCount = LEDGER_ROWS;
-  const headH = 54;
   const rowH = (bottom - top - headH) / rowCount;
-  const cols: [string, number][] = [
-    ["날짜", 0.16],
-    ["내용", 0.42],
-    ["적립P", 0.14],
-    ["차감P", 0.14],
-    ["계", 0.14],
-  ];
+  const cols = LEDGER_COLS;
   const w = x1 - x0;
   let x = x0;
   const xs = cols.map(([, r]) => {
@@ -189,7 +224,7 @@ function ledgerSvg(rows: LedgerRow[] = []) {
         const text = (row[ci] ?? "").trim();
         if (!text) return "";
         const cw = r * w;
-        const fs = fitFont(text, cw, ci === 1 ? 24 : 26);
+        const fs = ledgerFont(text, ci);
         const left = ci === 1;
         const tx = left ? xs[ci] + 10 : xs[ci] + cw / 2;
         const ty = top + headH + ri * rowH + rowH / 2 + fs / 3;

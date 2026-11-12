@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   a4Layout,
   BOOK_H,
@@ -9,15 +9,18 @@ import {
   bankbookPages,
   bankbookText,
   HOLE_MM,
+  ledgerCell,
+  ledgerFont,
   largestWidthFor,
   LEDGER_ROWS,
+  normalizeLedgerDate,
   PAPER_COLORS,
   stripHoles,
   type Bankbook,
   type LedgerRow,
   type PaperColor,
 } from "@/lib/bankbookSvg";
-import { embeddedFontCss, loadImageDataUrl, safeFileName, svgToPng, withFont } from "@/lib/svgExport";
+import { embeddedFontCss, FONT, loadImageDataUrl, safeFileName, svgToPng, withFont } from "@/lib/svgExport";
 import ImportStudentsButton from "./ImportStudentsButton";
 import NameCombobox, { parseNames } from "./NameCombobox";
 import { DownloadIcon, PlusIcon, Spinner, TrashIcon, XIcon } from "./icons";
@@ -96,14 +99,6 @@ type Draft = {
 };
 
 const BLANK_ROW: LedgerRow = ["", "", "", "", ""];
-/** 거래 내역 표의 칸 이름과 입력 길이 (쪽의 표 머리글과 같은 순서) */
-const LEDGER_COLS = [
-  { label: "날짜", max: 10 },
-  { label: "내용", max: 24 },
-  { label: "적립P", max: 7 },
-  { label: "차감P", max: 7 },
-  { label: "계", max: 7 },
-] as const;
 /** 불러온 표지 · 뒤표지 그림 (그림 key → data: 주소) */
 type Arts = Record<PictureKey, { front: string; back: string }>;
 
@@ -227,7 +222,9 @@ export default function BankbookApp({ students, onLoadStudents }: { students: St
         : null,
     [previewName, bank, branch, account, issued, kind, previewPaper, cover, back, blankArt],
   );
-  const pages = useMemo(() => (book ? bankbookPages(book, ledgers, entries) : []), [book, ledgers, entries]);
+  /** 거래 내역 단계에서는 표의 칸을 직접 눌러 쓰므로, 그림에는 글을 넣지 않고 칸 위의 입력칸이 보여 줌 */
+  const editingLedger = step === 3 && !customOpen;
+  const pages = useMemo(() => (book ? bankbookPages(book, ledgers, editingLedger ? [] : entries) : []), [book, ledgers, entries, editingLedger]);
 
   const pictureLabel = sets.find((c) => c.id === picture)?.label ?? PICTURES.find((p) => p.key === picture)?.label ?? "";
   /** 내려받을 통장: 학생 목록 순서대로 */
@@ -499,7 +496,10 @@ export default function BankbookApp({ students, onLoadStudents }: { students: St
                       {slot.label} 사진을 올리면 보여요
                     </div>
                   ) : (
-                    <FadePage svg={pages.find((x) => x.key === slot.key)?.svg} fadeKey={slot.fadeKey} label={slot.label} />
+                    <div className="relative [container-type:inline-size]">
+                      <FadePage svg={pages.find((x) => x.key === slot.key)?.svg} fadeKey={slot.fadeKey} label={slot.label} />
+                      {editingLedger && slot.key.startsWith("ledger-") && <LedgerEditor page={shownLedger} entries={entries} onCell={setCell} year={Number(issued.slice(0, 4)) || new Date().getFullYear()} />}
+                    </div>
                   )}
                 </figure>
               ))}
@@ -687,7 +687,7 @@ export default function BankbookApp({ students, onLoadStudents }: { students: St
               </Field>
               <div>
                 <div className="mb-2 flex items-center justify-between">
-                  <span className="text-xs font-semibold text-slate-600">거래 내용 입력 (비워 두면 빈칸으로 나와요)</span>
+                  <span className="text-xs font-semibold text-slate-600">거래 내역 쪽</span>
                   <div className="flex items-center gap-1">
                     <button type="button" onClick={() => setLedgerPage(Math.max(0, shownLedger - 1))} disabled={shownLedger === 0} aria-label="이전 쪽" className={`${chip(false)} px-2.5 py-1 disabled:opacity-40`}>
                       ‹
@@ -700,39 +700,9 @@ export default function BankbookApp({ students, onLoadStudents }: { students: St
                     </button>
                   </div>
                 </div>
-                <div className="space-y-2">
-                  {Array.from({ length: LEDGER_ROWS }, (_, r) => {
-                    const index = shownLedger * LEDGER_ROWS + r;
-                    const row = entries[index] ?? BLANK_ROW;
-                    const cell = (c: number) => (
-                      <input
-                        key={c}
-                        value={row[c]}
-                        maxLength={LEDGER_COLS[c].max}
-                        placeholder={LEDGER_COLS[c].label}
-                        aria-label={`${shownLedger + 1}쪽 ${r + 1}번째 줄 ${LEDGER_COLS[c].label}`}
-                        onChange={(e) => setCell(index, c, e.target.value)}
-                        className="h-9 w-full min-w-0 rounded-md border border-slate-200 bg-white px-2 text-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-                      />
-                    );
-                    return (
-                      <div key={r} className="flex gap-1.5 rounded-lg bg-slate-50 p-1.5">
-                        <span className="grid w-4 shrink-0 place-items-center text-[11px] font-bold text-slate-400">{r + 1}</span>
-                        <div className="min-w-0 flex-1 space-y-1.5">
-                          <div className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-1.5">
-                            {cell(0)}
-                            {cell(1)}
-                          </div>
-                          <div className="grid grid-cols-3 gap-1.5">
-                            {cell(2)}
-                            {cell(3)}
-                            {cell(4)}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                <p className="text-xs leading-relaxed text-slate-500">
+                  오른쪽 표의 칸을 눌러 바로 써요. 날짜는 칸 옆의 달력 단추로 고르거나 <b>2026.11.12</b> 처럼 써도 되고, <b>11.12</b> 라고만 쓰면 올해로 채워져요. 비워 두면 빈칸으로 나와요.
+                </p>
               </div>
             </div>
           )}
@@ -972,6 +942,87 @@ export default function BankbookApp({ students, onLoadStudents }: { students: St
 }
 
 const FADE_MS = 250;
+
+/** 거래 내역 그림 위에 겹쳐 놓는 입력칸들: 표의 칸을 눌러 바로 씀 (6줄 × 날짜 · 내용 · 적립P · 차감P · 계) */
+const LEDGER_MAX = [10, 24, 7, 7, 7];
+const LEDGER_LABEL = ["날짜", "내용", "적립P", "차감P", "계"];
+const cellInput =
+  "absolute min-w-0 border-0 bg-transparent p-0 text-[#2f4f8f] outline-none transition focus:bg-indigo-100/50 hover:bg-indigo-50/40";
+
+function LedgerEditor({ page, entries, onCell, year }: { page: number; entries: LedgerRow[]; onCell: (index: number, col: number, value: string) => void; year: number }) {
+  return (
+    <div className="absolute inset-0">
+      {Array.from({ length: LEDGER_ROWS }, (_, r) => {
+        const index = page * LEDGER_ROWS + r;
+        const row = entries[index] ?? BLANK_ROW;
+        return LEDGER_LABEL.map((label, c) => {
+          const cell = ledgerCell(r, c);
+          const box = { left: `${(cell.x / BOOK_W) * 100}%`, top: `${(cell.y / BOOK_H) * 100}%`, width: `${(cell.w / BOOK_W) * 100}%`, height: `${(cell.h / BOOK_H) * 100}%` };
+          const text = { fontFamily: FONT, fontSize: `${(ledgerFont(row[c], c) / BOOK_W) * 100}cqw` };
+          const name = `${page + 1}쪽 ${r + 1}번째 줄 ${label}`;
+          return c === 0 ? (
+            <DateCell key={`${r}-${c}`} value={row[0]} onChange={(v) => onCell(index, 0, v)} year={year} box={box} text={text} label={name} />
+          ) : (
+            <input
+              key={`${r}-${c}`}
+              value={row[c]}
+              maxLength={LEDGER_MAX[c]}
+              aria-label={name}
+              onChange={(e) => onCell(index, c, e.target.value)}
+              className={`${cellInput} ${c === 1 ? "px-[1.2%] text-left" : "text-center"}`}
+              style={{ ...box, ...text }}
+            />
+          );
+        });
+      })}
+    </div>
+  );
+}
+
+/** 날짜 칸: 2026.11.12 · 11.12 처럼 써도 되고, 오른쪽 달력 단추로 골라도 됨. 칸을 떠나면 2026.11.12 형식으로 맞춤 */
+function DateCell({ value, onChange, year, box, text, label }: { value: string; onChange: (v: string) => void; year: number; box: React.CSSProperties; text: React.CSSProperties; label: string }) {
+  const picker = useRef<HTMLInputElement>(null);
+  const iso = normalizeLedgerDate(value, year)?.replace(/./g, "-") ?? "";
+  return (
+    <div className="absolute" style={box}>
+      <input
+        value={value}
+        maxLength={LEDGER_MAX[0]}
+        inputMode="numeric"
+        placeholder="날짜"
+        title="2026.11.12 형식으로 쓰거나 오른쪽 달력에서 골라요"
+        aria-label={label}
+        onChange={(e) => onChange(e.target.value)}
+        onBlur={() => {
+          const fixed = normalizeLedgerDate(value, year);
+          if (fixed && fixed !== value) onChange(fixed);
+        }}
+        onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+        className={`${cellInput} h-full w-full pl-[2%] pr-[22%] text-center placeholder:text-slate-300`}
+        style={{ ...text, fontSize: `min(${text.fontSize}, 3.1cqw)` }}
+      />
+      <button
+        type="button"
+        tabIndex={-1}
+        aria-label={`${label} 달력에서 고르기`}
+        onClick={() => {
+          try {
+            picker.current?.showPicker();
+          } catch {
+            picker.current?.focus();
+          }
+        }}
+        className="absolute right-[2%] top-1/2 grid h-[55%] w-[18%] -translate-y-1/2 place-items-center rounded text-slate-400 transition hover:bg-indigo-100 hover:text-indigo-600"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-full max-h-4 w-full" aria-hidden="true">
+          <rect x="3" y="5" width="18" height="16" rx="2" />
+          <path d="M3 10h18M8 3v4M16 3v4" />
+        </svg>
+      </button>
+      <input ref={picker} type="date" tabIndex={-1} aria-hidden="true" value={iso} onChange={(e) => e.target.value && onChange(e.target.value.replace(/-/g, "."))} className="pointer-events-none absolute bottom-0 right-0 h-0 w-0 opacity-0" />
+    </div>
+  );
+}
 
 /**
  * 쪽 그림을 보여 줌. fadeKey(고른 그림 · 속지 색)가 바뀌면 이전 그림이 서서히 사라진 뒤 새 그림이 서서히 나타나고,
