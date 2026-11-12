@@ -6,7 +6,7 @@ import { ArrowRightIcon, PencilIcon, SparkleIcon, Spinner } from "./icons";
 type Msg = { role: "user" | "model"; text: string };
 
 /** 처음 화면에 보여 주는 질문 예시 (누르면 바로 물어봄) */
-const SUGGESTIONS = ["첫 출근인데 어떻게 해야 되나요?", "느티나무반 학생들에 대해서 알려 주세요", "학생이 갑자기 사라지거나 돌발 상황이 일어나면 어떻게 하나요?"];
+const SUGGESTIONS = ["첫 출근인데 업무에 대해서 설명해주세요", "느티나무반 학생들에 대해서 알려 주세요", "학생이 갑자기 사라지거나 돌발 상황이 일어나면 어떻게 하나요?"];
 
 /** 낱말 하나가 나타나는 간격 (ms) */
 const WORD_MS = 28;
@@ -146,9 +146,11 @@ export default function GuideChatApp() {
           </p>
         )}
 
-        {/* 예시 질문: 왼쪽에서 오른쪽으로 계속 흘러가고, 마우스를 대면 멈춤. 누르면 바로 물어봄 */}
-        <div className="marquee group relative overflow-hidden border-t border-slate-100 py-2.5 [mask-image:linear-gradient(to_right,transparent,black_6%,black_94%,transparent)]">
-          <div className="marquee-track flex w-max group-hover:[animation-play-state:paused] group-focus-within:[animation-play-state:paused]">
+        {/* 아래쪽(예시 질문 · 입력칸)에 마우스를 대면 예시 질문이 멈춤 */}
+        <div className="chat-bottom">
+        {/* 예시 질문: 왼쪽에서 오른쪽으로 계속 흘러가고, 누르면 바로 물어봄 */}
+        <div className="marquee relative overflow-hidden border-t border-slate-100 py-2.5 [mask-image:linear-gradient(to_right,transparent,black_6%,black_94%,transparent)]">
+          <div className="marquee-track flex w-max">
             {/* 끊김 없이 이어지도록 같은 목록을 두 번 (두 번째는 화면 읽기에서 숨김) */}
             {[0, 1].map((copy) => (
               <div key={copy} className="flex shrink-0 gap-2 pr-2" aria-hidden={copy === 1 || undefined}>
@@ -202,6 +204,7 @@ export default function GuideChatApp() {
             <ArrowRightIcon className="h-5 w-5" />
           </button>
         </form>
+        </div>
       </div>
 
       {messages.length > 0 && (

@@ -153,6 +153,12 @@ body {
 .marquee-track {
   animation: marquee-right 40s linear infinite;
 }
+/* 채팅 아래쪽(예시 질문 · 입력칸)에 마우스를 대거나, 키보드로 예시 질문에 초점을 옮기면 멈춤
+   (애니메이션을 여기서 정해서 Tailwind 유틸리티로는 멈추지 않으므로 여기서 멈춤) */
+.chat-bottom:hover .marquee-track,
+.marquee:focus-within .marquee-track {
+  animation-play-state: paused;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .marquee {
