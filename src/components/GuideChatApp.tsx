@@ -6,7 +6,7 @@ import { ArrowRightIcon, PencilIcon, SparkleIcon, Spinner } from "./icons";
 type Msg = { role: "user" | "model"; text: string };
 
 /** 처음 화면에 보여 주는 질문 예시 (누르면 바로 물어봄) */
-const SUGGESTIONS = ["출근하면 제일 먼저 뭘 해야 하나요?", "우리 반 학생들을 알려 주세요", "급식 시간에는 어떻게 도와요?", "학생이 갑자기 사라지면 어떻게 해요?"];
+const SUGGESTIONS = ["첫 출근인데 어떻게 해야 되나요?", "느티나무반 학생들에 대해서 알려 주세요", "학생이 갑자기 사라지거나 돌발 상황이 일어나면 어떻게 하나요?"];
 
 /** 낱말 하나가 나타나는 간격 (ms) */
 const WORD_MS = 28;
