@@ -11,8 +11,6 @@ import {
   dutyLogText,
   addDays,
   hasEntries,
-  isoOf,
-  mondayOf,
   weekLog,
   GRID,
   INK_FONT,
@@ -36,14 +34,7 @@ import { embeddedFontCss, svgToPng, withFont } from "@/lib/svgExport";
 import { DownloadIcon, Spinner } from "./icons";
 import DutyCalendar from "./DutyCalendar";
 import { STATUS_TEXT, useDutySync, type Status } from "./useDutySync";
-import type { DutyDocs } from "./dutyLogSync";
-
-/** 쓴 내용이 있는 주들 (최근 주가 앞) */
-const weeksWithEntries = (docs: DutyDocs) =>
-  Object.keys(docs)
-    .filter((k) => hasEntries(docs[k].log))
-    .sort()
-    .reverse();
+import { StepHeading, StepNav, StepProgress, useStepFlow, type Step } from "./StepFlow";
 
 /** 2026-11-09 → 2026.11.09 */
 const dotted = (iso: string) => iso.replace(/-/g, ".");
@@ -72,24 +63,39 @@ function DateField({ value, onChange, x, label }: { value: string; onChange: (v:
   );
 }
 
+/** 입력하기 → 서버에 저장하기 → 다운로드하기 */
+const STEPS: readonly Step[] = [
+  {
+    title: "입력하기",
+    heading: "활동일지를 입력해 주세요",
+    hint: "칸을 눌러 체크하고, 날짜 · 비고를 적고, 작성자를 눌러 서명을 넣어요. 요일 이름을 누르면 그날을 한꺼번에 체크해요.",
+  },
+  { title: "서버에 저장", heading: "서버에 저장해 주세요", hint: "입력한 내용은 이 컴퓨터에도 먼저 저장돼 있어요." },
+  { title: "다운로드", heading: "PDF로 내려받아요", hint: "서버에 저장한 활동일지를 인쇄할 수 있는 PDF로 받아요." },
+];
+
 type EditorProps = {
-  /** 지금 보고 있는 주 (월요일 날짜) */
+  /** 지금 쓰는 주 (월요일 날짜) */
   weekKey: string;
   log: DutyLog;
-  /** 기록한 주들 (최근 주가 앞) */
-  savedWeeks: string[];
   status: Status;
   onChange: (change: (l: DutyLog) => DutyLog) => void;
-  onWeek: (key: string) => void;
+  /** 지금 서버에 저장 (올리지 못한 내용이 없으면 true) */
+  onSaveNow: () => Promise<boolean>;
   onBack: () => void;
 };
 
 /** 한 주의 활동일지를 쓰는 화면 */
-function DutyLogEditor({ weekKey, log, savedWeeks, status, onChange: update, onWeek: goWeek, onBack }: EditorProps) {
+function DutyLogEditor({ weekKey, log, status, onChange: update, onSaveNow, onBack }: EditorProps) {
+  const { step, checking, goStep, goNext, fadeClass } = useStepFlow();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const blank = useMemo(() => dutyLogSvg(log), [log.start]); // eslint-disable-line react-hooks/exhaustive-deps -- 머리글의 학년도만 시작일에 따라 바뀜
+  /** 입력하기 다음 단계에서는 입력한 내용이 들어간 모습을 그대로 보여 줌 */
+  const filled = useMemo(() => dutyLogSvg(log, true), [log]);
 
   const toggle = (k: number) => update((l) => ({ ...l, checks: l.checks.map((c, i) => (i === k ? !c : c)) }));
   /** 요일 이름을 누르면 그날 항목을 모두 체크 (이미 모두 체크했으면 모두 해제) */
@@ -102,6 +108,18 @@ function DutyLogEditor({ weekKey, log, savedWeeks, status, onChange: update, onW
   const setNote = (d: number, text: string) => update((l) => ({ ...l, notes: l.notes.map((n, i) => (i === d ? text : n)) }));
   const reset = () => {
     if (window.confirm(`이 주(${dotted(weekKey)} ~ ${dotted(addDays(weekKey, 4))})의 체크와 비고, 서명을 모두 지우고 새로 시작할까요?`)) update(() => weekLog(weekKey));
+  };
+
+  const saveToServer = async () => {
+    setSaving(true);
+    setSaveMsg(null);
+    const ok = await onSaveNow();
+    setSaving(false);
+    setSaveMsg(
+      ok
+        ? { ok: true, text: "서버에 저장했어요." }
+        : { ok: false, text: "서버에 저장하지 못했어요. 내용은 이 컴퓨터에 저장돼 있고, 서버가 돌아오면 자동으로 다시 저장해요." },
+    );
   };
 
   const savePdf = async () => {
@@ -129,83 +147,93 @@ function DutyLogEditor({ weekKey, log, savedWeeks, status, onChange: update, onW
       <button type="button" onClick={onBack} className="mb-3 inline-flex items-center gap-1 rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 ring-1 ring-inset ring-slate-200 transition hover:bg-slate-50">
         ‹ 달력으로
       </button>
-      <div className="mb-6 text-center">
+      <div className="mb-5 text-center">
         <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-[28px]">특수교육실무사 활동일지</h1>
-        <p className="mt-2 text-[15px] text-slate-500">
-          주마다 한 장씩 기록돼요. 칸을 눌러 체크하고, 날짜 · 비고를 적고, 작성자를 눌러 서명을 넣어요. 요일 이름을 누르면 그날을 한꺼번에 체크해요.
-        </p>
       </div>
 
-      {/* 주 고르기: 날짜별(주별) 기록 */}
-      <div className="mb-4 space-y-2">
-        <div className="flex flex-wrap items-center justify-center gap-2">
-          <button type="button" onClick={() => goWeek(addDays(weekKey, -7))} aria-label="지난주" className="rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 ring-1 ring-inset ring-slate-200 transition hover:bg-slate-50">
-            ‹ 지난주
-          </button>
-          <label className="flex items-center gap-2 rounded-lg bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 ring-1 ring-inset ring-slate-200">
-            <span className="text-xs text-slate-500">날짜로 찾기</span>
-            <input
-              type="date"
-              value={weekKey}
-              onChange={(e) => e.target.value && goWeek(mondayOf(e.target.value))}
-              aria-label="이 날짜가 있는 주로 이동"
-              className="rounded border-0 bg-transparent p-0 text-sm outline-none focus:ring-2 focus:ring-indigo-200"
-            />
-          </label>
-          <button type="button" onClick={() => goWeek(addDays(weekKey, 7))} aria-label="다음주" className="rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 ring-1 ring-inset ring-slate-200 transition hover:bg-slate-50">
-            다음주 ›
-          </button>
-          <button type="button" onClick={() => goWeek(mondayOf(isoOf(new Date())))} className="rounded-lg px-3 py-2 text-sm font-semibold text-indigo-600 ring-1 ring-inset ring-indigo-200 transition hover:bg-indigo-50">
-            이번 주
-          </button>
-        </div>
-        <p className="text-center text-sm font-semibold text-slate-700">
-          {dotted(weekKey)} ~ {dotted(addDays(weekKey, 4))}
-        </p>
-        {savedWeeks.length > 0 && (
-          <div className="mx-auto flex max-h-24 max-w-xl flex-wrap justify-center gap-1.5 overflow-y-auto" role="group" aria-label="기록한 주">
-            {savedWeeks.map((k) => (
+      <div className="mx-auto mb-5 max-w-[640px] space-y-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        <StepProgress steps={STEPS} step={step} checking={checking} onGo={(n) => goStep(n)} />
+
+        <div className={`space-y-4 ${fadeClass}`}>
+          <StepHeading step={STEPS[step]} />
+
+          {step === 0 && (
+            <button type="button" onClick={reset} className="rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 ring-1 ring-inset ring-slate-200 transition hover:bg-slate-50">
+              새로 시작
+            </button>
+          )}
+
+          {step === 1 && (
+            <div className="space-y-3">
               <button
-                key={k}
                 type="button"
-                onClick={() => goWeek(k)}
-                aria-pressed={k === weekKey}
-                className={`rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset transition ${k === weekKey ? "bg-indigo-50 text-indigo-700 ring-indigo-300" : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"}`}
+                onClick={saveToServer}
+                disabled={saving}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-[15px] font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
               >
-                {dotted(k).slice(2)} 주
+                {saving && <Spinner className="h-5 w-5" />}
+                서버에 저장하기
               </button>
-            ))}
-          </div>
-        )}
-      </div>
+              <p aria-live="polite" className={`text-xs font-medium ${STATUS_TEXT[status].tone}`}>
+                {STATUS_TEXT[status].text}
+              </p>
+              {saveMsg && (
+                <p role="status" className={`text-xs font-medium ${saveMsg.ok ? "text-emerald-600" : "text-red-600"}`}>
+                  {saveMsg.text}
+                </p>
+              )}
+            </div>
+          )}
 
-      <div className="mb-4 flex flex-wrap items-center justify-center gap-2">
-        <button
-          type="button"
-          onClick={savePdf}
-          disabled={busy}
-          className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-[15px] font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
-        >
-          {busy ? <Spinner className="h-5 w-5" /> : <DownloadIcon className="h-5 w-5" />}
-          PDF 다운로드
-        </button>
-        <button type="button" onClick={reset} className="rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-600 ring-1 ring-inset ring-slate-200 transition hover:bg-slate-50">
-          새로 시작
-        </button>
+          {step === 2 && (
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={savePdf}
+                  disabled={busy}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-[15px] font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
+                >
+                  {busy ? <Spinner className="h-5 w-5" /> : <DownloadIcon className="h-5 w-5" />}
+                  PDF 다운로드
+                </button>
+                <button type="button" onClick={onBack} className="rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-600 ring-1 ring-inset ring-slate-200 transition hover:bg-slate-50">
+                  달력으로 돌아가기
+                </button>
+              </div>
+              {error && (
+                <p role="alert" className="text-xs font-medium text-red-600">
+                  {error}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+
+        <StepNav
+          step={step}
+          last={step === STEPS.length - 1}
+          canNext={step === 0 || (step === 1 && status === "saved")}
+          checking={checking}
+          onPrev={() => goStep(step - 1)}
+          onNext={() => goNext()}
+          invalidMessage="먼저 '서버에 저장하기'를 눌러 저장해 주세요."
+          extra={
+            step === 1 && (status === "offline" || status === "login") ? (
+              <button type="button" onClick={() => goNext()} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-500 transition hover:bg-slate-100">
+                저장 없이 넘어가기
+              </button>
+            ) : undefined
+          }
+        />
       </div>
-      <p aria-live="polite" className={`mb-3 text-center text-xs font-medium ${STATUS_TEXT[status].tone}`}>
-        {STATUS_TEXT[status].text}
-      </p>
-      {error && (
-        <p role="alert" className="mb-3 text-center text-xs font-medium text-red-600">
-          {error}
-        </p>
-      )}
 
       <div className="mx-auto w-full max-w-[640px] overflow-hidden rounded-md bg-white shadow-lg ring-1 ring-slate-200 [container-type:inline-size]">
         <div className="relative select-none" style={{ aspectRatio: `${LOG_W} / ${LOG_H}` }}>
-          <div className="absolute inset-0 [&>svg]:block [&>svg]:h-full [&>svg]:w-full" dangerouslySetInnerHTML={{ __html: blank }} />
+          <div className="absolute inset-0 [&>svg]:block [&>svg]:h-full [&>svg]:w-full" dangerouslySetInnerHTML={{ __html: step === 0 ? blank : filled }} />
 
+          {step === 0 && (
+            <>
           <DateField value={log.start} onChange={(v) => update((l) => ({ ...l, start: v }))} x={DATE_LINE.startX} label="시작 날짜" />
           <DateField value={log.end} onChange={(v) => update((l) => ({ ...l, end: v }))} x={DATE_LINE.endX} label="끝 날짜" />
 
@@ -262,6 +290,8 @@ function DutyLogEditor({ weekKey, log, savedWeeks, status, onChange: update, onW
               />
             </div>
           ))}
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -270,9 +300,8 @@ function DutyLogEditor({ weekKey, log, savedWeeks, status, onChange: update, onW
 
 /** 처음에는 달력(일정 + 등록한 활동일지)을 보여 주고, 날짜나 활동일지를 눌러 일정을 더하거나 활동일지를 씀 */
 export default function DutyLogApp() {
-  const { weeks, events, status, editWeek, saveEvent, removeEvent } = useDutySync();
+  const { weeks, events, status, editWeek, saveEvent, removeEvent, saveNow } = useDutySync();
   const [view, setView] = useState<{ mode: "calendar" } | { mode: "edit"; week: string }>({ mode: "calendar" });
-  const savedWeeks = useMemo(() => weeksWithEntries(weeks as DutyDocs), [weeks]);
 
   if (view.mode === "edit") {
     const key = view.week;
@@ -280,10 +309,9 @@ export default function DutyLogApp() {
       <DutyLogEditor
         weekKey={key}
         log={weeks[key]?.log ?? weekLog(key)}
-        savedWeeks={savedWeeks}
         status={status}
         onChange={(change) => editWeek(key, change)}
-        onWeek={(week) => setView({ mode: "edit", week })}
+        onSaveNow={saveNow}
         onBack={() => setView({ mode: "calendar" })}
       />
     );

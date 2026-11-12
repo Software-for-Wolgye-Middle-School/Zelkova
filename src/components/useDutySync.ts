@@ -42,6 +42,8 @@ export function useDutySync() {
   const [status, setStatus] = useState<Status>("checking");
   /** 서버에 저장을 예약 (debounce 없이 바로 하려면 0) */
   const scheduleRef = useRef<(ms: number) => void>(() => {});
+  /** 기다리지 않고 지금 서버에 저장하고, 올리지 못한 내용이 하나도 없으면 true */
+  const flushNowRef = useRef<() => Promise<boolean>>(async () => false);
 
   useEffect(() => {
     let cancelled = false;
@@ -112,6 +114,12 @@ export function useDutySync() {
       else setStatus("saved");
     }
     scheduleRef.current = schedule;
+    flushNowRef.current = async () => {
+      clearTimeout(timer);
+      for (let i = 0; sending && i < 100; i++) await new Promise((r) => setTimeout(r, 100)); // 보내는 중이면 끝나길 기다림
+      await flush();
+      return !cancelled && pending() === 0;
+    };
 
     (async () => {
       const server = await fetchServer();
@@ -198,5 +206,8 @@ export function useDutySync() {
     scheduleRef.current(200);
   };
 
-  return { weeks, events, status, editWeek, saveEvent, removeEvent };
+  /** 지금 서버에 저장 (저장 단계의 단추) */
+  const saveNow = () => flushNowRef.current();
+
+  return { weeks, events, status, editWeek, saveEvent, removeEvent, saveNow };
 }
