@@ -390,7 +390,7 @@ export default function TimetableApp() {
 
           <footer className="px-4 pb-6 text-center text-xs text-slate-400">
             {phase === "dutylog"
-              ? "활동일지는 이 컴퓨터의 브라우저 안에만 저장되고, 밖으로 전송되지 않아요."
+              ? null
               : phase === "handwriting"
               ? "필사 학습지는 이 컴퓨터의 브라우저 안에서만 만들어져요."
               : phase === "students"
