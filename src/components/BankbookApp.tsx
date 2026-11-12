@@ -8,9 +8,13 @@ import {
   BOOK_W,
   bankbookPages,
   bankbookText,
+  HOLE_MM,
   largestWidthFor,
+  LEDGER_ROWS,
   PAPER_COLORS,
+  stripHoles,
   type Bankbook,
+  type LedgerRow,
   type PaperColor,
 } from "@/lib/bankbookSvg";
 import { embeddedFontCss, loadImageDataUrl, safeFileName, svgToPng, withFont } from "@/lib/svgExport";
@@ -84,10 +88,22 @@ type Draft = {
   kind: Bankbook["kind"];
   paper: PaperColor;
   ledgersText: string;
+  /** 거래 내역에 쓴 줄들 (쪽마다 LEDGER_ROWS 줄씩 이어짐) */
+  entries: LedgerRow[];
   picture: PictureKey;
   pictureLabel: string;
   done: boolean;
 };
+
+const BLANK_ROW: LedgerRow = ["", "", "", "", ""];
+/** 거래 내역 표의 칸 이름과 입력 길이 (쪽의 표 머리글과 같은 순서) */
+const LEDGER_COLS = [
+  { label: "날짜", max: 10 },
+  { label: "내용", max: 24 },
+  { label: "적립P", max: 7 },
+  { label: "차감P", max: 7 },
+  { label: "계", max: 7 },
+] as const;
 /** 불러온 표지 · 뒤표지 그림 (그림 key → data: 주소) */
 type Arts = Record<PictureKey, { front: string; back: string }>;
 
@@ -118,6 +134,9 @@ export default function BankbookApp({ students, onLoadStudents }: { students: St
   const [kind, setKind] = useState<Bankbook["kind"]>("신규");
   const [paper, setPaper] = useState<PaperColor>("분홍");
   const [ledgersText, setLedgersText] = useState("5");
+  const [entries, setEntries] = useState<LedgerRow[]>([]);
+  /** 거래 내역 단계에서 입력 · 미리보기 중인 쪽 (0부터) */
+  const [ledgerPage, setLedgerPage] = useState(0);
   const [picture, setPicture] = useState<PictureKey>("hello_kitty");
   const [arts, setArts] = useState<Arts>({});
   const [sets, setSets] = useState<CustomPhotoSet[]>([]);
@@ -166,6 +185,16 @@ export default function BankbookApp({ students, onLoadStudents }: { students: St
 
   const pictureArt = arts[picture] ?? null;
   const ledgers = ledgerCount(ledgersText);
+  const shownLedger = Math.min(ledgerPage, ledgers - 1);
+  const setCell = (index: number, col: number, value: string) =>
+    setEntries((list) => {
+      const next = [...list];
+      while (next.length <= index) next.push([...BLANK_ROW]);
+      const row = [...next[index]] as LedgerRow;
+      row[col] = value;
+      next[index] = row;
+      return next;
+    });
 
   /** 기본 그림을 고르면 그 그림에 어울리는 속지 색으로 바꿈 */
   const choosePicture = (key: PictureKey) => {
@@ -198,7 +227,7 @@ export default function BankbookApp({ students, onLoadStudents }: { students: St
         : null,
     [previewName, bank, branch, account, issued, kind, previewPaper, cover, back, blankArt],
   );
-  const pages = useMemo(() => (book ? bankbookPages(book, ledgers) : []), [book, ledgers]);
+  const pages = useMemo(() => (book ? bankbookPages(book, ledgers, entries) : []), [book, ledgers, entries]);
 
   const pictureLabel = sets.find((c) => c.id === picture)?.label ?? PICTURES.find((p) => p.key === picture)?.label ?? "";
   /** 내려받을 통장: 학생 목록 순서대로 */
@@ -207,7 +236,7 @@ export default function BankbookApp({ students, onLoadStudents }: { students: St
       names.flatMap((n) => {
         const d = made[n];
         const b = d && makeBook(n, d, arts);
-        return b ? [{ name: n, book: b, ledgers: ledgerCount(d.ledgersText) }] : [];
+        return b ? [{ name: n, book: b, ledgers: ledgerCount(d.ledgersText), entries: d.entries }] : [];
       }),
     [names, made, arts],
   );
@@ -217,7 +246,7 @@ export default function BankbookApp({ students, onLoadStudents }: { students: St
       step !== DONE_STEP
         ? []
         : books.flatMap((b) => {
-            const all = bankbookPages(b.book, b.ledgers);
+            const all = bankbookPages(b.book, b.ledgers, b.entries);
             const count = Math.ceil(all.length / layout.perSheet);
             return Array.from({ length: count }, (_, i) => ({ name: b.name, no: i + 1, count, pages: all.slice(i * layout.perSheet, (i + 1) * layout.perSheet) }));
           }),
@@ -242,7 +271,7 @@ export default function BankbookApp({ students, onLoadStudents }: { students: St
 
   /** 지금 입력 상태를 지금 학생의 값으로 저장한 목록 */
   const withCurrent = (done: boolean) =>
-    who ? { ...made, [who]: { bank, branch, issued, account, kind, paper, ledgersText, picture, pictureLabel, done: done || !!made[who]?.done } } : made;
+    who ? { ...made, [who]: { bank, branch, issued, account, kind, paper, ledgersText, entries, picture, pictureLabel, done: done || !!made[who]?.done } } : made;
   const restore = (d: Draft) => {
     setBank(d.bank);
     setBranch(d.branch);
@@ -251,6 +280,8 @@ export default function BankbookApp({ students, onLoadStudents }: { students: St
     setKind(d.kind);
     setPaper(d.paper);
     setLedgersText(d.ledgersText);
+    setEntries(d.entries);
+    setLedgerPage(0);
     setPicture(d.picture);
   };
   /** 그 학생의 통장을 입력 상태로 펼침. 처음 만드는 학생은 바로 앞 학생의 값을 이어 받고 계좌번호만 하나 올림 */
@@ -258,7 +289,12 @@ export default function BankbookApp({ students, onLoadStudents }: { students: St
     setWho(name);
     if (map[name]) return restore(map[name]);
     const before = list.slice(0, list.indexOf(name)).reverse().find((n) => map[n]);
-    if (before) restore({ ...map[before], account: nextAccount(map[before].account) });
+    // 거래 내역은 학생마다 다르므로 이어 받지 않고 비워 둠
+    if (before) restore({ ...map[before], account: nextAccount(map[before].account), entries: [] });
+    else {
+      setEntries([]);
+      setLedgerPage(0);
+    }
   };
   const removeName = (n: string) => {
     const rest = names.filter((x) => x !== n);
@@ -351,7 +387,7 @@ export default function BankbookApp({ students, onLoadStudents }: { students: St
     setBusy(true);
     setExportError(null);
     try {
-      const [{ jsPDF }, css] = await Promise.all([import("jspdf"), embeddedFontCss(books.map((b) => bankbookText(b.book)).join(""))]);
+      const [{ jsPDF }, css] = await Promise.all([import("jspdf"), embeddedFontCss(books.map((b) => bankbookText(b.book, b.entries)).join(""))]);
       const { orientation, paper, cols, rows } = layout;
       const doc = new jsPDF({ orientation, unit: "mm", format: "a4" });
       // 프린터가 인쇄하지 못하는 가장자리(PRINT_SAFE_MARGIN)를 뺀 영역을 쪽들이 빈틈없이 채우도록 놓음
@@ -369,16 +405,23 @@ export default function BankbookApp({ students, onLoadStudents }: { students: St
       for (const [si, sheet] of sheetList.entries()) {
         if (si > 0) doc.addPage();
         for (const [slot, p] of sheet.pages.entries()) {
-          let img = images.get(p.svg);
+          // 구멍은 그림에 넣지 않고 아래에서 정확한 mm 로 그림
+          const svg = stripHoles(p.svg);
+          let img = images.get(svg);
           if (!img) {
-            const blob = await svgToPng(withFont(p.svg, css), BOOK_W, BOOK_H, scale, "image/jpeg");
+            const blob = await svgToPng(withFont(svg, css), BOOK_W, BOOK_H, scale, "image/jpeg");
             img = { data: new Uint8Array(await blob.arrayBuffer()), alias: `page-${images.size}` };
-            images.set(p.svg, img);
+            images.set(svg, img);
           }
           const x = left + (slot % cols) * w;
           const y = top + Math.floor(slot / cols) * h;
           doc.addImage(img.data, "JPEG", x, y, w, h, img.alias);
           doc.rect(x, y, w, h);
+          // 펀치홀: 위에서 중심까지, 중심 사이, 지름이 쪽 크기와 상관없이 늘 같은 mm
+          doc.setLineDashPattern([], 0);
+          doc.setFillColor(255, 255, 255);
+          for (const side of [-1, 1]) doc.circle(x + w / 2 + (side * HOLE_MM.gap) / 2, y + HOLE_MM.fromTop, HOLE_MM.d / 2, "FD");
+          doc.setLineDashPattern([1, 1], 0);
         }
       }
       doc.save(books.length === 1 ? `${safeFileName(books[0].name)} 칭찬통장.pdf` : `칭찬통장 ${books.length}명.pdf`);
@@ -437,13 +480,13 @@ export default function BankbookApp({ students, onLoadStudents }: { students: St
 
   /** 앞면 · 속지 · 거래 내역 · 뒷면 (거래 내역은 모든 쪽이 같음). 화면과 내 사진 등록 창에서 같이 씀 */
   // 이름 · 통장 정보 단계는 속지만, 거래 내역 단계는 거래 내역만 보여 줌 (등록 창은 모두)
-  const onlySlot = customOpen ? null : step === 0 || step === 2 ? "info" : step === 3 ? "ledger-0" : null;
+  const onlySlot = customOpen ? null : step === 0 || step === 2 ? "info" : step === 3 ? `ledger-${shownLedger}` : null;
   const slotGrid = (
     <div className={`grid gap-4 ${onlySlot ? "mx-auto max-w-md" : "sm:grid-cols-2"}`}>
               {[
                 { key: "cover", label: "앞면", fadeKey: cover },
                 { key: "info", label: "속지", fadeKey: previewPaper },
-                { key: "ledger-0", label: `거래 내역 (${ledgers}쪽)`, fadeKey: "ledger" },
+                { key: `ledger-${shownLedger}`, label: `거래 내역 (${shownLedger + 1}/${ledgers}쪽)`, fadeKey: "ledger" },
                 { key: "back", label: "뒷면", fadeKey: back },
               ].filter((slot) => !onlySlot || slot.key === onlySlot).map((slot) => (
                 <figure key={slot.key} className="rounded-2xl border border-slate-200 bg-slate-100 p-3">
@@ -629,18 +672,69 @@ export default function BankbookApp({ students, onLoadStudents }: { students: St
           )}
 
           {step === 3 && (
-            <Field label="거래 내역 쪽수">
-              <input
-                type="number"
-                inputMode="numeric"
-                min={1}
-                max={MAX_LEDGERS}
-                value={ledgersText}
-                onChange={(e) => setLedgersText(e.target.value)}
-                onBlur={() => setLedgersText(String(ledgers))}
-                className={field}
-              />
-            </Field>
+            <div className="space-y-4">
+              <Field label="거래 내역 쪽수">
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  max={MAX_LEDGERS}
+                  value={ledgersText}
+                  onChange={(e) => setLedgersText(e.target.value)}
+                  onBlur={() => setLedgersText(String(ledgers))}
+                  className={field}
+                />
+              </Field>
+              <div>
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="text-xs font-semibold text-slate-600">거래 내용 입력 (비워 두면 빈칸으로 나와요)</span>
+                  <div className="flex items-center gap-1">
+                    <button type="button" onClick={() => setLedgerPage(Math.max(0, shownLedger - 1))} disabled={shownLedger === 0} aria-label="이전 쪽" className={`${chip(false)} px-2.5 py-1 disabled:opacity-40`}>
+                      ‹
+                    </button>
+                    <span className="min-w-[3.5rem] text-center text-xs font-semibold text-slate-600">
+                      {shownLedger + 1} / {ledgers}쪽
+                    </span>
+                    <button type="button" onClick={() => setLedgerPage(Math.min(ledgers - 1, shownLedger + 1))} disabled={shownLedger >= ledgers - 1} aria-label="다음 쪽" className={`${chip(false)} px-2.5 py-1 disabled:opacity-40`}>
+                      ›
+                    </button>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  {Array.from({ length: LEDGER_ROWS }, (_, r) => {
+                    const index = shownLedger * LEDGER_ROWS + r;
+                    const row = entries[index] ?? BLANK_ROW;
+                    const cell = (c: number) => (
+                      <input
+                        key={c}
+                        value={row[c]}
+                        maxLength={LEDGER_COLS[c].max}
+                        placeholder={LEDGER_COLS[c].label}
+                        aria-label={`${shownLedger + 1}쪽 ${r + 1}번째 줄 ${LEDGER_COLS[c].label}`}
+                        onChange={(e) => setCell(index, c, e.target.value)}
+                        className="h-9 w-full min-w-0 rounded-md border border-slate-200 bg-white px-2 text-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                      />
+                    );
+                    return (
+                      <div key={r} className="flex gap-1.5 rounded-lg bg-slate-50 p-1.5">
+                        <span className="grid w-4 shrink-0 place-items-center text-[11px] font-bold text-slate-400">{r + 1}</span>
+                        <div className="min-w-0 flex-1 space-y-1.5">
+                          <div className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-1.5">
+                            {cell(0)}
+                            {cell(1)}
+                          </div>
+                          <div className="grid grid-cols-3 gap-1.5">
+                            {cell(2)}
+                            {cell(3)}
+                            {cell(4)}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
           )}
 
           {step === DONE_STEP && (

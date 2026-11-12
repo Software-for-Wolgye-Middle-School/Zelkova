@@ -43,11 +43,20 @@ export type Bankbook = {
 const svgOpen = (w = BOOK_W, h = BOOK_H) =>
   `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" font-family='${FONT}'>`;
 
-/** 바인더 링 구멍 자리 (위쪽 가장자리) */
+/** 바인더 링 구멍 자리 (mm): 위 가장자리에서 중심까지 15, 중심 사이 70, 지름 5. 가로로는 쪽 가운데에 놓음 */
+export const HOLE_MM = { fromTop: 15, gap: 70, d: 5 };
+const PX_PER_MM = BOOK_W / BOOK_MM.w;
 const holes = () =>
-  [0.27, 0.73]
-    .map((p) => `<circle cx="${BOOK_W * p}" cy="30" r="11" fill="#fff" fill-opacity="0.85" stroke="#999" stroke-width="2"/>`)
-    .join("");
+  "<g data-holes>" +
+  [-1, 1]
+    .map(
+      (side) =>
+        `<circle cx="${BOOK_W / 2 + (side * HOLE_MM.gap * PX_PER_MM) / 2}" cy="${HOLE_MM.fromTop * PX_PER_MM}" r="${(HOLE_MM.d * PX_PER_MM) / 2}" fill="#fff" fill-opacity="0.85" stroke="#999" stroke-width="2"/>`,
+    )
+    .join("") +
+  "</g>";
+/** PDF 에서는 구멍을 쪽 크기와 상관없이 정확한 mm 로 따로 그리므로 그림에서는 뺌 */
+export const stripHoles = (svg: string) => svg.replace(/<g data-holes>[\s\S]*?<\/g>/, "");
 
 /** 쪽 전체를 덮는 그림 */
 const fullImage = (src: string) =>
@@ -122,22 +131,32 @@ function infoSvg(b: Bankbook) {
 
   return `${svgOpen()}
   <rect width="${BOOK_W}" height="${BOOK_H}" fill="${paper.fill}"/>
-  ${bubble}${lines}${sign}
+  <g transform="translate(0 28)">${bubble}${lines}${sign}</g>
   <text x="${bankX}" y="556" text-anchor="middle" font-size="42" fill="${INK}">${esc(b.bank)}</text>
   ${seal}
   ${holes()}
 </svg>`;
 }
 
-/** 거래 내역 한 쪽 (6줄) */
-function ledgerSvg() {
+/** 거래 내역 한 줄: 날짜 · 내용 · 적립P · 차감P · 계 */
+export type LedgerRow = [string, string, string, string, string];
+export const LEDGER_ROWS = 6;
+
+/** 칸 너비 안에 들어가도록 글자 크기를 줄임 (한글은 글자 크기만큼, 숫자 · 영문은 절반 남짓 차지) */
+const fitFont = (text: string, width: number, max: number) => {
+  const units = [...text].reduce((sum, c) => sum + (c.charCodeAt(0) > 255 ? 1 : 0.58), 0);
+  return Math.max(11, Math.min(max, (width - 16) / Math.max(units, 1)));
+};
+
+/** 거래 내역 한 쪽 (6줄). rows: 이 쪽에 들어갈 줄들 */
+function ledgerSvg(rows: LedgerRow[] = []) {
   const x0 = 40;
   const x1 = BOOK_W - 40;
-  const top = 62;
+  const top = 126; // 펀치홀(위에서 15mm ± 2.5mm) 아래에서 시작
   const bottom = BOOK_H - 28;
-  const rows = 6;
+  const rowCount = LEDGER_ROWS;
   const headH = 54;
-  const rowH = (bottom - top - headH) / rows;
+  const rowH = (bottom - top - headH) / rowCount;
   const cols: [string, number][] = [
     ["날짜", 0.16],
     ["내용", 0.42],
@@ -159,13 +178,29 @@ function ledgerSvg() {
     .slice(1)
     .map((vx) => `<line x1="${vx}" y1="${top}" x2="${vx}" y2="${bottom}"/>`)
     .join("");
-  const hLines = Array.from({ length: rows }, (_, i) => top + headH + i * rowH)
+  const hLines = Array.from({ length: rowCount }, (_, i) => top + headH + i * rowH)
     .map((y) => `<line x1="${x0}" y1="${y}" x2="${x1}" y2="${y}"/>`)
+    .join("");
+  // 칸에 쓴 글: 날짜 · 적립P · 차감P · 계는 가운데, 내용은 왼쪽 맞춤
+  const cells = rows
+    .slice(0, rowCount)
+    .flatMap((row, ri) =>
+      cols.map(([, r], ci) => {
+        const text = (row[ci] ?? "").trim();
+        if (!text) return "";
+        const cw = r * w;
+        const fs = fitFont(text, cw, ci === 1 ? 24 : 26);
+        const left = ci === 1;
+        const tx = left ? xs[ci] + 10 : xs[ci] + cw / 2;
+        const ty = top + headH + ri * rowH + rowH / 2 + fs / 3;
+        return `<text x="${tx}" y="${ty}" ${left ? "" : 'text-anchor="middle" '}font-size="${fs}" fill="#2f4f8f">${esc(text)}</text>`;
+      }),
+    )
     .join("");
   return `${svgOpen()}
   <rect width="${BOOK_W}" height="${BOOK_H}" fill="#fff"/>
   <rect x="${x0}" y="${top}" width="${w}" height="${headH}" fill="#efecd6"/>
-  ${head}
+  ${head}${cells}
   <g stroke="${INK}" stroke-width="2.5">${vLines}${hLines}</g>
   <rect x="${x0}" y="${top}" width="${w}" height="${bottom - top}" fill="none" stroke="${INK}" stroke-width="3"/>
   ${holes()}
@@ -226,17 +261,20 @@ export function largestWidthFor(n: number) {
 }
 
 /** 표지 · 속지 · 거래 내역(ledgers 쪽) · 뒤표지 순서의 모든 쪽 */
-export function bankbookPages(b: Bankbook, ledgers: number): BookPage[] {
-  const ledger = ledgerSvg();
+export function bankbookPages(b: Bankbook, ledgers: number, entries: LedgerRow[] = []): BookPage[] {
   return [
     { key: "cover", label: "표지", svg: coverSvg(b) },
     { key: "info", label: "속지", svg: infoSvg(b) },
-    ...Array.from({ length: ledgers }, (_, i) => ({ key: `ledger-${i}`, label: `거래 내역 ${i + 1}`, svg: ledger })),
+    ...Array.from({ length: ledgers }, (_, i) => ({
+      key: `ledger-${i}`,
+      label: `거래 내역 ${i + 1}`,
+      svg: ledgerSvg(entries.slice(i * LEDGER_ROWS, (i + 1) * LEDGER_ROWS)),
+    })),
     { key: "back", label: "뒤표지", svg: backSvg(b.back) },
   ];
 }
 
 /** 글꼴을 내려받을 때 필요한 글자 */
-export const bankbookText = (b: Bankbook) =>
-  [TITLE, "이름 :", b.name, b.bank, b.branch, b.account, b.issued, "지점계좌번호구분신규재발급통장발행일서명담임확인날짜내용적립P차감P계",
+export const bankbookText = (b: Bankbook, entries: LedgerRow[] = []) =>
+  [TITLE, "이름 :", b.name, b.bank, b.branch, b.account, b.issued, entries.flat().join(""), "지점계좌번호구분신규재발급통장발행일서명담임확인날짜내용적립P차감P계",
     "본인임을 증명하는 서명을 적으세요.통장이 본인 소유임을 증명합니다."].join("");
