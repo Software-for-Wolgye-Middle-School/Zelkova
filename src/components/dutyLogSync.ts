@@ -1,4 +1,4 @@
-import { DAYS, mondayOf, ROWS_PER_DAY, type DutyLog } from "@/lib/dutyLogSvg";
+import { canonicalWeeks, DAYS, mondayOf, ROWS_PER_DAY, type DutyLog } from "@/lib/dutyLogSvg";
 import { sanitizeEvent, type DutyEvent } from "@/lib/dutyEvents";
 
 /**
@@ -56,7 +56,7 @@ export function loadLocal(): DutyDocs {
   } catch {
     // 저장된 내용이 없거나 막힌 브라우저
   }
-  return out;
+  return canonicalWeeks(out);
 }
 
 /** 고친 시각 (서버와 다른 컴퓨터의 내용 중 나중 것을 가리는 기준) */
@@ -134,7 +134,7 @@ export async function fetchServer(): Promise<{ kind: "ok"; weeks: Record<string,
       const doc = readEventDoc(id, value);
       if (doc) events[id] = doc;
     }
-    return { kind: "ok", weeks, events };
+    return { kind: "ok", weeks: canonicalWeeks(weeks), events };
   } catch {
     return { kind: "fail" };
   }

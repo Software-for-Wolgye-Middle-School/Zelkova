@@ -1,6 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { DAYS, NOTE_MAX, ROWS_PER_DAY, type DutyLog } from "@/lib/dutyLogSvg";
+import { canonicalWeeks, DAYS, mondayOf, NOTE_MAX, ROWS_PER_DAY, type DutyLog } from "@/lib/dutyLogSvg";
 import { sanitizeEvent, type DutyEvent } from "@/lib/dutyEvents";
 
 /**
@@ -90,7 +90,8 @@ async function readAll(): Promise<Doc> {
   }
   // 주별로 나누기 전에 한 장만 저장하던 때의 내용: 시작일이 있는 주로 옮김
   const legacy = readWeek(data);
-  if (legacy && isWeekKey(legacy.log.start) && !doc.weeks[legacy.log.start]) doc.weeks[legacy.log.start] = legacy;
+  if (legacy && isWeekKey(legacy.log.start) && !doc.weeks[mondayOf(legacy.log.start)]) doc.weeks[mondayOf(legacy.log.start)] = legacy;
+  doc.weeks = canonicalWeeks(doc.weeks); // 월요일이 아닌 날짜가 열쇠인 기록은 그 주 월요일 기록으로 합침
   return doc;
 }
 

@@ -10,7 +10,6 @@ import {
   dutyLogSvg,
   dutyLogText,
   addDays,
-  hasEntries,
   weekLog,
   GRID,
   INK_FONT,

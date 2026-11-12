@@ -68,6 +68,32 @@ export const addDays = (iso: string, n: number) => {
 export const mondayOf = (iso: string) => addDays(iso, -((parseIso(iso).getDay() + 6) % 7));
 /** 그 주(월요일 날짜)의 빈 활동일지: 월요일 ~ 금요일 */
 export const weekLog = (monday: string) => emptyLog(monday, addDays(monday, 4));
+/**
+ * 활동일지가 다루는 날짜: 양식에 적은 시작일 ~ 끝날짜. 적지 않았으면 그 주 월~금 (한 장이 한 달 넘게 이어지지 않도록 31일까지만).
+ * 달력에서 활동일지를 보여 줄 날짜와 목록의 기간이 모두 이것을 따름
+ */
+export function logRange(key: string, log: DutyLog): { start: string; end: string } {
+  const ok = (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v);
+  const start = ok(log.start) ? log.start : key;
+  let end = ok(log.end) ? log.end : ok(log.start) ? log.start : addDays(key, 4);
+  if (end < start) end = start;
+  if (end > addDays(start, 30)) end = addDays(start, 30);
+  return { start, end };
+}
+
+/**
+ * 주별 기록의 열쇠는 늘 그 주 월요일 날짜. 월요일이 아닌 날짜로 저장돼 있던 기록(예전에 시작일을 열쇠로 쓴 것)은
+ * 그 주 월요일 열쇠로 합치고, 같은 주에 둘이 있으면 나중에 고친 쪽만 남김
+ */
+export function canonicalWeeks<T extends { updatedAt: number }>(weeks: Record<string, T>): Record<string, T> {
+  const out: Record<string, T> = {};
+  for (const [key, doc] of Object.entries(weeks)) {
+    const monday = mondayOf(key);
+    if (!out[monday] || doc.updatedAt > out[monday].updatedAt) out[monday] = doc;
+  }
+  return out;
+}
+
 /** 쓴 내용이 있는지 (체크 · 비고 · 서명) */
 export const hasEntries = (log: DutyLog) => log.signed || log.checks.some(Boolean) || log.notes.some((n) => n.trim());
 

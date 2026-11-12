@@ -1,5 +1,6 @@
 import { connection } from "next/server";
 import { isAuthed } from "@/lib/auth";
+import { mondayOf } from "@/lib/dutyLogSvg";
 import { isWeekKey, readDutyDoc, sanitizeDutyLog, writeDutyWeek } from "@/lib/dutyLogStore";
 
 const NO_STORE = { "Cache-Control": "no-store" };
@@ -17,7 +18,7 @@ export async function GET(request: Request) {
 export async function PUT(request: Request) {
   if (!isAuthed(request)) return unauthorized();
   const body = (await request.json().catch(() => null)) as { key?: unknown; updatedAt?: unknown; log?: unknown } | null;
-  if (!body || !isWeekKey(body.key) || typeof body.updatedAt !== "number" || !Number.isFinite(body.updatedAt) || !sanitizeDutyLog(body.log)) {
+  if (!body || !isWeekKey(body.key) || mondayOf(body.key) !== body.key || typeof body.updatedAt !== "number" || !Number.isFinite(body.updatedAt) || !sanitizeDutyLog(body.log)) {
     return Response.json({ error: "key(주의 월요일 날짜), updatedAt, log 가 필요해요." }, { status: 400 });
   }
   try {
