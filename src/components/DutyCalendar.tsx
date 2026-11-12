@@ -340,12 +340,8 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onSave
                           onClick={(e) => openPop(e, "create", date)}
                           aria-label={`${label(date)} 일정 만들기${covered ? " (활동일지 작성됨)" : ""}`}
                           title="눌러서 일정 만들기"
-                          className="group absolute inset-0 cursor-pointer transition hover:bg-indigo-50/50 focus-visible:z-10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-400"
-                        >
-                          <span aria-hidden="true" className="absolute right-1 top-1 hidden h-5 w-5 place-items-center rounded-full bg-indigo-600 text-sm leading-none text-white group-hover:grid">
-                            +
-                          </span>
-                        </button>
+                          className="absolute inset-0 cursor-pointer transition hover:bg-indigo-50/50 focus-visible:z-10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-400"
+                        />
                         <div className="pointer-events-none relative flex h-full flex-col gap-0.5 p-1">
                           <span
                             className={`mb-0.5 grid h-6 w-6 place-items-center self-start rounded-full text-xs font-semibold ${
