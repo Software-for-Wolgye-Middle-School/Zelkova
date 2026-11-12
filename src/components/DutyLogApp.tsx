@@ -140,7 +140,7 @@ function DutyLogEditor({ weekKey, log, status, onChange: update, onSaveNow, onBa
   };
 
   return (
-    <div className="fade-up mx-auto max-w-3xl">
+    <div className="fade-up mx-auto max-w-4xl">
       {/* 화면 글꼴 (React 가 문서 head 로 옮겨 한 번만 불러옴) */}
       <link rel="stylesheet" href={LOG_FONTS_URL} precedence="default" />
       <button type="button" onClick={onBack} className="mb-3 inline-flex items-center gap-1 rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 ring-1 ring-inset ring-slate-200 transition hover:bg-slate-50">
@@ -150,7 +150,7 @@ function DutyLogEditor({ weekKey, log, status, onChange: update, onSaveNow, onBa
         <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-[28px]">특수교육실무사 활동일지</h1>
       </div>
 
-      <div className="mx-auto mb-5 max-w-[640px] space-y-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+      <div className="mx-auto mb-5 max-w-[720px] space-y-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
         <StepProgress steps={STEPS} step={step} checking={checking} onGo={(n) => goStep(n)} />
 
         <div className={`space-y-4 ${fadeClass}`}>
@@ -209,25 +209,7 @@ function DutyLogEditor({ weekKey, log, status, onChange: update, onSaveNow, onBa
           )}
         </div>
 
-        <StepNav
-          step={step}
-          last={step === STEPS.length - 1}
-          canNext={step === 0 || (step === 1 && status === "saved")}
-          checking={checking}
-          onPrev={() => goStep(step - 1)}
-          onNext={() => goNext()}
-          invalidMessage="먼저 '서버에 저장하기'를 눌러 저장해 주세요."
-          extra={
-            step === 1 && (status === "offline" || status === "login") ? (
-              <button type="button" onClick={() => goNext()} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-500 transition hover:bg-slate-100">
-                저장 없이 넘어가기
-              </button>
-            ) : undefined
-          }
-        />
-      </div>
-
-      <div className="mx-auto w-full max-w-[640px] overflow-hidden rounded-md bg-white shadow-lg ring-1 ring-slate-200 [container-type:inline-size]">
+      <div className="mx-auto w-full overflow-hidden rounded-md bg-white ring-1 ring-slate-200 [container-type:inline-size]">
         <div className="relative select-none" style={{ aspectRatio: `${LOG_W} / ${LOG_H}` }}>
           <div className="absolute inset-0 [&>svg]:block [&>svg]:h-full [&>svg]:w-full" dangerouslySetInnerHTML={{ __html: step === 0 ? blank : filled }} />
 
@@ -292,6 +274,24 @@ function DutyLogEditor({ weekKey, log, status, onChange: update, onSaveNow, onBa
             </>
           )}
         </div>
+      </div>
+
+        <StepNav
+          step={step}
+          last={step === STEPS.length - 1}
+          canNext={step === 0 || (step === 1 && status === "saved")}
+          checking={checking}
+          onPrev={() => goStep(step - 1)}
+          onNext={() => goNext()}
+          invalidMessage="먼저 '서버에 저장하기'를 눌러 저장해 주세요."
+          extra={
+            step === 1 && (status === "offline" || status === "login") ? (
+              <button type="button" onClick={() => goNext()} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-500 transition hover:bg-slate-100">
+                저장 없이 넘어가기
+              </button>
+            ) : undefined
+          }
+        />
       </div>
     </div>
   );

@@ -18,7 +18,6 @@ const BAR_TOP = 1.9;
 /** 말풍선 너비(px) — 위치를 정할 때도 씀 */
 const POP_W = 352;
 const POP_H = 440;
-const TIP_KEY = "zelkova:duty-calendar-tip";
 const UNDO_MS = 7000;
 
 /** 2026-11-09 → 11/9 */
@@ -56,13 +55,6 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onSave
   const [focusKey, setFocusKey] = useState<string | null>(null);
   /** 지운 직후 '실행취소'를 보여 주는 안내 */
   const [undo, setUndo] = useState<DutyEvent | null>(null);
-  const [tipHidden, setTipHidden] = useState(() => {
-    try {
-      return localStorage.getItem(TIP_KEY) === "1";
-    } catch {
-      return false;
-    }
-  });
   /** 말풍선 위치의 기준이 되는 달력 영역 */
   const areaRef = useRef<HTMLDivElement>(null);
 
@@ -182,15 +174,6 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onSave
     setPop({ mode, date, eventId, left, top });
   };
 
-  const hideTip = () => {
-    setTipHidden(true);
-    try {
-      localStorage.setItem(TIP_KEY, "1");
-    } catch {
-      // 저장하지 못해도 이번 화면에서는 숨김
-    }
-  };
-
   const remove = (ev: DutyEvent) => {
     onRemoveEvent(ev.id);
     setUndo(ev);
@@ -203,28 +186,7 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onSave
     <div className="fade-up mx-auto max-w-6xl">
       <div className="mb-5 text-center">
         <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-[28px]">특수교육실무사 활동일지</h1>
-        <p className="mt-2 text-[15px] text-slate-500">달력에서 날짜를 눌러 일정을 만들고, 초록 막대를 눌러 활동일지를 열어요.</p>
       </div>
-
-      {!tipHidden && (
-        <div className="mx-auto mb-5 max-w-3xl rounded-2xl bg-indigo-50 p-4 ring-1 ring-inset ring-indigo-200">
-          <p className="text-sm font-bold text-indigo-900">처음이세요? 이렇게 쓰면 돼요</p>
-          <ol className="mt-2 space-y-1 text-sm text-indigo-900/90">
-            <li>
-              <b>1.</b> 달력에서 <b>날짜 칸을 누르면</b> 그 옆에 작은 창이 떠요. 제목만 쓰고 Enter를 누르면 일정이 저장돼요.
-            </li>
-            <li>
-              <b>2.</b> 창 위쪽의 <b>「활동일지」</b> 탭에서 <b>「활동일지 쓰기」</b>를 누르면 그 날짜의 활동일지를 쓸 수 있어요.
-            </li>
-            <li>
-              <b>3.</b> 만든 일정을 누르면 <b>고치기 · 삭제</b>를 할 수 있고, 잘못 지워도 바로 <b>실행취소</b>할 수 있어요.
-            </li>
-          </ol>
-          <button type="button" onClick={hideTip} className="mt-3 rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-indigo-700">
-            알겠어요
-          </button>
-        </div>
-      )}
 
       <div className="grid gap-5 lg:grid-cols-[15rem_minmax(0,1fr)]">
         <aside aria-label="연도별 활동일지" className="h-fit rounded-2xl border border-slate-200 bg-white p-3 shadow-sm lg:sticky lg:top-4">
@@ -383,7 +345,7 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onSave
             })}
           </div>
 
-          {eventCount === 0 && logs.length === 0 && tipHidden && <p className="mt-3 text-center text-sm text-slate-400">날짜 칸을 눌러 첫 일정을 만들어 보세요.</p>}
+          {eventCount === 0 && logs.length === 0 && <p className="mt-3 text-center text-sm text-slate-400">날짜 칸을 눌러 첫 일정을 만들어 보세요.</p>}
           <p aria-live="polite" className={`mt-3 text-center text-xs font-medium ${STATUS_TEXT[status].tone}`}>
             {STATUS_TEXT[status].text}
           </p>
