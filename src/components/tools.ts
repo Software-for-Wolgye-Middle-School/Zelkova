@@ -42,7 +42,7 @@ export const TOOLS: Tool[] = [
   { id: "board", title: "느티나무 소통게시판", icon: MegaphoneIcon, category: "general", tone: "bg-orange-100 text-orange-600", hue: 25, login: true },
   { id: "students", title: "학생 정보 관리하기", icon: UsersIcon, category: "general", tone: "bg-violet-100 text-violet-700", hue: 262, login: true },
   { id: "dutylog", title: "특수교육실무사 활동일지", icon: BookCheckIcon, category: "admin", tone: "bg-teal-100 text-teal-700", hue: 175 },
-  { id: "iep", title: "개별화교육계획 함께 쓰기", icon: FileTextIcon, category: "admin", tone: "bg-indigo-100 text-indigo-700", hue: 235 },
+  { id: "iep", title: "개별화교육계획 작성하기", icon: FileTextIcon, category: "admin", tone: "bg-indigo-100 text-indigo-700", hue: 235 },
   { id: "guide", title: "사회복무요원 업무 안내", icon: ChatIcon, category: "admin", tone: "bg-sky-100 text-sky-700", hue: 210 },
 ];
 

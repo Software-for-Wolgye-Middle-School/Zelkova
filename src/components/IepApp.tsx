@@ -23,7 +23,6 @@ import {
 import ConfirmDialog from "./ConfirmDialog";
 import LoginOverlay from "./LoginOverlay";
 import { ArrowLeftIcon, DownloadIcon, PlusIcon, Spinner, TrashIcon } from "./icons";
-import { fetchServerRows, type StudentRow } from "./students";
 import { IEP_STATUS_TEXT, useIepSync, type Me } from "./useIepSync";
 
 /**
@@ -117,7 +116,7 @@ export default function IepApp() {
   return (
     <div className="fade-up mx-auto max-w-3xl">
       <div className="mb-6 text-center">
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-[28px]">개별화교육계획</h1>
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-[28px]">개별화교육계획 작성하기</h1>
         <p className="mt-1.5 text-sm text-slate-500">특수교사 선생님들이 한 문서를 동시에 열어 함께 작성해요. 고친 내용은 바로 서버에 저장돼요.</p>
       </div>
       <IepList
@@ -246,7 +245,7 @@ function IepList({
           onClick={() => setCreating(true)}
           className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700"
         >
-          <PlusIcon className="h-4 w-4" />새 개별화교육계획
+          <PlusIcon className="h-4 w-4" />개별화교육계획 만들기
         </button>
       </div>
       {error && (
@@ -268,7 +267,7 @@ function IepList({
             </button>
           </div>
         ) : !docs?.length ? (
-          <p className="rounded-xl bg-slate-50 py-10 text-center text-sm text-slate-500">아직 작성한 계획이 없어요. 「새 개별화교육계획」을 눌러 시작해 보세요.</p>
+          <p className="rounded-xl bg-slate-50 py-10 text-center text-sm text-slate-500">아직 작성한 계획이 없어요. 「개별화교육계획 만들기」를 눌러 시작해 보세요.</p>
         ) : (
           <ul className="divide-y divide-slate-100 rounded-xl ring-1 ring-slate-200">
             {docs.map((m) => (
@@ -316,34 +315,23 @@ function IepList({
 
 const inputCls = "h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100";
 
-/** 새 계획: 학년도와 학기만 정하면 만들어지고, 등록된 학생을 골라 처음부터 넣을 수 있음 (나중에 편집 화면에서 더하거나 뺄 수 있음) */
+/** 개별화교육계획 만들기: 학년도와 학기만 정함 (학생은 만든 뒤 편집 화면 위의 「학생 더하기」로 넣음) */
 function NewDocDialog({ by, onCancel, onCreated }: { by: string; onCancel: () => void; onCreated: (m: IepMeta) => void }) {
   const term = currentTerm();
   const [year, setYear] = useState(term.year);
   const [semester, setSemester] = useState(term.semester);
-  const [students, setStudents] = useState<StudentRow[] | null>(null);
-  const [picked, setPicked] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    void fetchServerRows().then((rows) => {
-      const list = (rows ?? []).filter((r) => r.name.trim()).sort((a, b) => Number(a.grade) - Number(b.grade) || Number(a.cls) - Number(b.cls) || a.name.localeCompare(b.name, "ko"));
-      setStudents(list);
-      setPicked(list.map((r) => r.id)); // 처음에는 모두 넣음
-    });
-  }, []);
 
   const create = async () => {
     if (!/^\d{4}$/.test(year)) return setError("학년도를 네 자리 숫자로 적어 주세요.");
     setBusy(true);
     setError(null);
     try {
-      const chosen = (students ?? []).filter((r) => picked.includes(r.id)).map(({ grade, cls, name, subjects }) => ({ grade, cls, name, subjects }));
       const res = await fetch("/api/iep", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ year, semester, students: chosen, by }),
+        body: JSON.stringify({ year, semester, students: [], by }),
       });
       const data = (await res.json().catch(() => null)) as { doc?: IepMeta; error?: string } | null;
       if (!res.ok || !data?.doc) throw new Error(data?.error ?? "만들지 못했어요.");
@@ -354,7 +342,6 @@ function NewDocDialog({ by, onCancel, onCreated }: { by: string; onCancel: () =>
     }
   };
 
-  const all = students && students.length > 0 && picked.length === students.length;
   return (
     <div className="fixed inset-0 z-[80] grid place-items-center overflow-y-auto bg-slate-900/40 p-4" onMouseDown={(e) => e.target === e.currentTarget && onCancel()}>
       <form
@@ -362,13 +349,13 @@ function NewDocDialog({ by, onCancel, onCreated }: { by: string; onCancel: () =>
           e.preventDefault();
           void create();
         }}
-        className="fade-up w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
+        className="fade-up w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl"
       >
-        <h2 className="text-lg font-bold text-slate-900">새 개별화교육계획</h2>
+        <h2 className="text-lg font-bold text-slate-900">개별화교육계획 만들기</h2>
         <div className="mt-4 grid grid-cols-2 gap-3">
           <label className="block">
             <span className="mb-1 block text-xs font-semibold text-slate-600">학년도</span>
-            <input value={year} onChange={(e) => setYear(e.target.value.replace(/\D/g, "").slice(0, 4))} inputMode="numeric" className={inputCls} />
+            <input value={year} onChange={(e) => setYear(e.target.value.replace(/\D/g, "").slice(0, 4))} inputMode="numeric" autoFocus className={inputCls} />
           </label>
           <label className="block">
             <span className="mb-1 block text-xs font-semibold text-slate-600">학기</span>
@@ -378,41 +365,6 @@ function NewDocDialog({ by, onCancel, onCreated }: { by: string; onCancel: () =>
             </select>
           </label>
         </div>
-
-        <fieldset className="mt-5">
-          <legend className="mb-1.5 flex w-full items-center justify-between text-xs font-semibold text-slate-600">
-            <span>함께 넣을 학생 (학생 정보 관리에 등록된 학생)</span>
-            {students && students.length > 0 && (
-              <button type="button" onClick={() => setPicked(all ? [] : students.map((r) => r.id))} className="font-semibold text-indigo-600 hover:underline">
-                {all ? "모두 빼기" : "모두 넣기"}
-              </button>
-            )}
-          </legend>
-          {students === null ? (
-            <Spinner className="h-5 w-5 text-indigo-600" />
-          ) : !students.length ? (
-            <p className="rounded-lg bg-slate-50 px-3 py-3 text-sm text-slate-500">등록된 학생이 없어요. 만든 뒤 편집 화면에서 학생을 더할 수 있어요.</p>
-          ) : (
-            <div className="flex max-h-48 flex-wrap gap-1.5 overflow-y-auto">
-              {students.map((r) => {
-                const on = picked.includes(r.id);
-                return (
-                  <button
-                    key={r.id}
-                    type="button"
-                    aria-pressed={on}
-                    onClick={() => setPicked((p) => (on ? p.filter((x) => x !== r.id) : [...p, r.id]))}
-                    className={`rounded-full px-3 py-1 text-sm font-medium ring-1 ring-inset transition ${on ? "bg-indigo-600 text-white ring-indigo-600" : "text-slate-600 ring-slate-200 hover:bg-slate-50"}`}
-                  >
-                    {r.grade}-{r.cls} {r.name}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-          <p className="mt-1.5 text-xs text-slate-400">학생마다 학생 정보 관리에 적은 과목으로 교과 영역이 들어가고, 일상생활적응 영역은 항상 들어가요.</p>
-        </fieldset>
-
         {error && (
           <p role="alert" className="mt-3 text-sm font-medium text-red-600">
             {error}
