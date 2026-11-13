@@ -564,8 +564,9 @@ function IepEditor({ docId, myName, onBack, onRename, nameDialog }: { docId: str
                     className="pointer-events-none absolute z-20 transition-[left,top] duration-300 ease-linear print:hidden"
                     style={{ left: `${p.cursor[0] * 100}%`, top: p.cursor[1] }}
                   >
-                    <svg width="18" height="22" viewBox="0 0 18 22" className="drop-shadow">
-                      <path d="M1 1l15 9.5-6.6 1.4L13 20l-3 1.2-3.6-8.1L1 17z" fill={p.color} stroke="white" strokeWidth="1.5" strokeLinejoin="round" />
+                    {/* 끝이 뾰족한 세모 화살표 (선생님마다 색이 다름) */}
+                    <svg width="22" height="22" viewBox="0 0 22 22" className="drop-shadow">
+                      <path d="M2.5 2.5 L19.5 11.5 L11.5 12.8 L5.5 19.5 Z" fill={p.color} stroke="white" strokeWidth="1.8" strokeLinejoin="round" />
                     </svg>
                     <span className="ml-3 -mt-1 block whitespace-nowrap rounded-md px-1.5 py-0.5 text-[11px] font-semibold text-white shadow" style={{ background: p.color }}>
                       {p.name}
