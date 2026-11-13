@@ -70,6 +70,63 @@ redis.call('HSET', KEYS[3], ARGV[1], r)
 return {r, ARGV[2]}
 `;
 
+/**
+ * 한 번 주고받기 (개별화교육계획 실시간 편집). 문서가 있는지 확인 → 읽은 값이 그대로인 칸만 쓰기(판 번호 올림) →
+ * 내 위치 알리기 → since 이후 바뀐 칸 · 지금 보고 있는 사람 읽기를 한꺼번에(원자적으로) 함.
+ * 돌려주는 것: {'ok', 판 번호, 쓴 칸[k,v…], 그 사이 바뀌어 못 쓴 칸[k,지금값…], 바뀐 칸[k,v…], 보고 있는 사람[json…], 목록 요약}
+ */
+const SYNC_SCRIPT = `
+if redis.call('HEXISTS', KEYS[1], ARGV[1]) == 0 then return {'gone'} end
+local changes = cjson.decode(ARGV[7])
+local maxFields = tonumber(ARGV[8])
+local count = redis.call('HLEN', KEYS[3])
+local applied, conflicts = {}, {}
+for _, c in ipairs(changes) do
+  local cur = redis.call('HGET', KEYS[3], c[1])
+  local isNew = (cur == false)
+  if isNew then cur = '' end
+  if not (isNew and count >= maxFields) then
+    if cur == c[2] then
+      local r = redis.call('INCR', KEYS[2])
+      redis.call('HSET', KEYS[3], c[1], c[3])
+      redis.call('HSET', KEYS[4], c[1], r)
+      if isNew then count = count + 1 end
+      table.insert(applied, c[1]); table.insert(applied, c[3])
+    else
+      table.insert(conflicts, c[1]); table.insert(conflicts, cur)
+    end
+  end
+end
+redis.call('HSET', KEYS[5], ARGV[3], ARGV[4])
+redis.call('EXPIRE', KEYS[5], 120)
+local rev = tonumber(redis.call('GET', KEYS[2]) or '0')
+local since = tonumber(ARGV[2])
+local fields = {}
+if rev > since then
+  local revs = redis.call('HGETALL', KEYS[4])
+  for i = 1, #revs, 2 do
+    if tonumber(revs[i + 1]) > since then
+      local v = redis.call('HGET', KEYS[3], revs[i])
+      if v then table.insert(fields, revs[i]); table.insert(fields, v) end
+    end
+  end
+end
+local live = {}
+local pres = redis.call('HGETALL', KEYS[5])
+local stale = tonumber(ARGV[6])
+for i = 1, #pres, 2 do
+  local ok, p = pcall(cjson.decode, pres[i + 1])
+  if ok and type(p) == 'table' and tonumber(p.at) and tonumber(p.at) >= stale then
+    if pres[i] ~= ARGV[3] then table.insert(live, pres[i + 1]) end
+  else
+    redis.call('HDEL', KEYS[5], pres[i])
+  end
+end
+local meta = ''
+if #applied > 0 then meta = redis.call('HGET', KEYS[1], ARGV[1]) or '' end
+return {'ok', rev, applied, conflicts, fields, live, meta}
+`;
+
 // ---------------------------------------------------------------- 파일 저장 (Redis 가 없을 때, 서버 한 대)
 
 type FileDoc = { rev: number; values: IepFields; revs: Record<string, number> };
@@ -200,65 +257,58 @@ export async function syncDoc(id: string, since: number, changes: Change[], me: 
   const applied: IepFields = {};
 
   if (redisOn()) {
-    const [exists] = await pipeline([["HEXISTS", K.index, id]]);
-    if (Number(exists) !== 1) return { gone: true };
+    // 한 번 주고받는 일 전체를 스크립트 하나로 (Upstash 는 스크립트 하나를 명령 1개로 셈)
+    const res = (await pipeline([
+      [
+        "EVAL",
+        SYNC_SCRIPT,
+        5,
+        K.index,
+        K.rev(id),
+        K.values(id),
+        K.revs(id),
+        K.presence(id),
+        id,
+        since,
+        me.id,
+        JSON.stringify({ ...me, at: now }),
+        now - PRESENCE_MS,
+        JSON.stringify(changes.map((c) => [c.key, c.base, c.value.slice(0, VALUE_MAX)])),
+        MAX_FIELDS,
+      ],
+    ]))[0] as unknown[];
+    if (res[0] !== "ok") return { gone: true };
+    const [, rev, appliedRaw, conflictRaw, fieldsRaw, liveRaw, metaRaw] = res as [string, number, string[], string[], string[], string[], string];
+    Object.assign(applied, pairs(appliedRaw));
 
-    if (changes.length) {
-      const [len, ...currents] = await pipeline([["HLEN", K.values(id)], ...changes.map((c) => ["HGET", K.values(id), c.key])]);
-      let fieldCount = Number(len);
-      for (let i = 0; i < changes.length; i++) {
-        const c = changes[i];
-        let current = (currents[i] as string | null) ?? "";
-        if (current === "" && fieldCount >= MAX_FIELDS) continue;
-        // 다른 사람이 그 사이에 또 고쳤으면 다시 합쳐서 씀 (몇 번이면 충분함)
-        for (let attempt = 0; attempt < 6; attempt++) {
-          const value = mergeField(c.key, c.base, c.value, current).slice(0, VALUE_MAX);
-          const [res] = await pipeline([["EVAL", CAS_SCRIPT, 3, K.rev(id), K.values(id), K.revs(id), c.key, value, current]]);
-          const [ok, latest] = res as [number, string];
-          if (Number(ok) > 0) {
-            applied[c.key] = value;
-            if (current === "") fieldCount++;
-            break;
-          }
-          current = latest ?? "";
+    // 다른 사람이 그 사이 같은 칸을 고쳤으면 합쳐서 다시 씀 (드문 경우)
+    const conflicts = pairs(conflictRaw);
+    for (const c of changes) {
+      if (!(c.key in conflicts)) continue;
+      let current = conflicts[c.key];
+      for (let attempt = 0; attempt < 6; attempt++) {
+        const value = mergeField(c.key, c.base, c.value, current).slice(0, VALUE_MAX);
+        const [r] = await pipeline([["EVAL", CAS_SCRIPT, 3, K.rev(id), K.values(id), K.revs(id), c.key, value, current]]);
+        const [ok, latest] = r as [number, string];
+        if (Number(ok) > 0) {
+          applied[c.key] = value;
+          break;
         }
+        current = latest ?? "";
       }
     }
 
-    const metaCmds: (string | number)[][] = [];
-    const presenceRaw = JSON.stringify({ ...me, at: now });
-    const [rev, revsAll, presAll, metaRaw] = await pipeline([
-      ["GET", K.rev(id)],
-      ["HGETALL", K.revs(id)],
-      ["HGETALL", K.presence(id)],
-      ["HGET", K.index, id],
-      ["HSET", K.presence(id), me.id, presenceRaw],
-      ["EXPIRE", K.presence(id), 120],
-    ]);
-    // 반드시 판 번호를 먼저 읽고 칸 번호를 읽어야 빠뜨리는 칸이 없음 (위 pipeline 순서)
-    const revNum = Number(rev) || 0;
-    const changedKeys = Object.entries(pairs(revsAll))
-      .filter(([, r]) => Number(r) > since)
-      .map(([k]) => k);
-    const fields: IepFields = {};
-    if (changedKeys.length) {
-      const [vals] = await pipeline([["HMGET", K.values(id), ...changedKeys]]);
-      changedKeys.forEach((k, i) => {
-        const v = (vals as (string | null)[])[i];
-        if (v !== null && v !== undefined) fields[k] = v;
-      });
-    }
-    // 목록 요약 고치기 (내가 바꾼 것이 있을 때만)
-    const meta = readMeta(metaRaw);
+    const fields = pairs(fieldsRaw);
+    for (const [k, v] of Object.entries(applied)) fields[k] = v;
+    // 목록 요약은 이름 · 학년도 같은 요약 칸이 바뀌었거나 1분 넘게 지났을 때만 고침 (명령 수를 아끼려고)
+    const meta = readMeta(metaRaw || null);
     if (meta && Object.keys(applied).length) {
       const next = { ...meta, ...pickMeta(meta, applied), updatedAt: now, updatedBy: me.name };
-      metaCmds.push(["HSET", K.index, id, JSON.stringify(next)]);
+      const summaryChanged = (["year", "semester", "grade", "cls", "name", "updatedBy"] as const).some((k) => next[k] !== meta[k]);
+      if (summaryChanged || now - meta.updatedAt > 60_000) await pipeline([["HSET", K.index, id, JSON.stringify(next)]]);
     }
-    const stale = Object.entries(pairs(presAll)).filter(([, v]) => presenceAt(v) < now - PRESENCE_MS);
-    if (stale.length) metaCmds.push(["HDEL", K.presence(id), ...stale.map(([k]) => k)]);
-    if (metaCmds.length) await pipeline(metaCmds);
-
-    return { gone: false, rev: revNum, fields, applied, presence: livePresence(pairs(presAll), me.id, now) };
+    const presence = livePresence(Object.fromEntries(liveRaw.map((v, i) => [`p${i}`, v])), me.id, now);
+    return { gone: false, rev: Number(rev) || 0, fields, applied, presence };
   }
 
   // 파일 저장: 한 프로세스 안에서 바로 처리 (await 사이에 끼어드는 요청이 없도록 동기적으로 바꿈)
@@ -299,21 +349,13 @@ export async function syncDoc(id: string, since: number, changes: Change[], me: 
 const pickMeta = (meta: IepMeta, applied: IepFields): Partial<IepMeta> =>
   metaFromFields({ year: meta.year, semester: meta.semester, grade: meta.grade, classNo: meta.cls, name: meta.name, ...applied });
 
-function presenceAt(v: string): number {
-  try {
-    return Number((JSON.parse(v) as { at?: unknown }).at) || 0;
-  } catch {
-    return 0;
-  }
-}
-
 function livePresence(raw: Record<string, string>, myId: string, now: number): IepPresence[] {
   const out: IepPresence[] = [];
   for (const [k, v] of Object.entries(raw)) {
-    if (k === myId) continue;
     try {
       const p = JSON.parse(v) as IepPresence & { at: number };
-      if (p.at >= now - PRESENCE_MS) out.push({ id: k, name: String(p.name).slice(0, 20), color: String(p.color), field: String(p.field ?? ""), cursor: cleanCursor(p.cursor) });
+      const id = typeof p.id === "string" ? p.id : k;
+      if (id !== myId && p.at >= now - PRESENCE_MS) out.push({ id, name: String(p.name).slice(0, 20), color: String(p.color), field: String(p.field ?? ""), cursor: cleanCursor(p.cursor) });
     } catch {
       // 깨진 값은 건너뜀
     }

@@ -26,6 +26,9 @@ export const IEP_STATUS_TEXT: Record<IepStatus, { text: string; tone: string }> 
 
 /** 다른 선생님이 같은 문서에 있을 때 · 혼자일 때 · 탭을 안 볼 때 서버에 묻는 간격 */
 const LIVE_POLL_MS = 300;
+/** 함께 있지만 둘 다 5초 넘게 가만히 있을 때 */
+const IDLE_POLL_MS = 1500;
+const ACTIVE_MS = 5000;
 const ALONE_POLL_MS = 2000;
 const HIDDEN_POLL_MS = 5000;
 const EDIT_DELAY_MS = 60;
@@ -44,6 +47,8 @@ export function useIepSync(docId: string, me: Me) {
   const deferred = useRef<Record<string, { base: string; value: string }>>({});
   const cursor = useRef<[number, number] | null>(null);
   const othersHere = useRef(false);
+  /** 나나 다른 선생님이 마지막으로 무언가 한 시각 (입력 · 마우스 · 칸 옮김) */
+  const lastActive = useRef(0);
   const [values, setValues] = useState<IepFields>({});
   const [presence, setPresence] = useState<IepPresence[]>([]);
   const [status, setStatus] = useState<IepStatus>("connecting");
@@ -129,11 +134,16 @@ export function useIepSync(docId: string, me: Me) {
         else accept(key, server.current[key] ?? "", value);
       }
       othersHere.current = data.presence.length > 0;
+      if (Object.keys(data.fields).some((k) => !(k in data.applied))) lastActive.current = Date.now();
       rev.current = Math.max(rev.current, data.rev);
       // 바뀐 것이 있을 때만 다시 그림 (1초마다 모든 칸을 다시 그리지 않도록)
       const keys = Object.keys(local.current);
       if (keys.length !== Object.keys(before).length || keys.some((k) => before[k] !== local.current[k])) setValues({ ...local.current });
-      setPresence((old) => (JSON.stringify(old) === JSON.stringify(data.presence) ? old : data.presence));
+      setPresence((old) => {
+        if (JSON.stringify(old) === JSON.stringify(data.presence)) return old;
+        lastActive.current = Date.now(); // 다른 선생님이 움직이거나 칸을 옮김
+        return data.presence;
+      });
       setLoaded(true);
       setStatus(pending.current.size ? "saving" : "live");
       const next =
@@ -142,7 +152,9 @@ export function useIepSync(docId: string, me: Me) {
           : document.visibilityState !== "visible"
             ? HIDDEN_POLL_MS
             : othersHere.current
-              ? LIVE_POLL_MS
+              ? Date.now() - lastActive.current < ACTIVE_MS
+                ? LIVE_POLL_MS
+                : IDLE_POLL_MS
               : ALONE_POLL_MS;
       again = false;
       clearTimeout(timer);
@@ -180,6 +192,7 @@ export function useIepSync(docId: string, me: Me) {
   /** 칸 하나를 고침 */
   const set = useCallback((key: string, value: string) => {
     if (local.current[key] === value) return;
+    lastActive.current = Date.now();
     local.current[key] = value;
     pending.current.add(key);
     setValues({ ...local.current });
@@ -222,6 +235,8 @@ export function useIepSync(docId: string, me: Me) {
   /** 내 마우스 위치 (다음에 서버에 물을 때 함께 보냄) */
   const moveCursor = useCallback((at: [number, number] | null) => {
     cursor.current = at;
+    if (Date.now() - lastActive.current > ACTIVE_MS && othersHere.current) schedule.current(EDIT_DELAY_MS); // 쉬다가 움직이면 바로 빠르게
+    lastActive.current = Date.now();
   }, []);
 
   /** 보내지 못한 글이 남아 있는지 */
