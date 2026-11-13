@@ -1,18 +1,8 @@
-import { readHwpTables, type HwpCell, type HwpTable } from "./hwp";
-import {
-  NOTICE_BOARD_URL,
-  SCHOOL_SITE,
-  schoolFileUrl,
-  type MealCell,
-  type MealFile,
-  type MealItem,
-  type MealNotice,
-  type MealTable,
-  type MealWeek,
-} from "./meal";
+import { NOTICE_BOARD_URL, SCHOOL_SITE, schoolFileUrl, type MealFile, type MealLink } from "./meal";
 
 /**
- * 월계중학교 가정통신문 게시판에서 급식 안내를 찾아 식단표를 읽어 옴 (서버 전용).
+ * 월계중학교 가정통신문 게시판에서 이번 달 급식 안내 글을 찾아 그 링크만 알려 줌 (서버 전용).
+ * 식단표 파일을 내려받거나 읽지 않고, 서버에 아무것도 저장하지 않음 (물어볼 때마다 새로 검색).
  * 게시판 목록 · 본문은 학교 홈페이지가 AJAX 로 불러오는 주소를 그대로 사용.
  */
 
@@ -43,6 +33,7 @@ async function post(path: string, form: Record<string, string>, cookie?: string)
     },
     body: new URLSearchParams(form),
     cache: "no-store",
+    signal: AbortSignal.timeout(15_000), // 학교 홈페이지가 응답하지 않으면 오래 기다리지 않음
   });
   if (!res.ok) throw new Error(`학교 홈페이지 응답 오류 (${res.status})`);
   return res.text();
@@ -50,8 +41,9 @@ async function post(path: string, form: Record<string, string>, cookie?: string)
 
 /** 게시판 검색은 게시판 화면을 먼저 연 세션에서만 동작함 */
 async function boardSession() {
-  const res = await fetch(NOTICE_BOARD_URL, { headers: { "User-Agent": USER_AGENT }, cache: "no-store" });
-  await res.body?.cancel();
+  const res = await fetch(NOTICE_BOARD_URL, { headers: { "User-Agent": USER_AGENT }, cache: "no-store", signal: AbortSignal.timeout(15_000) });
+  // 본문은 쓰지 않지만 끝까지 읽어 버림 (중간에 끊으면 같은 연결의 다음 요청이 오래 멈춤)
+  await res.arrayBuffer().catch(() => undefined);
   if (!res.ok) throw new Error(`학교 홈페이지 응답 오류 (${res.status})`);
   return res.headers
     .getSetCookie()
@@ -100,111 +92,6 @@ export async function postFiles(nttId: string): Promise<MealFile[]> {
   return files;
 }
 
-async function readMealTables(file: MealFile) {
-  if (file.ext !== "hwp") return [];
-  const res = await fetch(schoolFileUrl(file.id, file.sn)!, { headers: { "User-Agent": USER_AGENT }, cache: "no-store" });
-  if (!res.ok) return [];
-  const tables = readHwpTables(new Uint8Array(await res.arrayBuffer())) ?? [];
-  return tables.map(toMealTable).filter((t): t is MealTable => t !== null);
-}
-
-// ---------------------------------------------------------------------------
-// 식단표 해석: 첫 열이 '요일' · '날짜' · '식단' · '영양량' 인 줄로 이루어진 표
-
-const label = (cell: HwpCell | undefined) => (cell?.lines.join("") ?? "").replace(/\s/g, "");
-
-/** 알레르기 번호는 1~19 */
-const ALLERGENS = /^\d{1,2}(?:\.\d{1,2})*\.?$/;
-const validAllergens = (s: string) => ALLERGENS.test(s) && s.split(".").filter(Boolean).every((n) => Number(n) >= 1 && Number(n) <= 19);
-
-/** '고등어김치조림5.6.7' → 고등어김치조림 + 5.6.7, 다음 줄에 번호만 있으면 앞 음식에 붙임 */
-export function menuItems(lines: string[]): MealItem[] {
-  const items: MealItem[] = [];
-  for (const line of lines) {
-    const compact = line.replace(/\s/g, "");
-    if (items.length && validAllergens(compact)) {
-      const last = items[items.length - 1];
-      last.allergens = last.allergens ? `${last.allergens}.${compact}` : compact;
-      continue;
-    }
-    const m = /^(.*?[^\d.\s])\s*(\d[\d.]*)$/.exec(line);
-    if (m && validAllergens(m[2])) items.push({ name: m[1].trim(), allergens: m[2].replace(/\.$/, "") });
-    else items.push({ name: line, allergens: "" });
-  }
-  return items;
-}
-
-/** '수♥수요일은 다 먹는날♥' → 수 + 수요일은 다 먹는날, '6 *그린데이*' → 6 + 그린데이 */
-function splitHead(text: string, head: RegExp) {
-  const m = head.exec(text.trim());
-  if (!m) return { main: text.trim(), note: "" };
-  return { main: m[0], note: text.trim().slice(m[0].length).replace(/[♥♡*★☆]/g, " ").replace(/\s+/g, " ").trim() };
-}
-
-function toMealTable(table: HwpTable): MealTable | null {
-  const grid = new Map<number, HwpCell[]>();
-  for (const c of table.cells) grid.set(c.row, [...(grid.get(c.row) ?? []), c]);
-  const rowLabel = (r: number) => label(grid.get(r)?.find((c) => c.col === 0));
-  const rowCells = (r: number) => (grid.get(r) ?? []).filter((c) => c.col > 0).sort((a, b) => a.col - b.col);
-
-  const rows = [...grid.keys()].sort((a, b) => a - b);
-  if (!rows.some((r) => rowLabel(r) === "식단")) return null;
-
-  const titleText =
-    rows
-      .map((r) => grid.get(r)!)
-      .find((cells) => cells.length === 1 && cells[0].colSpan > 1)?.[0]
-      .lines.join(" ")
-      .replace(/[◆◇■□]/g, "")
-      .trim() ?? "";
-  const ym = /(\d{4})\s*[.년]\s*(\d{1,2})\s*월/.exec(titleText);
-
-  const headRow = rows.find((r) => rowLabel(r) === "요일");
-  const weekdayAt = new Map<number, { main: string; note: string }>();
-  for (const c of headRow === undefined ? [] : rowCells(headRow)) weekdayAt.set(c.col, splitHead(c.lines.join(" "), /^[월화수목금토일]/));
-  const weekdays = [...weekdayAt.values()].map((w) => w.main);
-  const firstCol = Math.min(...(weekdayAt.size ? weekdayAt.keys() : [1]));
-
-  const weeks: MealWeek[] = [];
-  let dateAt = new Map<number, { main: string; note: string }>();
-  for (const r of rows) {
-    const kind = rowLabel(r);
-    if (kind === "날짜") {
-      dateAt = new Map(rowCells(r).map((c) => [c.col, splitHead(c.lines.join(" "), /^\d{1,2}/)]));
-    } else if (kind === "식단") {
-      const cells: MealCell[] = [];
-      for (const c of rowCells(r)) {
-        const col = c.col - firstCol + 1;
-        if (c.colSpan > 1) {
-          if (c.lines.length) cells.push({ kind: "note", col, span: c.colSpan, lines: c.lines });
-          continue;
-        }
-        const date = dateAt.get(c.col) ?? { main: "", note: "" };
-        if (!date.main && !c.lines.length) continue;
-        const weekday = weekdayAt.get(c.col) ?? { main: "", note: "" };
-        cells.push({
-          kind: "day",
-          col,
-          weekday: weekday.main,
-          weekdayNote: weekday.note,
-          date: date.main,
-          dateNote: date.note,
-          items: menuItems(c.lines),
-        });
-      }
-      weeks.push({ cells, nutrition: "" });
-    } else if (weeks.length) {
-      const text = rowCells(r)
-        .flatMap((c) => c.lines)
-        .join(" ");
-      // 첫 칸의 '영양량' 글자가 빠진 달도 있음
-      if (kind === "영양량" || (kind === "" && text.includes("에너지"))) weeks[weeks.length - 1].nutrition = text;
-    }
-  }
-
-  return { title: titleText, year: ym ? Number(ym[1]) : null, month: ym ? Number(ym[2]) : null, weekdays, weeks };
-}
-
 /** 한국 시간 기준의 지금 연 · 월 */
 export function seoulYearMonth(now = new Date()) {
   const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit" }).formatToParts(now);
@@ -212,23 +99,20 @@ export function seoulYearMonth(now = new Date()) {
   return { year: num("year"), month: num("month") };
 }
 
-/** 안내문이 여러 달(예: 12월 ~ 1월)을 담고 있으므로 가장 늦은 달의 식단표 하나만 */
-const latestTable = (tables: MealTable[]) =>
-  tables.reduce((a, b) => ((b.year ?? 0) * 12 + (b.month ?? 0) > (a.year ?? 0) * 12 + (a.month ?? 0) ? b : a));
-
 /**
- * 이번 달 식단표가 든 급식 안내 한 개 (조회 속도를 위해 한 달치만 읽음).
- * exact 가 false 면 이번 달 식단표를 아직 찾지 못해 가장 최근 안내로 대신한 것.
+ * 이번 달 급식 안내 가정통신문과 첨부 파일의 학교 홈페이지 주소.
+ * 제목에 이번 달이 들어간 글(예: '2026년 11월 급식 안내', '12월 ~ 1월 급식 안내')을 찾고, 없으면 가장 최근 급식 안내.
+ * 급식 안내가 하나도 없으면 null
  */
-export async function fetchMonthlyMealNotice({ year, month }: { year: number; month: number }): Promise<{ notice: MealNotice | null; exact: boolean }> {
-  const posts = (await searchMealPosts()).slice(0, 4); // 이번 달 안내는 최근 글 몇 개 안에 있음
-  let fallback: MealNotice | null = null;
-  for (const [i, p] of posts.entries()) {
-    const files = await postFiles(p.nttId);
-    const tables = (await Promise.all(files.map((f) => readMealTables(f).catch(() => [])))).flat();
-    const mine = tables.filter((t) => t.year === year && t.month === month);
-    if (mine.length) return { notice: { ...p, files, tables: mine }, exact: true };
-    if (i === 0) fallback = { ...p, files, tables: tables.length ? [latestTable(tables)] : [] };
-  }
-  return { notice: fallback, exact: false };
+export async function findMonthlyMealLink(): Promise<MealLink | null> {
+  const posts = await searchMealPosts();
+  const { year, month } = seoulYearMonth();
+  const monthRe = new RegExp(`(^|[^0-9])${month}\\s*월`);
+  const mine = posts.find((p) => monthRe.test(p.title) && (!/\d{4}\s*년/.test(p.title) || p.title.includes(String(year))));
+  const post = mine ?? posts[0];
+  if (!post) return null;
+  const files = (await postFiles(post.nttId).catch(() => []))
+    .map((f) => ({ name: f.name, ext: f.ext, url: schoolFileUrl(f.id, f.sn) }))
+    .filter((f): f is { name: string; ext: string; url: string } => !!f.url);
+  return { title: post.title, date: post.date, thisMonth: !!mine, files };
 }

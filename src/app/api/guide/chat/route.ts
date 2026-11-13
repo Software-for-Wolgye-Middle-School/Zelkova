@@ -3,8 +3,8 @@ import { readGuide } from "@/lib/guideStore";
 import { DEFAULT_GUIDE } from "@/lib/serviceGuide";
 import { makePseudonymizer, type Pseudonymizer } from "@/lib/pseudonym";
 import { readStudents } from "@/lib/studentStore";
-import { NOTICE_BOARD_URL, schoolFileUrl } from "@/lib/meal";
-import { postFiles, searchMealPosts, seoulYearMonth } from "@/lib/mealNotice";
+import { NOTICE_BOARD_URL } from "@/lib/meal";
+import { findMonthlyMealLink } from "@/lib/mealNotice";
 import { BOARDS, monthNews } from "@/lib/schoolNews";
 
 /**
@@ -122,20 +122,14 @@ const isNewsQuestion = (q: string) => /(학교|월계중?)\s*(의\s*)?(소식|�
  */
 async function mealAnswer(): Promise<string> {
   const board = `[가정통신문 게시판에서 보기](${NOTICE_BOARD_URL})`;
-  const posts = await searchMealPosts().catch(() => []);
-  const { year, month } = seoulYearMonth();
-  // 제목에 이번 달이 들어간 글 (예: '2026년 11월 급식 안내', '12월 ~ 1월 급식 안내'), 없으면 가장 최근 글
-  const monthRe = new RegExp(`(^|[^0-9])${month}\\s*월`);
-  const thisMonth = posts.find((p) => monthRe.test(p.title) && (!/\d{4}\s*년/.test(p.title) || p.title.includes(String(year))));
-  const notice = thisMonth ?? posts[0];
-  if (!notice) return `학교 홈페이지에서 급식 안내를 찾지 못했어요.\n• ${board}`;
-  const files = (await postFiles(notice.nttId).catch(() => [])).filter((f) => ["pdf", "hwp", "hwpx", "png", "jpg", "jpeg"].includes(f.ext));
+  const link = await findMonthlyMealLink().catch(() => null);
+  if (!link) return `학교 홈페이지에서 급식 안내를 찾지 못했어요.\n• ${board}`;
   return [
-    thisMonth
-      ? `이번 달 급식표는 월계중학교 가정통신문 **「${notice.title}」**(${notice.date})에 있어요.`
-      : `이번 달 급식 안내는 아직 올라오지 않았어요. 가장 최근 급식 안내는 **「${notice.title}」**(${notice.date})예요.`,
+    link.thisMonth
+      ? `이번 달 급식표는 월계중학교 가정통신문 **「${link.title}」**(${link.date})에 있어요.`
+      : `이번 달 급식 안내는 아직 올라오지 않았어요. 가장 최근 급식 안내는 **「${link.title}」**(${link.date})예요.`,
     "",
-    ...files.map((f) => `• [${f.name} 내려받기](${schoolFileUrl(f.id, f.sn)})`),
+    ...link.files.map((f) => `• [${f.name} 내려받기](${f.url})`),
     `• ${board}`,
   ].join("\n");
 }

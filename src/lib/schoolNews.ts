@@ -28,8 +28,9 @@ const decode = (s: string) =>
 
 /** 게시판 검색 · 본문 보기는 게시판 화면을 먼저 연 세션에서만 동작함 */
 async function session(board: Board) {
-  const res = await fetch(board.url, { headers: { "User-Agent": USER_AGENT }, cache: "no-store" });
-  await res.body?.cancel();
+  const res = await fetch(board.url, { headers: { "User-Agent": USER_AGENT }, cache: "no-store", signal: AbortSignal.timeout(15_000) });
+  // 본문은 쓰지 않지만 끝까지 읽어 버림 (중간에 끊으면 같은 연결의 다음 요청이 오래 멈춤)
+  await res.arrayBuffer().catch(() => undefined);
   if (!res.ok) throw new Error(`학교 홈페이지 응답 오류 (${res.status})`);
   return res.headers
     .getSetCookie()
@@ -43,6 +44,7 @@ async function post(board: Board, path: string, form: Record<string, string>, co
     headers: { "User-Agent": USER_AGENT, "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8", Referer: board.url, Cookie: cookie },
     body: new URLSearchParams(form),
     cache: "no-store",
+    signal: AbortSignal.timeout(15_000), // 학교 홈페이지가 응답하지 않으면 오래 기다리지 않음
   });
   if (!res.ok) throw new Error(`학교 홈페이지 응답 오류 (${res.status})`);
   return res.text();

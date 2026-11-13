@@ -4,19 +4,15 @@ export const SCHOOL_SITE = "https://wolgye.sen.ms.kr";
 export const NOTICE_BOARD_URL = `${SCHOOL_SITE}/19713/subMenu.do`;
 
 export type MealFile = { name: string; id: string; sn: string; ext: string };
-export type MealItem = { name: string; allergens: string };
-export type MealCell =
-  | { kind: "day"; col: number; weekday: string; weekdayNote: string; date: string; dateNote: string; items: MealItem[] }
-  | { kind: "note"; col: number; span: number; lines: string[] };
-export type MealWeek = { cells: MealCell[]; nutrition: string };
-export type MealTable = { title: string; year: number | null; month: number | null; weekdays: string[]; weeks: MealWeek[] };
-export type MealNotice = {
-  nttId: string;
+
+/** 이번 달 급식 안내 가정통신문의 링크들 (thisMonth 가 false 면 이번 달 글이 아직 없어 가장 최근 글) */
+export type MealLink = {
   title: string;
   /** 게시일 (YYYY-MM-DD) */
   date: string;
-  files: MealFile[];
-  tables: MealTable[];
+  thisMonth: boolean;
+  /** 첨부 파일의 학교 홈페이지 주소 */
+  files: { name: string; ext: string; url: string }[];
 };
 
 /** 원본 첨부 파일 주소 (게시판에 올라온 파일만 허용) */
