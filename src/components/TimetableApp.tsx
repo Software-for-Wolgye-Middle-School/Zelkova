@@ -32,6 +32,7 @@ import HandwritingApp from "./HandwritingApp";
 import DutyLogApp from "./DutyLogApp";
 import GuideChatApp from "./GuideChatApp";
 import IepApp from "./IepApp";
+import BoardApp from "./BoardApp";
 
 export type StudentDoc = { key: string; student: Student; blob: Blob; fileName: string; hours: number; subjectHours: [string, number][] };
 
@@ -71,7 +72,7 @@ function studentFileNames(students: Student[], term: string) {
   });
 }
 
-type Phase = "home" | "upload" | "generating" | "result" | "promise" | "bankbook" | "nametag" | "meal" | "students" | "handwriting" | "dutylog" | "guide" | "iep";
+type Phase = "home" | "upload" | "generating" | "result" | "promise" | "bankbook" | "nametag" | "meal" | "students" | "handwriting" | "dutylog" | "guide" | "iep" | "board";
 
 /** 각 단계가 너무 빨리 지나가 깜빡이지 않도록 최소 표시 시간 */
 const MIN_STAGE_MS = 600;
@@ -391,11 +392,14 @@ export default function TimetableApp() {
             {phase === "dutylog" && <DutyLogApp />}
             {phase === "guide" && <GuideChatApp />}
             {phase === "iep" && <IepApp />}
+            {phase === "board" && <BoardApp />}
           </main>
 
           <footer className="px-4 pb-6 print:hidden text-center text-xs text-slate-400">
             {phase === "dutylog"
               ? null
+              : phase === "board"
+              ? "소통게시판의 글과 학생 이름은 암호화해서 학교 서버에 저장되고, 권한이 있는 사람만 볼 수 있어요."
               : phase === "iep"
               ? "개별화교육계획은 학교 서버에 저장되고, 로그인한 사람만 볼 수 있어요."
               : phase === "guide"

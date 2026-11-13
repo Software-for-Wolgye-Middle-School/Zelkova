@@ -156,6 +156,14 @@ export const FileTextIcon = (p: P) => (
   </Base>
 );
 
+export const MegaphoneIcon = (p: P) => (
+  <Base {...p}>
+    <path d="M3 11v2a1 1 0 0 0 1 1h2l5 4V6L6 10H4a1 1 0 0 0-1 1Z" />
+    <path d="M15 9a3 3 0 0 1 0 6" />
+    <path d="M18 6a7 7 0 0 1 0 12" />
+  </Base>
+);
+
 export const Spinner = ({ className = "", ...p }: P) => (
   <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className={`animate-spin ${className}`} {...p}>
     <circle cx="12" cy="12" r="9" stroke="currentColor" strokeOpacity="0.2" strokeWidth="3" />

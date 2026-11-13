@@ -8,6 +8,13 @@ import { createHmac, scryptSync, timingSafeEqual } from "node:crypto";
  *
  * 관리자(업무 안내 편집 등) 계정은 따로: SUPER_ADMIN_ID, SUPER_ADMIN_PASSWORD_SALT, SUPER_ADMIN_PASSWORD_HASH
  * (`node scripts/hash-password.mjs --super <아이디> <비밀번호>`). 관리자로 로그인하면 일반 로그인으로 되는 일도 모두 할 수 있음.
+ *
+ * 특수교사(소통게시판 관리) 계정도 따로: TEACHER_ID, TEACHER_PASSWORD_SALT, TEACHER_PASSWORD_HASH
+ * (`node scripts/hash-password.mjs --teacher <아이디> <비밀번호>`). 특수교사는 일반 로그인으로 되는 일도 모두 할 수 있음.
+ * 실무사 · 사회복무요원 · 학부모 계정(aide · sw · parent)은 소통게시판에서 교사가 준 초대 코드로 만들고 서버 저장소에 둠 (lib/board).
+ *
+ * 세션 값: "만료시각" (일반) · "만료시각:admin" · "만료시각:역할:사용자id" (teacher · aide · sw · parent) 에 AUTH_SECRET 서명.
+ * 학생 정보는 세션에 넣지 않음.
  */
 
 const ADMIN_ID = process.env.ADMIN_ID?.normalize("NFC");
@@ -16,10 +23,17 @@ const HASH = process.env.ADMIN_PASSWORD_HASH;
 const SUPER_ID = process.env.SUPER_ADMIN_ID?.normalize("NFC");
 const SUPER_SALT = process.env.SUPER_ADMIN_PASSWORD_SALT;
 const SUPER_HASH = process.env.SUPER_ADMIN_PASSWORD_HASH;
+const TEACHER_ID = process.env.TEACHER_ID?.normalize("NFC");
+const TEACHER_SALT = process.env.TEACHER_PASSWORD_SALT;
+const TEACHER_HASH = process.env.TEACHER_PASSWORD_HASH;
 const SCRYPT = { N: 16384, r: 8, p: 1 };
 
-/** user: 일반 로그인 · admin: 관리자 */
-export type Role = "user" | "admin";
+/** user: 일반(실무사 · 사회복무요원 공용) · admin: 관리자 · teacher: 특수교사 · aide/sw/parent: 초대 코드로 만든 소통게시판 계정 */
+export type Role = "user" | "admin" | "teacher" | "aide" | "sw" | "parent";
+export type Session = { role: Role; userId: string };
+const BOARD_ROLES: Role[] = ["teacher", "aide", "sw", "parent"];
+/** 원래 있던 도구(시간표 · 학생 정보 · 활동일지 · 업무 안내 · 개별화교육계획)를 쓸 수 있는 역할 */
+export const STAFF_ROLES: Role[] = ["user", "admin", "teacher"];
 
 export const SESSION_COOKIE = "zelkova_session";
 /** 한 번 로그인하면 12시간 동안 유지 */
@@ -45,44 +59,56 @@ function matches(id: string, password: string, wantId: string | undefined, salt:
 /** 맞는 계정의 권한 (관리자 계정을 먼저 봄). 둘 다 아니면 null */
 export function checkCredentials(id: string, password: string): Role | null {
   if (matches(id, password, SUPER_ID, SUPER_SALT, SUPER_HASH)) return "admin";
+  if (matches(id, password, TEACHER_ID, TEACHER_SALT, TEACHER_HASH)) return "teacher";
   if (matches(id, password, ADMIN_ID, SALT, HASH)) return "user";
   return null;
 }
 
+/** 환경 변수 계정의 사용자 id (서버 저장소 계정은 자기 id) */
+export const envUserId = (role: Role) => (role === "admin" ? "admin" : role === "teacher" ? "teacher" : "shared");
+
 const sign = (payload: string) => createHmac("sha256", secret()).update(payload).digest("base64url");
 
-/** 만료 시각과 권한을 담고 서명한 세션 값 ("만료시각" 또는 "만료시각:admin") */
-export function createSession(role: Role = "user") {
+/** 만료 시각과 권한(과 소통게시판 계정이면 사용자 id)을 담고 서명한 세션 값 */
+export function createSession(role: Role = "user", userId = "") {
   const exp = String(Date.now() + SESSION_SECONDS * 1000);
-  const payload = role === "admin" ? `${exp}:admin` : exp;
+  const payload = role === "user" ? exp : role === "admin" ? `${exp}:admin` : `${exp}:${role}:${userId || envUserId(role)}`;
   return `${payload}.${sign(payload)}`;
 }
 
-/** 올바른 세션이면 그 권한, 아니면 null */
-export function sessionRole(token: string | undefined): Role | null {
+/** 올바른 세션이면 그 권한과 사용자 id, 아니면 null */
+export function parseSession(token: string | undefined): Session | null {
   if (!token || !authConfigured()) return null;
   const [payload, signature] = token.split(".");
   if (!payload || !signature || !same(Buffer.from(signature), Buffer.from(sign(payload)))) return null;
-  const [exp, role] = payload.split(":");
+  const [exp, role, userId] = payload.split(":");
   if (!(Number(exp) > Date.now())) return null;
-  return role === "admin" ? "admin" : "user";
+  if (!role) return { role: "user", userId: "shared" };
+  if (role === "admin") return { role: "admin", userId: "admin" };
+  if (BOARD_ROLES.includes(role as Role) && userId && /^[\w-]{1,40}$/.test(userId)) return { role: role as Role, userId };
+  return null;
 }
+
+export const sessionRole = (token: string | undefined): Role | null => parseSession(token)?.role ?? null;
 
 export const isValidSession = (token: string | undefined) => sessionRole(token) !== null;
 
-/** 요청의 로그인 권한 (로그인하지 않았으면 null) */
-export function requestRole(request: Request): Role | null {
+/** 요청의 로그인 세션 (로그인하지 않았으면 null) */
+export function requestSession(request: Request): Session | null {
   const cookie = request.headers.get("cookie") ?? "";
   const token = cookie
     .split(";")
     .map((c) => c.trim())
     .find((c) => c.startsWith(`${SESSION_COOKIE}=`))
     ?.slice(SESSION_COOKIE.length + 1);
-  return sessionRole(token ? decodeURIComponent(token) : undefined);
+  return parseSession(token ? decodeURIComponent(token) : undefined);
 }
 
-/** 요청에 로그인 세션 쿠키가 있는지 (일반 · 관리자 모두) */
-export const isAuthed = (request: Request) => requestRole(request) !== null;
+/** 요청의 로그인 권한 (로그인하지 않았으면 null) */
+export const requestRole = (request: Request): Role | null => requestSession(request)?.role ?? null;
+
+/** 원래 있던 도구를 쓸 수 있는 로그인인지 (일반 · 관리자 · 특수교사). 소통게시판 전용 계정(학부모 등)은 아님 */
+export const isAuthed = (request: Request) => STAFF_ROLES.includes(requestRole(request) as Role);
 
 /** 관리자로 로그인했는지 */
 export const isAdmin = (request: Request) => requestRole(request) === "admin";
