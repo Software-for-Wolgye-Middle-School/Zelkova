@@ -65,16 +65,20 @@ export function makePseudonymizer(registeredNames: string[], intro: string): Pse
     },
     reveal(text) {
       // 이름표 뒤 조사를 이름 받침에 맞춤 (학생A는 → 시은이는, 학생E는 → 김종인은)
-      return text.replace(/학생([A-Z]{1,2})(?![A-Za-z])(이(?=이랑|은|는|가|를|을|와|과|랑|도|의|한테|에게))?(이랑|은|는|이|가|을|를|과|와|랑)?/g, (m, code: string, _i, josa?: string) => {
+      // Gemini 가 이름표를 굵게(**…**) 해 두었으면 먼저 벗김 (아래에서 항상 같은 모양으로 굵게 함)
+      const plain = text.replace(/\*\*((?:\d\s*-\s*\d{1,2}\s*(?:반\s*)?)?학생[A-Z]{1,2})\*\*/g, "$1");
+      // 이름(앞에 "1-3" 같은 학년-반이 있으면 함께)은 항상 굵게. 이름표 뒤 조사는 이름 받침에 맞춤 (학생A는 → **1-1 시은이**는)
+      return plain.replace(/((?:\d\s*-\s*\d{1,2}\s*(?:반\s*)?)?)학생([A-Z]{1,2})(?![A-Za-z])(이(?=이랑|은|는|가|를|을|와|과|랑|도|의|한테|에게))?(이랑|은|는|이|가|을|를|과|와|랑)?/g, (m, cls: string, code: string, _i, josa?: string) => {
         const label = labels.get(`학생${code}`);
         if (!label) return m;
         const batchim = (label.charCodeAt(label.length - 1) - 0xac00) % 28 !== 0;
         // 받침 있는 두 글자 이름은 "시은이"처럼 불러 받침 없는 말로 봄
         const base = batchim && label.length === 2 && josa ? `${label}이` : label;
         const b = batchim && base === label;
-        if (!josa) return base;
+        const bold = `**${cls}${base}**`;
+        if (!josa) return bold;
         const pick: Record<string, [string, string]> = { 은: ["은", "는"], 는: ["은", "는"], 이: ["이", "가"], 가: ["이", "가"], 을: ["을", "를"], 를: ["을", "를"], 과: ["과", "와"], 와: ["과", "와"], 이랑: ["이랑", "랑"], 랑: ["이랑", "랑"] };
-        return base + pick[josa][b ? 0 : 1];
+        return bold + pick[josa][b ? 0 : 1];
       });
     },
   };
