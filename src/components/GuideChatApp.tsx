@@ -164,7 +164,8 @@ export default function GuideChatApp() {
         <>
 
       <div className="flex h-[min(70vh,40rem)] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex-1 space-y-4 overflow-y-auto p-4 sm:p-5" aria-live="polite">
+        {/* 첫 화면(대화 전)에는 스크롤바가 생기지 않게, 대화가 시작되면 위아래로 스크롤 */}
+        <div className={`flex-1 space-y-4 p-4 sm:p-5 ${messages.length === 0 && !busy ? "overflow-hidden" : "overflow-y-auto"}`} aria-live="polite">
           {messages.length === 0 && (
             <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
               <span className="grid h-14 w-14 place-items-center rounded-2xl bg-gradient-to-br from-sky-500 to-indigo-600 text-white shadow-lg shadow-indigo-600/30">
