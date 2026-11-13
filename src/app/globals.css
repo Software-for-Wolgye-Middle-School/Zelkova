@@ -210,3 +210,28 @@ body {
     break-before: auto;
   }
 }
+
+/* ---------- 업무 안내 첫 화면: 질문 예시가 둥실둥실 떠다님 (가벼운 transform 만 씀) ---------- */
+.float-bubble {
+  animation: float-bubble 6s ease-in-out infinite;
+}
+.float-bubble:hover {
+  animation-play-state: paused;
+}
+@keyframes float-bubble {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  33% {
+    transform: translate(4px, -7px);
+  }
+  66% {
+    transform: translate(-4px, 4px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .float-bubble {
+    animation: none;
+  }
+}

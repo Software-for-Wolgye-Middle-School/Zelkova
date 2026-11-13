@@ -8,10 +8,16 @@ import LoginOverlay from "./LoginOverlay";
 type Msg = { role: "user" | "model"; text: string };
 
 /** 처음 화면에 보여 주는 질문 예시 (누르면 바로 물어봄) */
-const SUGGESTIONS = ["첫 출근인데 업무에 대해서 설명해주세요", "느티나무반 학생들에 대해서 알려 주세요", "학생이 갑자기 사라지거나 돌발 상황이 일어나면 어떻게 하나요?"];
+const SUGGESTIONS = [
+  "첫 출근인데 업무에 대해서 설명해주세요",
+  "느티나무반 학생들에 대해서 알려 주세요",
+  "이번달 급식표 알려줘",
+  "이번 달 월계중 소식 알려줘",
+  "학생이 갑자기 사라지거나 돌발 상황이 일어나면 어떻게 하나요?",
+];
 
-/** 마크다운 링크 [보여 줄 글](주소) 또는 그냥 인터넷 주소 (끝의 문장부호 · 괄호는 빼고) */
-const LINK_RE = /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<>()[\]]*[^\s<>()[\].,!?])/g;
+/** 마크다운 링크 [보여 줄 글](주소 또는 이 앱 안의 /주소) 또는 그냥 인터넷 주소 (끝의 문장부호 · 괄호는 빼고) */
+const LINK_RE = /\[([^\]\n]+)\]\(((?:https?:\/\/|\/)[^\s)]+)\)|(https?:\/\/[^\s<>()[\]]*[^\s<>()[\].,!?])/g;
 
 /** 주소만 있을 때 주소 대신 보여 줄 글 */
 const linkLabel = (url: string) => (/youtube\.com|youtu\.be/.test(url) ? "유튜브 채널 보러 가기" : "링크 열어 보기");
@@ -165,7 +171,22 @@ export default function GuideChatApp() {
                 <SparkleIcon className="h-7 w-7" />
               </span>
               <p className="text-[15px] font-semibold text-slate-700">안녕하세요! 무엇이든 물어보세요.</p>
-              <p className="text-sm text-slate-500">아래 예시 질문을 눌러도 바로 물어볼 수 있어요.</p>
+              <p className="text-sm text-slate-500">떠다니는 질문을 누르면 바로 물어볼 수 있어요.</p>
+              {/* 첫 화면: 질문 예시가 둥실둥실 떠다님 (누르면 바로 물어봄) */}
+              <div className="mt-2 flex max-w-xl flex-wrap justify-center gap-x-3 gap-y-4 px-2">
+                {SUGGESTIONS.map((s, i) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => void ask(s)}
+                    disabled={busy}
+                    className="float-bubble rounded-2xl bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-md shadow-indigo-900/10 ring-1 ring-slate-200 transition hover:bg-indigo-50 hover:text-indigo-700 hover:ring-indigo-200 disabled:opacity-50"
+                    style={{ animationDelay: `${-i * 1.3}s`, animationDuration: `${5 + (i % 3)}s` }}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 

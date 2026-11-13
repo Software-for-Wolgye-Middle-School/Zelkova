@@ -3,6 +3,9 @@ import { readGuide } from "@/lib/guideStore";
 import { DEFAULT_GUIDE } from "@/lib/serviceGuide";
 import { makePseudonymizer, type Pseudonymizer } from "@/lib/pseudonym";
 import { readStudents } from "@/lib/studentStore";
+import { NOTICE_BOARD_URL, type MealFile } from "@/lib/meal";
+import { getMonthlyMealNotice } from "@/lib/mealCache";
+import { BOARDS, monthNews } from "@/lib/schoolNews";
 
 /**
  * 사회복무요원 업무 안내 챗봇: 앱에서 저장한 업무 안내(인수인계) 전체와 학생 소개, 등록된 학생 정보를 함께 Google Gemini 에 보내 답을 받음.
@@ -10,6 +13,10 @@ import { readStudents } from "@/lib/studentStore";
  * 학생 정보를 쓰므로 로그인한 사람만 쓸 수 있고, Gemini API 키(GEMINI_API_KEY)는 서버에만 둠.
  * 학생 실명은 Gemini 에 보내지 않음: 보내는 글(안내 · 학생 소개 · 학생 목록 · 대화)의 이름을 "학생A" 같은 이름표로 바꾸고,
  * 받은 답의 이름표를 서버에서 다시 이름으로 되돌림 (lib/pseudonym.ts)
+ *
+ * 학교 홈페이지에서 바로 답하는 질문:
+ *  - "이번달 급식표 알려줘" → 월계중학교 가정통신문의 이번 달 급식 안내 링크 (Gemini 를 거치지 않음)
+ *  - "이번 달 월계중 소식 알려줘" → 공지사항 · 가정통신문의 이번 달 글을 Gemini 로 요약하고 게시판 링크를 붙임
  */
 
 const NO_STORE = { "Cache-Control": "no-store" };
@@ -69,44 +76,109 @@ ${list}`;
   return { prompt: names.hide(prompt), names };
 }
 
+type Gemini = { ok: true; text: string } | { ok: false; res: Response };
+
+/** Gemini 에 묻기 (실패하면 화면에 보여 줄 오류 응답) */
+async function askGemini(key: string, system: string, contents: { role: string; parts: { text: string }[] }[]): Promise<Gemini> {
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: system }] },
+      contents,
+      generationConfig: { temperature: 0.4, maxOutputTokens: 8192, thinkingConfig: THINKING },
+    }),
+    cache: "no-store",
+  });
+  const data = (await res.json().catch(() => null)) as {
+    candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[];
+    error?: { message?: string };
+  } | null;
+  if (!res.ok) {
+    console.error("Gemini", res.status, data?.error?.message);
+    // 무료 등급은 하루 요청 수가 정해져 있어 다 쓰면 다음 날까지 막힘
+    if (res.status === 429) return { ok: false, res: fail("오늘 쓸 수 있는 Gemini 사용량을 모두 썼어요. 내일 다시 물어봐 주세요.", 429) };
+    // 원인을 바로 알 수 있게 Gemini 가 준 상태 코드와 이유를 함께 보여 줌 (로그인한 사람만 보는 화면)
+    const reason = data?.error?.message?.split("\n")[0]?.slice(0, 200);
+    return { ok: false, res: fail(`Gemini 에서 답을 받지 못했어요. (${res.status}${reason ? `: ${reason}` : ""})`, 502) };
+  }
+  if (data?.candidates?.[0]?.finishReason === "MAX_TOKENS") console.warn("Gemini 답이 출력 한도에서 잘렸어요.");
+  const text = data?.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("").trim();
+  if (!text) return { ok: false, res: fail("Gemini 가 답을 만들지 못했어요. 질문을 바꿔 다시 해 주세요.", 502) };
+  return { ok: true, text };
+}
+
+// ---------------------------------------------------------------- 학교 홈페이지에서 바로 답하는 질문
+
+/** "이번달 급식표 알려줘" 같은 질문 */
+const isMealQuestion = (q: string) => /급식|식단/.test(q) && !/건의|우유|신청/.test(q);
+/** "이번 달 월계중 소식 알려줘" 같은 질문 */
+const isNewsQuestion = (q: string) => /(학교|월계중?)\s*(의\s*)?(소식|뉴스|공지)|가정통신문|공지사항|학교\s*행사/.test(q) && !isMealQuestion(q);
+
+const mealFileLink = (f: MealFile) => `/api/meals/file?${new URLSearchParams({ id: f.id, sn: f.sn, name: f.name, ...(f.ext === "pdf" ? { inline: "1" } : {}) })}`;
+
+/** 이번 달 급식 안내(월계중학교 가정통신문)의 링크 — Gemini 를 거치지 않고 바로 답함 */
+async function mealAnswer(): Promise<string> {
+  const notice = await getMonthlyMealNotice().catch(() => null);
+  const board = `[가정통신문 게시판에서 보기](${NOTICE_BOARD_URL})`;
+  if (!notice) return `이번 달 급식 안내를 학교 홈페이지에서 아직 찾지 못했어요.\n• ${board}`;
+  const files = notice.files.filter((f) => ["pdf", "hwp", "hwpx", "png", "jpg", "jpeg"].includes(f.ext));
+  return [
+    `이번 달 급식표는 월계중학교 가정통신문 **「${notice.title}」**(${notice.date})에 있어요.`,
+    "",
+    ...files.map((f) => `• [${f.ext === "pdf" ? "급식표 바로 보기" : "급식표 내려받기"} (${f.ext.toUpperCase()})](${mealFileLink(f)})`),
+    `• ${board}`,
+    `• 메인 화면의 「급식표 조회하기」에서 날짜별 메뉴를 볼 수도 있어요.`,
+  ].join("\n");
+}
+
+/** 이번 달 학교 소식: 공지사항 · 가정통신문 글을 Gemini 로 요약하고 게시판 링크를 붙임 */
+async function newsAnswer(key: string, names: Pseudonymizer): Promise<Response> {
+  let news;
+  try {
+    news = await monthNews();
+  } catch (e) {
+    console.error(e);
+    return fail("월계중학교 홈페이지에서 소식을 읽지 못했어요. 잠시 뒤 다시 물어봐 주세요.", 502);
+  }
+  const links = BOARDS.map((b) => `[${b.name} 게시판](${b.url})`).join(" · ");
+  const list = news.posts.map((p) => `- (${p.date}, ${p.board}) ${p.title}${p.body ? `\n  내용: ${p.body}` : ""}`).join("\n");
+  const system = `너는 월계중학교 특수학급에서 일하는 사회복무요원에게 학교 소식을 알려 주는 도우미야.
+아래 [학교 소식]만 근거로 ${news.thisMonth ? `${news.year}년 ${news.month}월` : "최근"} 월계중학교 소식을 한국어 존댓말(~해요체)로 짧게 요약해.
+- 날짜가 최근인 것부터 • 목록으로, 소식마다 한두 줄로 써 줘. 날짜는 "8월 21일"처럼 써.
+- 사회복무요원 업무와 관련 있어 보이는 소식(행사 · 시간표 · 안전 · 급식 등)은 **굵게** 강조해 줘.
+- 자료에 없는 내용은 지어내지 마. 링크나 주소는 쓰지 마.
+${news.thisMonth ? "" : "- 이번 달 글이 아직 없어서 가장 최근 글들이라고 처음에 말해 줘.\n"}
+[학교 소식]
+${list}`;
+  const g = await askGemini(key, names.hide(system), [{ role: "user", parts: [{ text: `이번 달 월계중 소식 알려 주세요` }] }]);
+  if (!g.ok) return g.res;
+  return Response.json({ text: `${names.reveal(g.text)}\n\n자세한 내용은 ${links}에서 볼 수 있어요.` }, { headers: NO_STORE });
+}
+
 export async function POST(request: Request) {
   if (!isAuthed(request)) return fail("로그인이 필요해요.", 401);
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) return fail("Gemini API 키가 아직 설정되지 않았어요. 서버 환경 변수 GEMINI_API_KEY 를 넣어 주세요.", 503);
-
   const body = (await request.json().catch(() => null)) as { messages?: unknown } | null;
   const turns = cleanTurns(body?.messages);
   if (turns.length === 0 || turns[turns.length - 1].role !== "user") return fail("질문을 적어 주세요.", 400);
+  const question = turns[turns.length - 1].text;
+
+  // 급식표는 학교 홈페이지에서 찾아 바로 답함 (Gemini 키가 없어도 됨)
+  if (isMealQuestion(question)) return Response.json({ text: await mealAnswer() }, { headers: NO_STORE });
+
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) return fail("Gemini API 키가 아직 설정되지 않았어요. 서버 환경 변수 GEMINI_API_KEY 를 넣어 주세요.", 503);
 
   try {
     const { prompt, names } = await systemPrompt();
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-goog-api-key": key },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: prompt }] },
-        contents: turns.map((t) => ({ role: t.role, parts: [{ text: names.hide(t.text) }] })),
-        generationConfig: { temperature: 0.4, maxOutputTokens: 8192, thinkingConfig: THINKING },
-      }),
-      cache: "no-store",
-    });
-    const data = (await res.json().catch(() => null)) as {
-      candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[];
-      error?: { message?: string };
-    } | null;
-    if (!res.ok) {
-      console.error("Gemini", res.status, data?.error?.message);
-      // 무료 등급은 하루 요청 수가 정해져 있어 다 쓰면 다음 날까지 막힘
-      if (res.status === 429) return fail("오늘 쓸 수 있는 Gemini 사용량을 모두 썼어요. 내일 다시 물어봐 주세요.", 429);
-      // 원인을 바로 알 수 있게 Gemini 가 준 상태 코드와 이유를 함께 보여 줌 (로그인한 사람만 보는 화면)
-      const reason = data?.error?.message?.split("\n")[0]?.slice(0, 200);
-      return fail(`Gemini 에서 답을 받지 못했어요. (${res.status}${reason ? `: ${reason}` : ""})`, 502);
-    }
-    const raw = data?.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("").trim();
-    const text = raw ? names.reveal(raw) : raw;
-    if (data?.candidates?.[0]?.finishReason === "MAX_TOKENS") console.warn("Gemini 답이 출력 한도에서 잘렸어요.");
-    if (!text) return fail("Gemini 가 답을 만들지 못했어요. 질문을 바꿔 다시 해 주세요.", 502);
-    return Response.json({ text }, { headers: NO_STORE });
+    if (isNewsQuestion(question)) return await newsAnswer(key, names);
+    const g = await askGemini(
+      key,
+      prompt,
+      turns.map((t) => ({ role: t.role, parts: [{ text: names.hide(t.text) }] })),
+    );
+    if (!g.ok) return g.res;
+    return Response.json({ text: names.reveal(g.text) }, { headers: NO_STORE });
   } catch (e) {
     console.error(e);
     return fail("Gemini 에 연결하지 못했어요. 인터넷 연결을 확인해 주세요.", 502);
