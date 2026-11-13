@@ -67,8 +67,6 @@ type EditorProps = {
   onBack: () => void;
 };
 
-/** 전체 화면에서 양식을 키우는 배율 (1 = 화면 높이에 맞춤). 키운 양식은 스크롤하며 고침 */
-const FULL_ZOOM = 3;
 
 /** 한 주의 활동일지를 쓰는 화면 */
 /** 단계 없이 한 화면: 칸을 고칠 때마다 바로 서버에 저장되고, 위의 단추로 PDF 를 받음 */
@@ -237,16 +235,9 @@ function DutyLogEditor({ weekKey, log, status, onChange: update, onBack }: Edito
       )}
       {full &&
         createPortal(
-          <div role="dialog" aria-label="활동일지 전체 화면" className="fixed inset-0 z-[70] overflow-auto bg-slate-900/80">
-            {/* 키우면 화면보다 커지므로 위아래 · 좌우로 스크롤해서 고침 */}
-            <div className="flex min-h-full w-max min-w-full p-4">
-              <div
-                className="relative m-auto shrink-0 overflow-hidden rounded-md bg-white shadow-2xl [container-type:inline-size]"
-                style={{ width: `calc(min(100vw - 2rem, (100vh - 2rem) * ${LOG_W} / ${LOG_H}) * ${FULL_ZOOM})` }}
-              >
-                {sheet}
-              </div>
-            </div>
+          <div role="dialog" aria-label="활동일지 전체 화면" className="fixed inset-0 z-[70] overflow-y-auto overflow-x-hidden bg-slate-900/80">
+            {/* 화면 너비에 꽉 차게 키우고, 위아래로만 스크롤하며 고침 (좌우 스크롤 없음) */}
+            <div className="relative w-full overflow-hidden bg-white shadow-2xl [container-type:inline-size]">{sheet}</div>
 
             <button
               type="button"

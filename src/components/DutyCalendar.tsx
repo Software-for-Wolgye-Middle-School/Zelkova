@@ -752,9 +752,9 @@ function LogPreview({
 
       {full &&
         createPortal(
-          <div role="dialog" aria-label={`${md(item.start)} ~ ${md(item.end)} 활동일지 전체 화면`} className="fixed inset-0 z-[70] flex overflow-auto bg-slate-900/80 p-4" onClick={() => setFull(false)}>
-            {/* 전체 화면은 원래 크기의 300%로 고정하고, 화면보다 크면 스크롤해서 봄 */}
-            <div className="relative m-auto shrink-0 overflow-hidden rounded-md bg-white shadow-2xl" style={{ width: LOG_W * 3, height: LOG_H * 3 }} onClick={(e) => e.stopPropagation()}>
+          <div role="dialog" aria-label={`${md(item.start)} ~ ${md(item.end)} 활동일지 전체 화면`} className="fixed inset-0 z-[70] overflow-y-auto overflow-x-hidden bg-slate-900/80" onClick={() => setFull(false)}>
+            {/* 전체 화면은 화면 너비에 꽉 차게 (좌우 스크롤 없이 위아래로만 스크롤) */}
+            <div className="relative w-full overflow-hidden bg-white shadow-2xl" style={{ aspectRatio: `${LOG_W} / ${LOG_H}` }} onClick={(e) => e.stopPropagation()}>
               {/* 넘길 때: 앞 활동일지는 서서히 사라지고 새 활동일지가 서서히 나타남 */}
               <div
                 className={`relative z-0 h-full w-full bg-white [&>svg]:block [&>svg]:h-full [&>svg]:w-full ${anim ? "transition-opacity ease-in-out motion-reduce:transition-none" : ""}`}
