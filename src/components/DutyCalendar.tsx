@@ -23,6 +23,8 @@ const BAR_TOP = 1.9;
 const POP_W = 352;
 const POP_H = 440;
 const UNDO_MS = 7000;
+/** 전체 화면에서 활동일지를 넘길 때 서서히 바뀌는 시간(ms) */
+const FADE_MS = 900;
 /** 활동일지 미리보기 너비(26rem)와 대략의 높이(px) — 위치를 정할 때 씀 */
 const PREVIEW_W = 416;
 const PREVIEW_H = 640;
@@ -677,7 +679,7 @@ function LogPreview({
 }) {
   const svg = useMemo(() => dutyLogSvg(log, true), [log]);
   const [full, setFull] = useState(false);
-  /** 넘기는 중: 앞 활동일지(fromSvg)는 제자리에 두고 새 활동일지가 옆에서 밀려 들어와 덮음 (칭찬카드 넘기기와 같음) */
+  /** 넘기는 중: 앞 활동일지(fromSvg)는 서서히 사라지고 새 활동일지가 서서히 나타남 */
   const [anim, setAnim] = useState<{ fromSvg: string; dir: 1 | -1; slid: boolean } | null>(null);
   const animTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
@@ -691,7 +693,7 @@ function LogPreview({
     setAnim({ fromSvg: svg, dir, slid: false });
     onNavigate(dir);
     requestAnimationFrame(() => requestAnimationFrame(() => setAnim((a) => a && { ...a, slid: true })));
-    animTimer.current = setTimeout(() => setAnim(null), SLIDE_MS);
+    animTimer.current = setTimeout(() => setAnim(null), FADE_MS);
   };
   const arrow =
     "fixed top-1/2 z-[71] grid h-11 w-11 -translate-y-1/2 place-items-center rounded-full bg-white/95 text-slate-700 shadow-lg ring-1 ring-slate-200 transition hover:bg-indigo-50 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-30";
@@ -753,13 +755,20 @@ function LogPreview({
           <div role="dialog" aria-label={`${md(item.start)} ~ ${md(item.end)} 활동일지 전체 화면`} className="fixed inset-0 z-[70] flex overflow-auto bg-slate-900/80 p-4" onClick={() => setFull(false)}>
             {/* 전체 화면은 원래 크기의 300%로 고정하고, 화면보다 크면 스크롤해서 봄 */}
             <div className="relative m-auto shrink-0 overflow-hidden rounded-md bg-white shadow-2xl" style={{ width: LOG_W * 3, height: LOG_H * 3 }} onClick={(e) => e.stopPropagation()}>
-              {/* 넘길 때: 앞 활동일지는 제자리에 두고 새 활동일지가 옆에서 밀려 들어와 덮음 */}
-              {anim && <div className="pointer-events-none absolute inset-0 z-0 [&>svg]:block [&>svg]:h-full [&>svg]:w-full" aria-hidden="true" dangerouslySetInnerHTML={{ __html: anim.fromSvg }} />}
+              {/* 넘길 때: 앞 활동일지는 서서히 사라지고 새 활동일지가 서서히 나타남 */}
               <div
-                className={`relative z-[2] h-full w-full bg-white [&>svg]:block [&>svg]:h-full [&>svg]:w-full ${anim ? "shadow-[0_0_24px_rgba(15,23,42,0.18)]" : ""} ${anim?.slid ? "transition-transform ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none" : ""}`}
-                style={{ transform: anim && !anim.slid ? `translateX(${anim.dir * 105}%)` : undefined, transitionDuration: `${SLIDE_MS}ms` }}
+                className={`relative z-0 h-full w-full bg-white [&>svg]:block [&>svg]:h-full [&>svg]:w-full ${anim ? "transition-opacity ease-in-out motion-reduce:transition-none" : ""}`}
+                style={{ opacity: anim && !anim.slid ? 0 : 1, transitionDuration: `${FADE_MS}ms` }}
                 dangerouslySetInnerHTML={{ __html: svg }}
               />
+              {anim && (
+                <div
+                  className="pointer-events-none absolute inset-0 z-[2] bg-white transition-opacity ease-in-out motion-reduce:transition-none [&>svg]:block [&>svg]:h-full [&>svg]:w-full"
+                  style={{ opacity: anim.slid ? 0 : 1, transitionDuration: `${FADE_MS}ms` }}
+                  aria-hidden="true"
+                  dangerouslySetInnerHTML={{ __html: anim.fromSvg }}
+                />
+              )}
             </div>
             <button
               type="button"
