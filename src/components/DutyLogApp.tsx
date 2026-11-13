@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
+  addDays,
   checkPath,
   DATE_LINE,
   DAYS,
@@ -30,7 +31,8 @@ import {
   type DutyLog,
 } from "@/lib/dutyLogSvg";
 import { embeddedFontCss, svgToPng, withFont } from "@/lib/svgExport";
-import { DownloadIcon, Spinner } from "./icons";
+import { ArrowLeftIcon, ArrowRightIcon, DownloadIcon, Spinner } from "./icons";
+import { arrowClass, SLIDE_MS } from "./StepFlow";
 import DutyCalendar from "./DutyCalendar";
 import { STATUS_TEXT, useDutySync, type Status } from "./useDutySync";
 
@@ -65,6 +67,8 @@ type EditorProps = {
   status: Status;
   onChange: (change: (l: DutyLog) => DutyLog) => void;
   onBack: () => void;
+  /** 앞(-1) · 다음(1) 주의 활동일지로 넘김 */
+  onNavigate: (dir: 1 | -1) => void;
 };
 
 /** 전체 화면에서 양식을 키우는 배율 (1 = 화면 높이에 맞춤). 키운 양식은 스크롤하며 고침 */
@@ -72,11 +76,28 @@ const FULL_ZOOM = 3;
 
 /** 한 주의 활동일지를 쓰는 화면 */
 /** 단계 없이 한 화면: 칸을 고칠 때마다 바로 서버에 저장되고, 위의 단추로 PDF 를 받음 */
-function DutyLogEditor({ weekKey, log, status, onChange: update, onBack }: EditorProps) {
+function DutyLogEditor({ weekKey, log, status, onChange: update, onBack, onNavigate }: EditorProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /** 양식을 화면 가득 크게 보며 고치기 */
   const [full, setFull] = useState(false);
+  /** 주를 넘기는 중: 앞 주의 양식(fromSvg)은 제자리에 두고, 새 주가 옆에서 밀려 들어와 덮음 (칭찬카드 넘기기와 같음) */
+  const [anim, setAnim] = useState<{ fromSvg: string; dir: 1 | -1; slid: boolean } | null>(null);
+  const animTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (animTimer.current) clearTimeout(animTimer.current);
+    },
+    [],
+  );
+
+  const flip = (dir: 1 | -1) => {
+    if (anim) return;
+    setAnim({ fromSvg: dutyLogSvg(log, true), dir, slid: false });
+    onNavigate(dir);
+    requestAnimationFrame(() => requestAnimationFrame(() => setAnim((a) => a && { ...a, slid: true })));
+    animTimer.current = setTimeout(() => setAnim(null), SLIDE_MS);
+  };
 
   useEffect(() => {
     if (!full) return;
@@ -230,9 +251,29 @@ function DutyLogEditor({ weekKey, log, status, onChange: update, onBack }: Edito
       {full ? (
         <p className="rounded-md bg-slate-50 px-3 py-6 text-center text-sm text-slate-500 ring-1 ring-slate-200">전체 화면에서 보고 있어요.</p>
       ) : (
-        <div className="relative mx-auto w-full overflow-hidden rounded-md bg-white ring-1 ring-slate-200 [container-type:inline-size]">
-          {sheet}
-          {fullBtn}
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={() => flip(-1)} disabled={!!anim} aria-label="이전 주 활동일지" title="이전 주" className={arrowClass}>
+            <ArrowLeftIcon className="h-4 w-4" />
+          </button>
+          <div className="relative mx-auto min-w-0 flex-1 overflow-hidden rounded-md bg-white ring-1 ring-slate-200 [container-type:inline-size]">
+            {anim && (
+              <div
+                className="pointer-events-none absolute inset-0 z-0 [&>svg]:block [&>svg]:h-full [&>svg]:w-full"
+                aria-hidden="true"
+                dangerouslySetInnerHTML={{ __html: anim.fromSvg }}
+              />
+            )}
+            <div
+              className={`relative z-[2] bg-white ${anim ? "shadow-[0_0_24px_rgba(15,23,42,0.18)]" : ""} ${anim?.slid ? "transition-transform ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none" : ""}`}
+              style={{ transform: anim && !anim.slid ? `translateX(${anim.dir * 105}%)` : undefined, transitionDuration: `${SLIDE_MS}ms` }}
+            >
+              {sheet}
+            </div>
+            {fullBtn}
+          </div>
+          <button type="button" onClick={() => flip(1)} disabled={!!anim} aria-label="다음 주 활동일지" title="다음 주" className={arrowClass}>
+            <ArrowRightIcon className="h-4 w-4" />
+          </button>
         </div>
       )}
       {full &&
@@ -280,6 +321,7 @@ export default function DutyLogApp() {
         status={status}
         onChange={(change) => editWeek(key, change)}
         onBack={() => setView({ mode: "calendar" })}
+        onNavigate={(dir) => setView({ mode: "edit", week: addDays(key, dir * 7) })}
       />
     );
   }

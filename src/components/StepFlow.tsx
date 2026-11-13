@@ -242,7 +242,7 @@ export function StepNav({
   );
 }
 
-const arrowClass =
+export const arrowClass =
   "grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white text-slate-600 shadow ring-1 ring-slate-200 transition hover:bg-indigo-50 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-40";
 
 /**

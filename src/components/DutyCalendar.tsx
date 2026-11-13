@@ -378,8 +378,13 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onRemo
                     </summary>
                     <div className="mb-1 mt-0.5 space-y-1.5 pl-2">
                       {months.map(({ month: m, list }) => (
-                        <section key={m}>
-                          <h3 className="px-2 text-xs font-bold text-slate-500">{m}월</h3>
+                        <details key={m} open className="group/month">
+                          <summary className="flex cursor-pointer list-none items-center justify-between rounded-md px-2 py-1 text-xs font-bold text-slate-500 transition hover:bg-slate-50 [&::-webkit-details-marker]:hidden">
+                            <span>{m}월</span>
+                            <span className="flex items-center gap-1.5 font-normal text-slate-400">
+                              {list.length}개<span className="inline-block transition group-open/month:rotate-90">›</span>
+                            </span>
+                          </summary>
                           <ul className="mt-0.5 space-y-0.5">
                             {list.map((item) => (
                               <li key={item.key}>
@@ -397,7 +402,7 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onRemo
                               </li>
                             ))}
                           </ul>
-                        </section>
+                        </details>
                       ))}
                     </div>
                   </details>
@@ -434,8 +439,13 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onRemo
                     </summary>
                     <div className="mb-1 mt-0.5 space-y-1.5 pl-2">
                       {months.map(({ month: m, list }) => (
-                        <section key={m}>
-                          <h3 className="px-2 text-xs font-bold text-slate-500">{m}월</h3>
+                        <details key={m} open className="group/month">
+                          <summary className="flex cursor-pointer list-none items-center justify-between rounded-md px-2 py-1 text-xs font-bold text-slate-500 transition hover:bg-slate-50 [&::-webkit-details-marker]:hidden">
+                            <span>{m}월</span>
+                            <span className="flex items-center gap-1.5 font-normal text-slate-400">
+                              {list.length}개<span className="inline-block transition group-open/month:rotate-90">›</span>
+                            </span>
+                          </summary>
                           <ul className="mt-0.5 space-y-0.5">
                             {list.map((ev) => (
                               <li key={ev.id}>
@@ -457,7 +467,7 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onRemo
                               </li>
                             ))}
                           </ul>
-                        </section>
+                        </details>
                       ))}
                     </div>
                   </details>
