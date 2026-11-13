@@ -56,7 +56,12 @@ function Rich({ text, animate }: { text: string; animate: boolean }) {
   return (
     <>
       {text.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
-        part.startsWith("**") && part.endsWith("**") ? <b key={i}>{linked(part.slice(2, -2))}</b> : <span key={i}>{linked(part.replace(/^([ \t]*)[*-][ \t]+/gm, "$1• "))}</span>,
+        part.startsWith("**") && part.endsWith("**") ? (
+          <b key={i}>{linked(part.slice(2, -2))}</b>
+        ) : (
+          // 줄 앞 "* " · "- " 는 •로, 별표 하나로 감싼 기울임(*팁:*)은 별표 없이
+          <span key={i}>{linked(part.replace(/^([ \t]*)[*-][ \t]+/gm, "$1• ").replace(/\*([^*\n]+)\*/g, "$1"))}</span>
+        ),
       )}
     </>
   );
