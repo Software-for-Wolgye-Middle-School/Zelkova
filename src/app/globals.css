@@ -141,30 +141,7 @@ body {
   animation: word-in 0.45s ease-out both;
 }
 
-/* 업무 안내 예시 질문: 왼쪽에서 오른쪽으로 끝없이 흘러감 (목록을 두 번 이어 붙여 절반만큼 움직임) */
-@keyframes marquee-right {
-  from {
-    transform: translateX(-50%);
-  }
-  to {
-    transform: translateX(0);
-  }
-}
-.marquee-track {
-  animation: marquee-right 40s linear infinite;
-}
-/* 채팅 아래쪽(예시 질문 · 입력칸)에 마우스를 대거나, 키보드로 예시 질문에 초점을 옮기면 멈춤
-   (애니메이션을 여기서 정해서 Tailwind 유틸리티로는 멈추지 않으므로 여기서 멈춤) */
-.chat-bottom:hover .marquee-track,
-.marquee:focus-within .marquee-track {
-  animation-play-state: paused;
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .marquee {
-    overflow-x: auto;
-  }
-  .marquee-track,
   .word-in,
   .cell-fill,
   .shimmer::after,
@@ -211,7 +188,7 @@ body {
   }
 }
 
-/* ---------- 업무 안내 첫 화면: 질문 예시가 둥실둥실 떠다님 (가벼운 transform 만 씀) ---------- */
+/* ---------- 업무 안내 첫 화면: 질문 예시가 천천히 커졌다 작아졌다 함 (가벼운 transform 만 씀) ---------- */
 .float-bubble {
   animation: float-bubble 6s ease-in-out infinite;
 }
@@ -221,15 +198,13 @@ body {
 @keyframes float-bubble {
   0%,
   100% {
-    transform: translate(0, 0);
+    transform: scale(1);
   }
-  33% {
-    transform: translate(4px, -7px);
-  }
-  66% {
-    transform: translate(-4px, 4px);
+  50% {
+    transform: scale(1.07);
   }
 }
+
 @media (prefers-reduced-motion: reduce) {
   .float-bubble {
     animation: none;

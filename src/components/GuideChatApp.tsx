@@ -127,7 +127,7 @@ export default function GuideChatApp() {
     <div className="fade-up mx-auto flex max-w-3xl flex-col">
       <div className="relative mb-5 text-center">
         <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-[28px]">사회복무요원 업무 안내</h1>
-        <p className="mt-1 text-sm text-slate-500">{editing ? "챗봇이 참고할 인수인계 내용과 학생 소개를 적어 주세요." : "학교 업무나 우리 반 학생에 대해 궁금한 걸 물어보세요."}</p>
+        {editing && <p className="mt-1 text-sm text-slate-500">챗봇이 참고할 인수인계 내용과 학생 소개를 적어 주세요.</p>}
         {!editing && (
           <button
             type="button"
@@ -171,8 +171,7 @@ export default function GuideChatApp() {
                 <SparkleIcon className="h-7 w-7" />
               </span>
               <p className="text-[15px] font-semibold text-slate-700">안녕하세요! 무엇이든 물어보세요.</p>
-              <p className="text-sm text-slate-500">떠다니는 질문을 누르면 바로 물어볼 수 있어요.</p>
-              {/* 첫 화면: 질문 예시가 둥실둥실 떠다님 (누르면 바로 물어봄) */}
+              {/* 첫 화면: 질문 예시가 천천히 커졌다 작아졌다 함 (누르면 바로 물어봄) */}
               <div className="mt-2 flex max-w-xl flex-wrap justify-center gap-x-3 gap-y-4 px-2">
                 {SUGGESTIONS.map((s, i) => (
                   <button
@@ -224,31 +223,7 @@ export default function GuideChatApp() {
           </p>
         )}
 
-        {/* 아래쪽(예시 질문 · 입력칸)에 마우스를 대면 예시 질문이 멈춤 */}
-        <div className="chat-bottom">
-        {/* 예시 질문: 왼쪽에서 오른쪽으로 계속 흘러가고, 누르면 바로 물어봄 */}
-        <div className="marquee relative overflow-hidden border-t border-slate-100 py-2.5 [mask-image:linear-gradient(to_right,transparent,black_6%,black_94%,transparent)]">
-          <div className="marquee-track flex w-max">
-            {/* 끊김 없이 이어지도록 같은 목록을 두 번 (두 번째는 화면 읽기에서 숨김) */}
-            {[0, 1].map((copy) => (
-              <div key={copy} className="flex shrink-0 gap-2 pr-2" aria-hidden={copy === 1 || undefined}>
-                {SUGGESTIONS.map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    tabIndex={copy === 1 ? -1 : undefined}
-                    onClick={() => void ask(s)}
-                    disabled={busy}
-                    className="shrink-0 whitespace-nowrap rounded-full bg-slate-100 px-3.5 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-indigo-50 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {s}
-                  </button>
-                ))}
-              </div>
-            ))}
-          </div>
-        </div>
-
+        <div>
         <form
           onSubmit={(e) => {
             e.preventDefault();
