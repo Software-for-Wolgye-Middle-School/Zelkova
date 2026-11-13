@@ -694,19 +694,21 @@ function LogPreview({
     animTimer.current = setTimeout(() => setAnim(null), SLIDE_MS);
   };
   const arrow =
-    "absolute top-1/2 z-[3] grid h-7 w-7 -translate-y-1/2 place-items-center rounded-full bg-white/90 text-slate-600 shadow ring-1 ring-slate-200 transition hover:bg-indigo-50 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-0";
+    "fixed top-1/2 z-[71] grid h-11 w-11 -translate-y-1/2 place-items-center rounded-full bg-white/95 text-slate-700 shadow-lg ring-1 ring-slate-200 transition hover:bg-indigo-50 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-30";
 
   // 전체 화면에서 Esc 는 전체 화면만 닫음 (미리보기는 그대로)
   useEffect(() => {
     if (!full) return;
     const onKey = (e: KeyboardEvent) => {
+      if (e.key === "ArrowLeft" && canPrev) flip(-1);
+      else if (e.key === "ArrowRight" && canNext) flip(1);
       if (e.key !== "Escape") return;
       e.stopPropagation();
       setFull(false);
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [full]);
+  }, [full, canPrev, canNext, anim, svg]); // eslint-disable-line react-hooks/exhaustive-deps -- flip 은 위 값들로 매번 새로 만들어짐
 
   return (
     <div
@@ -734,28 +736,7 @@ function LogPreview({
         </div>
       </div>
       <div className="relative overflow-hidden rounded-md bg-white ring-1 ring-slate-200">
-        {anim && (
-          <div
-            className="pointer-events-none absolute inset-0 z-0 [&>svg]:block [&>svg]:h-full [&>svg]:w-full"
-            aria-hidden="true"
-            dangerouslySetInnerHTML={{ __html: anim.fromSvg }}
-          />
-        )}
-        <div
-          className={`relative z-[2] bg-white [&>svg]:block [&>svg]:h-full [&>svg]:w-full ${anim ? "shadow-[0_0_24px_rgba(15,23,42,0.18)]" : ""} ${anim?.slid ? "transition-transform ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none" : ""}`}
-          style={{
-            aspectRatio: `${LOG_W} / ${LOG_H}`,
-            transform: anim && !anim.slid ? `translateX(${anim.dir * 105}%)` : undefined,
-            transitionDuration: `${SLIDE_MS}ms`,
-          }}
-          dangerouslySetInnerHTML={{ __html: svg }}
-        />
-        <button type="button" onClick={() => flip(-1)} disabled={!canPrev || !!anim} aria-label="이전 활동일지" title="이전 활동일지" className={`${arrow} left-1`}>
-          <ArrowLeftIcon className="h-3.5 w-3.5" />
-        </button>
-        <button type="button" onClick={() => flip(1)} disabled={!canNext || !!anim} aria-label="다음 활동일지" title="다음 활동일지" className={`${arrow} right-1`}>
-          <ArrowRightIcon className="h-3.5 w-3.5" />
-        </button>
+        <div className="[&>svg]:block [&>svg]:h-full [&>svg]:w-full" style={{ aspectRatio: `${LOG_W} / ${LOG_H}` }} dangerouslySetInnerHTML={{ __html: svg }} />
         <button
           type="button"
           onClick={() => setFull(true)}
@@ -771,12 +752,41 @@ function LogPreview({
         createPortal(
           <div role="dialog" aria-label={`${md(item.start)} ~ ${md(item.end)} 활동일지 전체 화면`} className="fixed inset-0 z-[70] flex overflow-auto bg-slate-900/80 p-4" onClick={() => setFull(false)}>
             {/* 전체 화면은 원래 크기의 300%로 고정하고, 화면보다 크면 스크롤해서 봄 */}
-            <div
-              className="relative m-auto shrink-0 overflow-hidden rounded-md bg-white shadow-2xl [&>svg]:block [&>svg]:h-full [&>svg]:w-full"
-              style={{ width: LOG_W * 3, height: LOG_H * 3 }}
-              onClick={(e) => e.stopPropagation()}
-              dangerouslySetInnerHTML={{ __html: svg }}
-            />
+            <div className="relative m-auto shrink-0 overflow-hidden rounded-md bg-white shadow-2xl" style={{ width: LOG_W * 3, height: LOG_H * 3 }} onClick={(e) => e.stopPropagation()}>
+              {/* 넘길 때: 앞 활동일지는 제자리에 두고 새 활동일지가 옆에서 밀려 들어와 덮음 */}
+              {anim && <div className="pointer-events-none absolute inset-0 z-0 [&>svg]:block [&>svg]:h-full [&>svg]:w-full" aria-hidden="true" dangerouslySetInnerHTML={{ __html: anim.fromSvg }} />}
+              <div
+                className={`relative z-[2] h-full w-full bg-white [&>svg]:block [&>svg]:h-full [&>svg]:w-full ${anim ? "shadow-[0_0_24px_rgba(15,23,42,0.18)]" : ""} ${anim?.slid ? "transition-transform ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none" : ""}`}
+                style={{ transform: anim && !anim.slid ? `translateX(${anim.dir * 105}%)` : undefined, transitionDuration: `${SLIDE_MS}ms` }}
+                dangerouslySetInnerHTML={{ __html: svg }}
+              />
+            </div>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                flip(-1);
+              }}
+              disabled={!canPrev || !!anim}
+              aria-label="이전 활동일지"
+              title="이전 활동일지"
+              className={`${arrow} left-4`}
+            >
+              <ArrowLeftIcon className="h-5 w-5" />
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                flip(1);
+              }}
+              disabled={!canNext || !!anim}
+              aria-label="다음 활동일지"
+              title="다음 활동일지"
+              className={`${arrow} right-4`}
+            >
+              <ArrowRightIcon className="h-5 w-5" />
+            </button>
             <button
               type="button"
               onClick={() => setFull(false)}
