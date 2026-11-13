@@ -128,8 +128,7 @@ export function LoginScreen({ error, onIdLogin, onBack }: { error: string | null
   return (
     <Scene>
       <div className="fade-up w-full max-w-sm rounded-3xl bg-white/90 p-6 shadow-xl shadow-emerald-950/10 ring-1 ring-white backdrop-blur-md sm:p-8">
-        <p className="text-center text-sm font-bold text-emerald-700">느티나무 교실 도우미</p>
-        <h1 className="mt-1 text-center text-3xl font-extrabold tracking-tight text-slate-900">로그인</h1>
+        <h1 className="text-center text-3xl font-extrabold tracking-tight text-slate-900">로그인</h1>
 
         <div className="mt-8 space-y-3">
           <a href="/api/oauth/kakao/start" className={`${social} bg-[#FEE500] text-[#191919]`}>
@@ -146,7 +145,6 @@ export function LoginScreen({ error, onIdLogin, onBack }: { error: string | null
             네이버 계정으로 로그인
           </a>
         </div>
-        <p className="mt-3 text-center text-xs text-slate-500">처음이면 로그인한 뒤 이름과 직급을 적고, 관리자가 승인하면 쓸 수 있어요.</p>
 
         {msg && (
           <p role="alert" className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm font-medium text-red-700">
