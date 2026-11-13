@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { checkAdmin } from "./auth";
-import { ArrowRightIcon, PencilIcon, SparkleIcon, Spinner } from "./icons";
+import { ArrowRightIcon, GearIcon, SparkleIcon, Spinner } from "./icons";
 import LoginOverlay from "./LoginOverlay";
 
 type Msg = { role: "user" | "model"; text: string };
@@ -129,13 +129,15 @@ export default function GuideChatApp() {
         <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-[28px]">사회복무요원 업무 안내</h1>
         {editing && <p className="mt-1 text-sm text-slate-500">챗봇이 참고할 인수인계 내용과 학생 소개를 적어 주세요.</p>}
         {!editing && (
+          // 업무 안내 편집: iOS 설정 앱처럼 회색 둥근 네모 안의 흰 톱니바퀴
           <button
             type="button"
             onClick={() => void openEditor()}
-            className="mx-auto mt-3 inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold text-slate-600 ring-1 ring-inset ring-slate-200 transition hover:bg-slate-50 sm:absolute sm:right-0 sm:top-1 sm:mt-0"
+            aria-label="업무 안내 편집"
+            title="업무 안내 편집"
+            className="mx-auto mt-3 grid h-10 w-10 place-items-center rounded-[11px] bg-gradient-to-b from-slate-400 to-slate-600 text-white shadow-md shadow-slate-900/20 ring-1 ring-inset ring-white/20 transition hover:brightness-110 active:scale-95 sm:absolute sm:right-0 sm:top-1 sm:mt-0"
           >
-            <PencilIcon className="h-4 w-4" />
-            업무 안내 편집
+            <GearIcon className="h-7 w-7" />
           </button>
         )}
       </div>

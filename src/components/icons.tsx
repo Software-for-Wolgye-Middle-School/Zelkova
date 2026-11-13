@@ -164,6 +164,24 @@ export const MegaphoneIcon = (p: P) => (
   </Base>
 );
 
+/** iOS 설정 앱 같은 톱니바퀴 (톱니 12개 + 가운데 구멍, 채운 모양) */
+export const GearIcon = (p: P) => {
+  const teeth = 12;
+  const pts: string[] = [];
+  for (let i = 0; i < teeth * 4; i++) {
+    // 톱니 끝(바깥) 두 점 · 톱니 사이(안쪽) 두 점을 번갈아
+    const a = ((i + 0.5) / (teeth * 4)) * Math.PI * 2 - Math.PI / 2;
+    const r = i % 4 < 2 ? 10.5 : 8.4;
+    pts.push(`${(12 + r * Math.cos(a)).toFixed(2)},${(12 + r * Math.sin(a)).toFixed(2)}`);
+  }
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" {...p}>
+      <path fillRule="evenodd" fill="currentColor" d={`M${pts.join("L")}Z M12 8.2a3.8 3.8 0 1 0 0 7.6a3.8 3.8 0 1 0 0-7.6Z`} />
+      <circle cx="12" cy="12" r="5.6" fill="none" stroke="currentColor" strokeOpacity="0.35" strokeWidth="0.8" />
+    </svg>
+  );
+};
+
 export const Spinner = ({ className = "", ...p }: P) => (
   <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className={`animate-spin ${className}`} {...p}>
     <circle cx="12" cy="12" r="9" stroke="currentColor" strokeOpacity="0.2" strokeWidth="3" />
