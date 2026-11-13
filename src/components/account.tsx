@@ -104,7 +104,6 @@ const NaverIcon = () => (
 );
 
 export function LoginScreen({ error, onIdLogin, onBack }: { error: string | null; onIdLogin: () => void; onBack: () => void }) {
-  const [showId, setShowId] = useState(false);
   const [id, setId] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -152,22 +151,17 @@ export function LoginScreen({ error, onIdLogin, onBack }: { error: string | null
           </p>
         )}
 
-        {showId ? (
-          <form onSubmit={submit} className="mt-6 space-y-2 border-t border-slate-100 pt-5">
-            <fieldset disabled={busy} className="space-y-2">
-              <input value={id} onChange={(e) => setId(e.target.value)} autoComplete="username" placeholder="아이디" aria-label="아이디" className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-[15px] outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100" />
-              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" placeholder="비밀번호" aria-label="비밀번호" className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-[15px] outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100" />
-            </fieldset>
-            <button type="submit" disabled={busy} className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-slate-900 text-[15px] font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60">
-              {busy && <Spinner className="h-4 w-4" />}
-              로그인
-            </button>
-          </form>
-        ) : (
-          <button type="button" onClick={() => setShowId(true)} className="mx-auto mt-6 block text-xs font-medium text-slate-400 underline-offset-2 hover:text-slate-600 hover:underline">
-            아이디로 로그인
+        <form onSubmit={submit} className="mt-6 space-y-2">
+          <p className="flex items-center gap-3 pb-1 text-xs font-medium text-slate-400 before:h-px before:flex-1 before:bg-slate-200 after:h-px after:flex-1 after:bg-slate-200">또는 아이디로 로그인</p>
+          <fieldset disabled={busy} className="space-y-2">
+            <input value={id} onChange={(e) => setId(e.target.value)} autoComplete="username" placeholder="아이디" aria-label="아이디" className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-[15px] outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100" />
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" placeholder="비밀번호" aria-label="비밀번호" className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3.5 text-[15px] outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100" />
+          </fieldset>
+          <button type="submit" disabled={busy} className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-slate-900 text-[15px] font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60">
+            {busy && <Spinner className="h-4 w-4" />}
+            로그인
           </button>
-        )}
+        </form>
         <button type="button" onClick={onBack} className="mx-auto mt-3 block text-xs font-medium text-slate-400 hover:text-slate-600">
           ‹ 처음 화면으로
         </button>
