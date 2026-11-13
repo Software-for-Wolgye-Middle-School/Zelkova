@@ -10,8 +10,11 @@ type Msg = { role: "user" | "model"; text: string };
 /** 처음 화면에 보여 주는 질문 예시 (누르면 바로 물어봄) */
 const SUGGESTIONS = ["첫 출근인데 업무에 대해서 설명해주세요", "느티나무반 학생들에 대해서 알려 주세요", "학생이 갑자기 사라지거나 돌발 상황이 일어나면 어떻게 하나요?"];
 
-/** 인터넷 주소 (끝의 문장부호 · 괄호는 빼고) */
-const URL_RE = /(https?:\/\/[^\s<>()]*[^\s<>().,!?])/g;
+/** 마크다운 링크 [보여 줄 글](주소) 또는 그냥 인터넷 주소 (끝의 문장부호 · 괄호는 빼고) */
+const LINK_RE = /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<>()[\]]*[^\s<>()[\].,!?])/g;
+
+/** 주소만 있을 때 주소 대신 보여 줄 글 */
+const linkLabel = (url: string) => (/youtube\.com|youtu\.be/.test(url) ? "유튜브 채널 보러 가기" : "링크 열어 보기");
 
 /** 낱말 하나가 나타나는 간격 (ms) */
 const WORD_MS = 28;
@@ -32,17 +35,24 @@ function Rich({ text, animate }: { text: string; animate: boolean }) {
         </span>
       ),
     );
-  /** 글 속 인터넷 주소는 눌러서 새 탭으로 열리게 */
-  const linked = (s: string) =>
-    s.split(URL_RE).map((p, i) =>
-      i % 2 === 1 ? (
-        <a key={i} href={p} target="_blank" rel="noopener noreferrer" className="break-all font-medium text-indigo-600 underline underline-offset-2 hover:text-indigo-800">
-          {p}
-        </a>
-      ) : (
-        <span key={i}>{words(p)}</span>
-      ),
-    );
+  /** 글 속 링크는 주소를 보이지 않고 글에 넣어, 누르면 새 탭으로 열리게 */
+  const linked = (s: string) => {
+    const out: React.ReactNode[] = [];
+    let last = 0;
+    for (const m of s.matchAll(LINK_RE)) {
+      const at = m.index ?? 0;
+      if (at > last) out.push(<span key={`t${at}`}>{words(s.slice(last, at))}</span>);
+      const url = m[2] ?? m[3];
+      out.push(
+        <a key={`a${at}`} href={url} target="_blank" rel="noopener noreferrer" className="font-semibold text-indigo-600 underline decoration-indigo-300 underline-offset-2 hover:text-indigo-800">
+          {m[1] ?? linkLabel(url)} ↗
+        </a>,
+      );
+      last = at + m[0].length;
+    }
+    if (last < s.length) out.push(<span key={`t${last}`}>{words(s.slice(last))}</span>);
+    return out;
+  };
   return (
     <>
       {text.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
