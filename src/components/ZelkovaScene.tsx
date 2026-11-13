@@ -1,6 +1,6 @@
 /**
- * 메인 화면 배경: 햇빛이 비추고 바람이 불어 가운데 느티나무가 천천히 흔들리는 장면.
- * 모든 움직임은 globals.css 의 .scene-* 애니메이션이며, 움직임 줄이기 설정에서는 멈춥니다.
+ * 메인 화면 배경: 햇빛 아래 느티나무가 서 있는 장면.
+ * 느린 컴퓨터에서도 가볍도록 움직임 없이 한 번만 그림 (예전에는 나무가 흔들리고 잎 · 바람결이 날렸음).
  */
 
 // 느티나무 수관: 뒤(짙은 잎) → 가운데 → 앞(햇빛 받는 잎) 순서로 겹쳐 그림 [cx, cy, r]
@@ -32,23 +32,11 @@ const BRANCHES: [string, number][] = [
   ["M860 505 C885 495 905 490 930 492", 6],
   ["M728 380 C730 350 735 330 742 310", 6],
 ];
-const LEAVES = [
-  { x: 820, y: 360, delay: 0, dur: 11 },
-  { x: 900, y: 430, delay: 3.5, dur: 13 },
-  { x: 760, y: 300, delay: 6, dur: 12 },
-  { x: 960, y: 500, delay: 8.5, dur: 10 },
-  { x: 680, y: 420, delay: 10, dur: 14 },
-];
-const WIND = [
-  { d: "M-80 330 C 180 300, 360 360, 620 320 S 1040 290, 1520 330", delay: 0, dur: 9 },
-  { d: "M-80 520 C 220 490, 420 550, 700 515 S 1100 480, 1520 520", delay: 3, dur: 10 },
-  { d: "M-80 200 C 260 180, 480 230, 760 200 S 1180 170, 1520 205", delay: 6, dur: 11 },
-];
 const GRASS = Array.from({ length: 46 }, (_, i) => {
   const x = 20 + i * 31 + ((i * 37) % 13);
   const h = 22 + ((i * 53) % 20);
   const y = 840 + ((i * 29) % 40);
-  return { x, y, h, delay: -((i * 0.37) % 3) };
+  return { x, y, h };
 });
 
 export default function ZelkovaScene({ className = "" }: { className?: string }) {
@@ -58,7 +46,7 @@ export default function ZelkovaScene({ className = "" }: { className?: string })
       preserveAspectRatio="xMidYMax slice"
       className={className}
       role="img"
-      aria-label="햇빛 아래 바람에 천천히 흔들리는 느티나무"
+      aria-label="햇빛 아래 서 있는 느티나무"
     >
       <defs>
         <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
@@ -97,10 +85,10 @@ export default function ZelkovaScene({ className = "" }: { className?: string })
       <rect width="1440" height="900" fill="url(#sky)" />
 
       {/* 해와 햇살 */}
-      <g className="scene-sun-glow">
+      <g>
         <circle cx="230" cy="170" r="300" fill="url(#sun-glow)" />
       </g>
-      <g className="scene-sun-rays" opacity="0.5">
+      <g opacity="0.5">
         {Array.from({ length: 12 }, (_, i) => (
           <path
             key={i}
@@ -113,18 +101,18 @@ export default function ZelkovaScene({ className = "" }: { className?: string })
       <circle cx="230" cy="170" r="62" fill="url(#sun-core)" />
 
       {/* 구름 */}
-      <g className="scene-cloud" style={{ animationDuration: "160s", animationDelay: "-40s" }} opacity="0.85">
+      <g transform="translate(1180 0)" opacity="0.85">
         <ellipse cx="0" cy="120" rx="90" ry="26" fill="#fff" />
         <ellipse cx="50" cy="105" rx="60" ry="28" fill="#fff" />
         <ellipse cx="-40" cy="110" rx="45" ry="20" fill="#fff" />
       </g>
-      <g className="scene-cloud" style={{ animationDuration: "210s", animationDelay: "-150s" }} opacity="0.7">
+      <g transform="translate(420 0)" opacity="0.7">
         <ellipse cx="0" cy="240" rx="120" ry="24" fill="#fff" />
         <ellipse cx="60" cy="225" rx="70" ry="26" fill="#fff" />
       </g>
 
       {/* 빛줄기 */}
-      <g className="scene-beams" style={{ mixBlendMode: "screen" }}>
+      <g opacity="0.8">
         <polygon points="230,170 1180,900 960,900" fill="url(#beam)" />
         <polygon points="230,170 760,900 600,900" fill="url(#beam)" opacity="0.7" />
         <polygon points="230,170 1440,700 1440,860" fill="url(#beam)" opacity="0.6" />
@@ -137,7 +125,7 @@ export default function ZelkovaScene({ className = "" }: { className?: string })
 
       {/* 나무 그늘과 햇빛 반점 */}
       <ellipse cx="735" cy="800" rx="270" ry="28" fill="#2f5a2a" opacity="0.22" filter="url(#soft)" />
-      <g className="scene-flecks" filter="url(#soft)">
+      <g filter="url(#soft)" opacity="0.25">
         <ellipse cx="650" cy="799" rx="22" ry="4" fill="#f6ffd0" />
         <ellipse cx="770" cy="804" rx="18" ry="3.5" fill="#f6ffd0" />
         <ellipse cx="840" cy="797" rx="14" ry="3" fill="#f6ffd0" />
@@ -153,70 +141,42 @@ export default function ZelkovaScene({ className = "" }: { className?: string })
       <path d="M690 790 C672 792 660 796 648 800 L700 800 Z" fill="#4a3426" />
       <path d="M756 790 C774 792 790 796 804 800 L748 800 Z" fill="#4a3426" />
 
-      {/* 가지와 수관: 줄기 아래쪽을 축으로 함께 흔들림 */}
-      <g className="scene-sway scene-sway-branches">
+      {/* 가지와 수관 */}
+      <g>
         {BRANCHES.map(([d, w], i) => (
           <path key={i} d={d} stroke="#5b4030" strokeWidth={w} strokeLinecap="round" fill="none" />
         ))}
       </g>
-      <g className="scene-sway scene-sway-back">
+      <g>
         {CROWN_BACK.map(([cx, cy, r], i) => (
           <circle key={i} cx={cx} cy={cy} r={r} fill="#3e7136" />
         ))}
       </g>
-      <g className="scene-sway scene-sway-mid">
+      <g>
         {CROWN_MID.map(([cx, cy, r], i) => (
           <circle key={i} cx={cx} cy={cy} r={r} fill="#5c9343" />
         ))}
       </g>
-      <g className="scene-sway scene-sway-front">
+      <g>
         {CROWN_FRONT.map(([cx, cy, r], i) => (
           <circle key={i} cx={cx} cy={cy} r={r} fill="#86b95a" />
         ))}
         {SPECKLES.map(([cx, cy, r], i) => (
-          <circle key={i} className="scene-shimmer" cx={cx} cy={cy} r={r} fill="#c4e38a" style={{ animationDelay: `${-i * 0.7}s` }} />
+          <circle key={i} cx={cx} cy={cy} r={r} fill="#c4e38a" opacity="0.7" />
         ))}
       </g>
       </g>
-
-      {/* 바람결 */}
-      {WIND.map((w, i) => (
-        <path
-          key={i}
-          d={w.d}
-          className="scene-wind"
-          stroke="#ffffff"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          fill="none"
-          style={{ animationDelay: `${w.delay}s`, animationDuration: `${w.dur}s` }}
-        />
-      ))}
-
-      {/* 바람에 날리는 잎 */}
-      {LEAVES.map((l, i) => (
-        <g key={i} transform={`translate(${l.x} ${l.y})`}>
-          <path
-            className="scene-leaf"
-            d="M0 -7 C6 -4 6 4 0 8 C-6 4 -6 -4 0 -7 Z"
-            fill={i % 2 ? "#7fb553" : "#a3c95f"}
-            style={{ animationDelay: `${l.delay}s`, animationDuration: `${l.dur}s` }}
-          />
-        </g>
-      ))}
 
       {/* 풀 */}
       <g>
         {GRASS.map((g, i) => (
           <path
             key={i}
-            className="scene-grass"
             d={`M${g.x} ${g.y} q 3 ${-g.h / 2} ${i % 2 ? 6 : -4} ${-g.h}`}
             stroke={i % 3 ? "#4f8a3a" : "#6aa64a"}
             strokeWidth="3"
             strokeLinecap="round"
             fill="none"
-            style={{ animationDelay: `${g.delay}s` }}
           />
         ))}
       </g>
