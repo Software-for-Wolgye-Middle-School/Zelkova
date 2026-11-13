@@ -5,7 +5,7 @@ import { addStudent, clean, handle, HttpError, listStudents, removeStudent, requ
 export async function GET(request: Request) {
   await connection();
   return handle(async () => {
-    const s = await requireRole(request, ["teacher", "aide", "sw", "parent"]);
+    const s = requireRole(request, ["teacher", "aide", "sw", "parent"]);
     return { students: await listStudents(s) };
   });
 }
@@ -13,7 +13,7 @@ export async function GET(request: Request) {
 /** 학생 더하기 (교사만): { name } — 이름은 암호화해서 저장 */
 export async function POST(request: Request) {
   return handle(async () => {
-    const s = await requireRole(request, ["teacher"]);
+    const s = requireRole(request, ["teacher"]);
     const name = clean(((await request.json().catch(() => null)) as { name?: unknown } | null)?.name, 30);
     if (!name) throw new HttpError(400, "학생 이름을 적어 주세요.");
     return { student: await addStudent(s, name) };
@@ -23,7 +23,7 @@ export async function POST(request: Request) {
 /** 학생과 그 학생의 알림장 · 메모를 모두 지움 (교사만): ?id= */
 export async function DELETE(request: Request) {
   return handle(async () => {
-    const s = await requireRole(request, ["teacher"]);
+    const s = requireRole(request, ["teacher"]);
     await removeStudent(s, new URL(request.url).searchParams.get("id") ?? "");
   });
 }

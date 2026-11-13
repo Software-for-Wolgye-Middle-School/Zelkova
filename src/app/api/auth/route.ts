@@ -1,6 +1,5 @@
-import { authConfigured, checkCredentials, createSession, requestSession, SESSION_SECONDS, sessionCookie, STAFF_ROLES, type Role } from "@/lib/auth";
-import { boardRoleOf, checkBoardLogin, getUser, HttpError, isEnvUser, rateLimit } from "@/lib/board";
-import { configured, hasSignupTicket, PROVIDERS } from "@/lib/oauth";
+import { authConfigured, checkCredentials, createSession, requestSession, SESSION_SECONDS, sessionCookie, STAFF_ROLES } from "@/lib/auth";
+import { boardRoleOf, checkBoardLogin, HttpError, rateLimit } from "@/lib/board";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
@@ -10,26 +9,10 @@ const NO_STORE = { "Cache-Control": "no-store" };
  */
 export async function GET(request: Request) {
   const s = requestSession(request);
-  const providers = PROVIDERS.filter(configured);
-  if (!s) return Response.json({ authed: false, admin: false, board: null, role: null, name: "", signup: hasSignupTicket(request), providers }, { headers: NO_STORE });
-
-  // 서버 저장소 계정은 지금 상태로 다시 확인: 지운 계정은 로그아웃, 승인 · 직급이 바뀌었으면 세션을 새로 줌
-  let role: Role = s.role;
-  let name = s.role === "admin" ? "관리자" : s.role === "teacher" ? "특수교사" : "공용 계정";
-  const headers = new Headers(NO_STORE);
-  if (!isEnvUser(s.userId)) {
-    const u = await getUser(s.userId).catch(() => undefined);
-    if (u === null) {
-      headers.append("Set-Cookie", sessionCookie("", 0));
-      return Response.json({ authed: false, admin: false, board: null, role: null, name: "", signup: false, providers }, { headers });
-    }
-    if (u) {
-      role = u.status === "pending" ? "pending" : u.role;
-      name = u.name;
-      if (role !== s.role) headers.append("Set-Cookie", sessionCookie(createSession(role, u.id), SESSION_SECONDS));
-    }
-  }
-  return Response.json({ authed: STAFF_ROLES.includes(role), admin: role === "admin", board: boardRoleOf(role), role, name, signup: false, providers }, { headers });
+  return Response.json(
+    { authed: !!s && STAFF_ROLES.includes(s.role), admin: s?.role === "admin", board: s ? boardRoleOf(s.role) : null },
+    { headers: NO_STORE },
+  );
 }
 
 /** 로그인: { id, password } 가 맞으면 세션 쿠키를 줌. 환경 변수 계정을 먼저 보고, 아니면 초대로 가입한 소통게시판 계정 */

@@ -5,7 +5,7 @@ import { addMemo, clean, deleteMemo, handle, HttpError, listMemos, requireRole }
 export async function GET(request: Request) {
   await connection();
   return handle(async () => {
-    const s = await requireRole(request, ["teacher", "aide", "sw"]);
+    const s = requireRole(request, ["teacher", "aide", "sw"]);
     return { memos: await listMemos(s, new URL(request.url).searchParams.get("student") ?? "") };
   });
 }
@@ -13,7 +13,7 @@ export async function GET(request: Request) {
 /** 메모 남기기: { studentId, date, body } */
 export async function POST(request: Request) {
   return handle(async () => {
-    const s = await requireRole(request, ["teacher", "aide", "sw"]);
+    const s = requireRole(request, ["teacher", "aide", "sw"]);
     const b = (await request.json().catch(() => null)) as { studentId?: unknown; date?: unknown; body?: unknown } | null;
     const body = clean(b?.body, 2000);
     if (!body) throw new HttpError(400, "메모를 적어 주세요.");
@@ -24,7 +24,7 @@ export async function POST(request: Request) {
 /** 메모 지우기 (교사만): ?student=&id= */
 export async function DELETE(request: Request) {
   return handle(async () => {
-    const s = await requireRole(request, ["teacher"]);
+    const s = requireRole(request, ["teacher"]);
     const q = new URL(request.url).searchParams;
     await deleteMemo(s, q.get("student") ?? "", q.get("id") ?? "");
   });

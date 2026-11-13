@@ -5,7 +5,7 @@ import { handle, readAudit, requireRole } from "@/lib/board";
 export async function GET(request: Request) {
   await connection();
   return handle(async () => {
-    await requireRole(request, ["teacher"]);
+    requireRole(request, ["teacher"]);
     return { rows: await readAudit(new URL(request.url).searchParams.get("date") ?? "") };
   });
 }
