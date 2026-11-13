@@ -1,5 +1,5 @@
 import { isAuthed } from "@/lib/auth";
-import { isDocId, isFieldKey, VALUE_MAX } from "@/lib/iep";
+import { cleanCursor, isDocId, isFieldKey, VALUE_MAX } from "@/lib/iep";
 import { syncDoc, type Change } from "@/lib/iepStore";
 
 const NO_STORE = { "Cache-Control": "no-store" };
@@ -28,6 +28,7 @@ export async function POST(request: Request) {
     name: String(body.me.name ?? "").slice(0, 20) || "선생님",
     color: /^#[0-9a-f]{6}$/i.test(String(body.me.color)) ? String(body.me.color) : "#6366f1",
     field: isFieldKey(body.me.field) ? body.me.field : "",
+    cursor: cleanCursor(body.me.cursor),
   };
   try {
     const result = await syncDoc(body.id, since, changes, me);

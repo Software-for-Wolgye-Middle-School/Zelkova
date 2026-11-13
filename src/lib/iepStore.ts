@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
+  cleanCursor,
   MAX_FIELDS,
   mergeField,
   metaFromFields,
@@ -74,29 +75,43 @@ return {r, ARGV[2]}
 type FileDoc = { rev: number; values: IepFields; revs: Record<string, number> };
 type FileData = { index: Record<string, IepMeta>; docs: Record<string, FileDoc> };
 
-let cache: FileData | null = null;
+/**
+ * 메모리에 올린 파일 내용은 서버 프로세스 하나에 하나만: API 라우트마다 이 파일이 따로 불러와져도(개발 서버 등)
+ * 같은 내용을 보도록 globalThis 에 둠
+ */
+type Shared = { cache: FileData | null; loading: Promise<FileData> | null; writing: Promise<void>; dirty: boolean; presence: Map<string, Map<string, IepPresence & { at: number }>> };
+const shared: Shared = ((globalThis as { __zelkovaIep?: Shared }).__zelkovaIep ??= {
+  cache: null,
+  loading: null,
+  writing: Promise.resolve(),
+  dirty: false,
+  presence: new Map(),
+});
+
 async function loadFile(): Promise<FileData> {
-  if (cache) return cache;
-  try {
-    const data = JSON.parse(await readFile(FILE, "utf8")) as Partial<FileData>;
-    cache = { index: data.index ?? {}, docs: data.docs ?? {} };
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
-    cache = { index: {}, docs: {} };
-  }
-  return cache;
+  if (shared.cache) return shared.cache;
+  shared.loading ??= (async () => {
+    try {
+      const data = JSON.parse(await readFile(FILE, "utf8")) as Partial<FileData>;
+      return { index: data.index ?? {}, docs: data.docs ?? {} };
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+      return { index: {}, docs: {} };
+    }
+  })().finally(() => (shared.loading = null));
+  const data = await shared.loading;
+  shared.cache ??= data;
+  return shared.cache;
 }
 
-let writing: Promise<void> = Promise.resolve();
-let dirty = false;
 /** 디스크에는 잠깐 모았다가 한 번에 씀 (1초마다 오는 저장마다 파일 전체를 쓰지 않도록) */
 function flushFile() {
-  if (dirty) return;
-  dirty = true;
-  writing = writing.then(async () => {
+  if (shared.dirty) return;
+  shared.dirty = true;
+  shared.writing = shared.writing.then(async () => {
     await new Promise((r) => setTimeout(r, 300));
-    dirty = false;
-    const body = JSON.stringify(cache);
+    shared.dirty = false;
+    const body = JSON.stringify(shared.cache);
     await mkdir(path.dirname(FILE), { recursive: true });
     const tmp = `${FILE}.${process.pid}.tmp`;
     await writeFile(tmp, body, "utf8");
@@ -104,7 +119,7 @@ function flushFile() {
   }).catch((e) => console.error(e));
 }
 
-const filePresence = new Map<string, Map<string, IepPresence & { at: number }>>();
+const filePresence = shared.presence;
 
 // ---------------------------------------------------------------- 공개 함수
 
@@ -298,7 +313,7 @@ function livePresence(raw: Record<string, string>, myId: string, now: number): I
     if (k === myId) continue;
     try {
       const p = JSON.parse(v) as IepPresence & { at: number };
-      if (p.at >= now - PRESENCE_MS) out.push({ id: k, name: String(p.name).slice(0, 20), color: String(p.color), field: String(p.field ?? "") });
+      if (p.at >= now - PRESENCE_MS) out.push({ id: k, name: String(p.name).slice(0, 20), color: String(p.color), field: String(p.field ?? ""), cursor: cleanCursor(p.cursor) });
     } catch {
       // 깨진 값은 건너뜀
     }

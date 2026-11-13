@@ -23,7 +23,22 @@ export type IepMeta = {
 };
 
 /** 지금 문서를 보고 있는 사람 */
-export type IepPresence = { id: string; name: string; color: string; /** 입력 중인 칸 (없으면 빈칸) */ field: string };
+export type IepPresence = {
+  id: string;
+  name: string;
+  color: string;
+  /** 입력 중인 칸 (없으면 빈칸) */
+  field: string;
+  /** 마우스 위치: [문서 너비에 대한 비율(0~1), 문서 위에서부터 px]. 문서 밖이면 null */
+  cursor: [number, number] | null;
+};
+
+/** 받은 마우스 위치가 올바르면 그대로, 아니면 null */
+export function cleanCursor(v: unknown): [number, number] | null {
+  if (!Array.isArray(v) || v.length !== 2) return null;
+  const [x, y] = v.map(Number);
+  return Number.isFinite(x) && Number.isFinite(y) && x >= 0 && x <= 1 && y >= 0 && y <= 100000 ? [Math.round(x * 1000) / 1000, Math.round(y)] : null;
+}
 
 export const VALUE_MAX = 4000;
 export const MAX_FIELDS = 3000;

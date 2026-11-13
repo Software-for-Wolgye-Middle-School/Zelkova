@@ -6,10 +6,11 @@ import { mergeField, type IepFields, type IepPresence } from "@/lib/iep";
 /**
  * 개별화교육계획 실시간 동시 편집 (브라우저 쪽).
  *
- * - 고친 칸은 곧바로(0.15초 뒤) 서버로 보내고, 1초마다 서버에 다른 선생님이 바꾼 칸이 있는지 물어봄.
+ * - 고친 칸은 곧바로 서버로 보내고, 다른 선생님이 같은 문서에 있으면 0.3초마다(혼자면 2초마다) 바뀐 칸과 마우스 위치를 주고받음.
  * - 서버에서 온 값(server)과 화면의 값(local)을 따로 들고 있다가, 아직 보내지 못한 내 글이 있는 칸에 다른 사람의 글이 오면
  *   두 글을 합쳐(merge3) 내 글이 지워지지 않게 함.
- * - 한글을 조합하는 중인 칸에는 다른 사람의 글을 넣지 않고 기다렸다가 조합이 끝나면 넣음 (넣으면 글자 조합이 깨짐).
+ * - 한글을 조합하는 중에도 내 글(조합 중인 글자 포함)은 한 글자씩 계속 보냄. 다만 그 칸에 다른 사람의 글이 들어오면
+ *   조합이 깨지므로 그것만 조합이 끝날 때까지 미뤘다가 합침.
  */
 
 export type IepStatus = "connecting" | "live" | "saving" | "offline" | "login" | "gone";
@@ -23,9 +24,11 @@ export const IEP_STATUS_TEXT: Record<IepStatus, { text: string; tone: string }> 
   gone: { text: "다른 선생님이 이 문서를 지웠어요.", tone: "text-red-600" },
 };
 
-const POLL_MS = 1000;
+/** 다른 선생님이 같은 문서에 있을 때 · 혼자일 때 · 탭을 안 볼 때 서버에 묻는 간격 */
+const LIVE_POLL_MS = 300;
+const ALONE_POLL_MS = 2000;
 const HIDDEN_POLL_MS = 5000;
-const EDIT_DELAY_MS = 150;
+const EDIT_DELAY_MS = 60;
 const RETRY_MS = [2000, 5000, 10000, 20000];
 
 export type Me = { id: string; name: string; color: string };
@@ -37,8 +40,10 @@ export function useIepSync(docId: string, me: Me) {
   const rev = useRef(0);
   const focused = useRef("");
   const composing = useRef("");
-  /** 조합 중이라 미뤄 둔, 다른 사람이 바꾼 값 */
-  const deferred = useRef<IepFields>({});
+  /** 조합 중이라 화면에 넣지 못하고 미뤄 둔 서버 값 (base 에서 value 로 바뀜) */
+  const deferred = useRef<Record<string, { base: string; value: string }>>({});
+  const cursor = useRef<[number, number] | null>(null);
+  const othersHere = useRef(false);
   const [values, setValues] = useState<IepFields>({});
   const [presence, setPresence] = useState<IepPresence[]>([]);
   const [status, setStatus] = useState<IepStatus>("connecting");
@@ -67,13 +72,13 @@ export function useIepSync(docId: string, me: Me) {
     let failures = 0;
 
     const body = () => {
-      const keys = [...pending.current].filter((k) => k !== composing.current);
+      const keys = [...pending.current];
       const sent: IepFields = {};
       const changes = keys.map((key) => {
         sent[key] = local.current[key] ?? "";
         return { key, base: server.current[key] ?? "", value: sent[key] };
       });
-      return { sent, payload: { id: docId, since: rev.current, me: { ...me, field: focused.current }, changes } };
+      return { sent, payload: { id: docId, since: rev.current, me: { ...me, field: focused.current, cursor: cursor.current }, changes } };
     };
 
     async function tick() {
@@ -106,13 +111,24 @@ export function useIepSync(docId: string, me: Me) {
       if (cancelled) return;
       const before = { ...local.current };
       // 내가 보낸 칸: 보낼 때의 내 값이 기준. 보내는 사이 더 고쳤으면 서버에서 합쳐진 값 위에 더 고친 것을 얹음
-      for (const [key, value] of Object.entries(data.applied)) accept(key, sent[key], value);
+      for (const [key, value] of Object.entries(data.applied)) {
+        if (key === composing.current && value !== sent[key]) {
+          // 조합 중인데 다른 사람 글과 합쳐졌음: 화면은 그대로 두고, 조합이 끝나면 합침.
+          // 서버에는 내 글이 이미 들어가 있으므로 다음에 보낼 때는 내가 보낸 글을 기준으로 함
+          server.current[key] = sent[key];
+          deferred.current[key] = { base: sent[key], value };
+        } else {
+          if (key === composing.current) delete deferred.current[key];
+          accept(key, sent[key], value);
+        }
+      }
       // 다른 사람이 바꾼 칸
       for (const [key, value] of Object.entries(data.fields)) {
         if (key in data.applied || server.current[key] === value) continue;
-        if (key === composing.current) deferred.current[key] = value;
+        if (key === composing.current) deferred.current[key] = { base: server.current[key] ?? "", value };
         else accept(key, server.current[key] ?? "", value);
       }
+      othersHere.current = data.presence.length > 0;
       rev.current = Math.max(rev.current, data.rev);
       // 바뀐 것이 있을 때만 다시 그림 (1초마다 모든 칸을 다시 그리지 않도록)
       const keys = Object.keys(local.current);
@@ -120,7 +136,14 @@ export function useIepSync(docId: string, me: Me) {
       setPresence((old) => (JSON.stringify(old) === JSON.stringify(data.presence) ? old : data.presence));
       setLoaded(true);
       setStatus(pending.current.size ? "saving" : "live");
-      const next = again || pending.current.size ? EDIT_DELAY_MS : document.visibilityState === "visible" ? POLL_MS : HIDDEN_POLL_MS;
+      const next =
+        again || pending.current.size
+          ? EDIT_DELAY_MS
+          : document.visibilityState !== "visible"
+            ? HIDDEN_POLL_MS
+            : othersHere.current
+              ? LIVE_POLL_MS
+              : ALONE_POLL_MS;
       again = false;
       clearTimeout(timer);
       timer = setTimeout(tick, next);
@@ -187,14 +210,22 @@ export function useIepSync(docId: string, me: Me) {
     const later = deferred.current[key];
     if (later !== undefined) {
       delete deferred.current[key];
-      accept(key, server.current[key] ?? "", later);
-      setValues({ ...local.current });
+      if (later.value !== server.current[key] || later.base !== server.current[key]) {
+        pending.current.add(key);
+        accept(key, later.base, later.value);
+        setValues({ ...local.current });
+      }
     }
     if (pending.current.has(key)) schedule.current(EDIT_DELAY_MS);
   }, [accept]);
 
+  /** 내 마우스 위치 (다음에 서버에 물을 때 함께 보냄) */
+  const moveCursor = useCallback((at: [number, number] | null) => {
+    cursor.current = at;
+  }, []);
+
   /** 보내지 못한 글이 남아 있는지 */
   const hasPending = useCallback(() => pending.current.size > 0, []);
 
-  return { values, presence, status, loaded, set, focus, blur, compose, hasPending };
+  return { values, presence, status, loaded, set, focus, blur, compose, moveCursor, hasPending };
 }

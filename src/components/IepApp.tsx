@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import {
   currentTerm,
   DEFAULT_ROWS,
@@ -464,7 +464,14 @@ function IepEditor({ docId, myName, onBack, onRename, nameDialog }: { docId: str
   const [clientId] = useState(() => `c${Math.random().toString(36).slice(2, 10)}`);
   const me = useMemo<Me>(() => ({ id: clientId, name: myName, color: colorFor(myName) }), [clientId, myName]);
   const sync = useIepSync(docId, me);
-  const { values, presence, status, loaded, set, focus, blur, compose } = sync;
+  const { values, presence, status, loaded, set, focus, blur, compose, moveCursor } = sync;
+  const docRef = useRef<HTMLDivElement>(null);
+  /** 마우스 위치를 문서 기준으로 (가로는 문서 너비 비율, 세로는 문서 맨 위에서부터 px) */
+  const trackMouse = (e: ReactMouseEvent) => {
+    const r = docRef.current?.getBoundingClientRect();
+    if (!r || !r.width) return;
+    moveCursor([Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), Math.max(0, e.clientY - r.top)]);
+  };
 
   const who = useMemo(() => {
     const map: Record<string, IepPresence[]> = {};
@@ -545,7 +552,26 @@ function IepEditor({ docId, myName, onBack, onRename, nameDialog }: { docId: str
             <Spinner className="h-8 w-8 text-indigo-600" />
           </div>
         ) : (
-          <div className="space-y-6 print:space-y-0">
+          <div ref={docRef} onMouseMove={trackMouse} onMouseLeave={() => moveCursor(null)} className="relative space-y-6 print:space-y-0">
+            {/* 함께 편집하는 선생님의 마우스 */}
+            {presence.map(
+              (p) =>
+                p.cursor && (
+                  <div
+                    key={p.id}
+                    aria-hidden="true"
+                    className="pointer-events-none absolute z-20 transition-[left,top] duration-300 ease-linear print:hidden"
+                    style={{ left: `${p.cursor[0] * 100}%`, top: p.cursor[1] }}
+                  >
+                    <svg width="18" height="22" viewBox="0 0 18 22" className="drop-shadow">
+                      <path d="M1 1l15 9.5-6.6 1.4L13 20l-3 1.2-3.6-8.1L1 17z" fill={p.color} stroke="white" strokeWidth="1.5" strokeLinejoin="round" />
+                    </svg>
+                    <span className="ml-3 -mt-1 block whitespace-nowrap rounded-md px-1.5 py-0.5 text-[11px] font-semibold text-white shadow" style={{ background: p.color }}>
+                      {p.name}
+                    </span>
+                  </div>
+                ),
+            )}
             <CoverPage />
             <ProfilePage />
             {sections.map((id) =>
@@ -625,6 +651,8 @@ function F({ k, className = "", center = false, single = false, ph = "", minRows
           typed.current = e.target.value;
           remember();
           set(k, single ? e.target.value.replace(/\n/g, " ") : e.target.value);
+          // 조합 끝 알림이 빠지는 브라우저도 있어, 조합이 아닌 입력이 오면 조합이 끝난 것으로 봄 (미뤄 둔 글은 방금 입력한 글 위에 합침)
+          if (!(e.nativeEvent as InputEvent).isComposing) compose(k, false);
         }}
         onSelect={remember}
         onKeyDown={single ? (e) => e.key === "Enter" && e.preventDefault() : undefined}
