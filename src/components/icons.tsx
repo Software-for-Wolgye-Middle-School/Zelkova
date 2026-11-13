@@ -148,6 +148,14 @@ export const BookCheckIcon = (p: P) => (
   </Base>
 );
 
+export const FileTextIcon = (p: P) => (
+  <Base {...p}>
+    <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Z" />
+    <path d="M14 3v5h5" />
+    <path d="M9 13h6M9 17h6" />
+  </Base>
+);
+
 export const Spinner = ({ className = "", ...p }: P) => (
   <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className={`animate-spin ${className}`} {...p}>
     <circle cx="12" cy="12" r="9" stroke="currentColor" strokeOpacity="0.2" strokeWidth="3" />

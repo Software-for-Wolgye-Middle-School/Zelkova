@@ -1,5 +1,5 @@
 import type { ComponentType, SVGProps } from "react";
-import { BookCheckIcon, CalendarIcon, ChatIcon, ClipboardCheckIcon, PencilIcon, TagIcon, UsersIcon, UtensilsIcon, WalletIcon } from "./icons";
+import { BookCheckIcon, CalendarIcon, ChatIcon, FileTextIcon, ClipboardCheckIcon, PencilIcon, TagIcon, UsersIcon, UtensilsIcon, WalletIcon } from "./icons";
 
 /**
  * 메인 화면의 도구 목록. 새 도구는 TOOLS 에 한 줄 더하면 그 탭에 카드가 생김
@@ -15,7 +15,7 @@ export const CATEGORIES: { id: ToolCategory; label: string; locked: boolean }[] 
   { id: "admin", label: "행정 업무", locked: true },
 ];
 
-export type ToolId = "timetable" | "promise" | "bankbook" | "nametag" | "meal" | "handwriting" | "students" | "dutylog" | "guide";
+export type ToolId = "timetable" | "promise" | "bankbook" | "nametag" | "meal" | "handwriting" | "students" | "dutylog" | "guide" | "iep";
 
 export type Tool = {
   id: ToolId;
@@ -41,6 +41,7 @@ export const TOOLS: Tool[] = [
   { id: "handwriting", title: "긍정 · 감성 필사 교실", icon: PencilIcon, category: "general", tone: "bg-rose-100 text-rose-600", hue: 350 },
   { id: "students", title: "학생 정보 관리하기", icon: UsersIcon, category: "general", tone: "bg-violet-100 text-violet-700", hue: 262, login: true },
   { id: "dutylog", title: "특수교육실무사 활동일지", icon: BookCheckIcon, category: "admin", tone: "bg-teal-100 text-teal-700", hue: 175 },
+  { id: "iep", title: "개별화교육계획 함께 쓰기", icon: FileTextIcon, category: "admin", tone: "bg-indigo-100 text-indigo-700", hue: 235 },
   { id: "guide", title: "사회복무요원 업무 안내", icon: ChatIcon, category: "admin", tone: "bg-sky-100 text-sky-700", hue: 210 },
 ];
 

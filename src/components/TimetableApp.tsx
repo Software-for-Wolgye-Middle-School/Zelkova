@@ -31,6 +31,7 @@ import StudentsApp from "./StudentsApp";
 import HandwritingApp from "./HandwritingApp";
 import DutyLogApp from "./DutyLogApp";
 import GuideChatApp from "./GuideChatApp";
+import IepApp from "./IepApp";
 
 export type StudentDoc = { key: string; student: Student; blob: Blob; fileName: string; hours: number; subjectHours: [string, number][] };
 
@@ -70,7 +71,7 @@ function studentFileNames(students: Student[], term: string) {
   });
 }
 
-type Phase = "home" | "upload" | "generating" | "result" | "promise" | "bankbook" | "nametag" | "meal" | "students" | "handwriting" | "dutylog" | "guide";
+type Phase = "home" | "upload" | "generating" | "result" | "promise" | "bankbook" | "nametag" | "meal" | "students" | "handwriting" | "dutylog" | "guide" | "iep";
 
 /** 각 단계가 너무 빨리 지나가 깜빡이지 않도록 최소 표시 시간 */
 const MIN_STAGE_MS = 600;
@@ -329,7 +330,7 @@ export default function TimetableApp() {
 
   return (
     <div className="flex min-h-full flex-1 flex-col">
-      <header className="relative z-40 border-b border-slate-200/80 bg-white/80 backdrop-blur">
+      <header className="relative z-40 print:hidden border-b border-slate-200/80 bg-white/80 backdrop-blur">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-3.5 sm:px-6">
           <button
             type="button"
@@ -354,7 +355,7 @@ export default function TimetableApp() {
         <Landing onOpen={(id) => (id === "timetable" ? restart() : setPhase(id))} />
       ) : (
         <>
-          <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8 sm:px-6 sm:py-12">
+          <main className={`mx-auto w-full flex-1 px-4 sm:px-6 print:max-w-none print:p-0 ${phase === "iep" ? "max-w-6xl py-0 sm:py-0" : "max-w-5xl py-8 sm:py-12"}`}>
             {phase === "upload" && (
               <UploadWizard
                 step={step}
@@ -389,11 +390,14 @@ export default function TimetableApp() {
             {phase === "meal" && <MealApp />}
             {phase === "dutylog" && <DutyLogApp />}
             {phase === "guide" && <GuideChatApp />}
+            {phase === "iep" && <IepApp />}
           </main>
 
-          <footer className="px-4 pb-6 text-center text-xs text-slate-400">
+          <footer className="px-4 pb-6 print:hidden text-center text-xs text-slate-400">
             {phase === "dutylog"
               ? null
+              : phase === "iep"
+              ? "개별화교육계획은 학교 서버에 저장되고, 로그인한 사람만 볼 수 있어요."
               : phase === "guide"
               ? "질문과 등록된 학생의 학년 · 반 · 이름이 답을 만들기 위해 Google Gemini로 전송돼요."
               : phase === "handwriting"

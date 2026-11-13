@@ -317,3 +317,21 @@ body {
     0 8px 24px rgba(30, 35, 51, 0.08);
   border-radius: 4px;
 }
+
+/* ---------- 개별화교육계획 인쇄: 화면의 양식을 A4 그대로 ---------- */
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm 12mm;
+  }
+  body {
+    background: #fff;
+  }
+  .iep-page {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .iep-page:first-of-type {
+    break-before: auto;
+  }
+}
