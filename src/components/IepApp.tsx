@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
   currentTerm,
   DEFAULT_ROWS,
@@ -117,7 +118,6 @@ export default function IepApp() {
     <div className="fade-up mx-auto max-w-3xl">
       <div className="mb-6 text-center">
         <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-[28px]">개별화교육계획 작성하기</h1>
-        <p className="mt-1.5 text-sm text-slate-500">특수교사 선생님들이 한 문서를 동시에 열어 함께 작성해요. 고친 내용은 바로 서버에 저장돼요.</p>
       </div>
       <IepList
         docs={docs}
@@ -126,10 +126,8 @@ export default function IepApp() {
         onOpen={(id) => withName(() => setOpenId(id))}
         onCreated={(meta) => {
           setDocs((d) => [meta, ...(d ?? [])]);
-          withName(() => setOpenId(meta.id));
         }}
         onDeleted={(id) => setDocs((d) => (d ?? []).filter((x) => x.id !== id))}
-        onRename={() => setAskName(() => () => {})}
         onRetry={reload}
       />
       {state === "auth" && <LoginOverlay title="개별화교육계획" exitLabel="다시 불러오기" onExit={() => void reload()} onSuccess={() => void reload()} />}
@@ -163,8 +161,8 @@ function NameDialog({ initial, onSave, onCancel }: { initial: string; onSave: (n
     }
     onSave(n);
   };
-  return (
-    <div className="fixed inset-0 z-[80] grid place-items-center bg-slate-900/40 p-4 print:hidden" onMouseDown={(e) => e.target === e.currentTarget && onCancel()}>
+  return createPortal(
+    <div className="fixed inset-0 z-[80] grid place-items-center bg-black/70 p-4 print:hidden" onMouseDown={(e) => e.target === e.currentTarget && onCancel()}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -191,7 +189,8 @@ function NameDialog({ initial, onSave, onCancel }: { initial: string; onSave: (n
           </button>
         </div>
       </form>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -204,7 +203,6 @@ function IepList({
   onOpen,
   onCreated,
   onDeleted,
-  onRename,
   onRetry,
 }: {
   docs: IepMeta[] | null;
@@ -213,7 +211,6 @@ function IepList({
   onOpen: (id: string) => void;
   onCreated: (meta: IepMeta) => void;
   onDeleted: (id: string) => void;
-  onRename: () => void;
   onRetry: () => void;
 }) {
   const [creating, setCreating] = useState(false);
@@ -236,9 +233,6 @@ function IepList({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-bold text-slate-900">작성한 계획</h2>
-          <button type="button" onClick={onRename} className="mt-0.5 text-xs font-medium text-slate-500 underline-offset-2 hover:text-slate-700 hover:underline">
-            {myName ? `${myName} 선생님으로 편집해요 · 이름 바꾸기` : "편집할 때 쓸 이름 정하기"}
-          </button>
         </div>
         <button
           type="button"
@@ -342,8 +336,8 @@ function NewDocDialog({ by, onCancel, onCreated }: { by: string; onCancel: () =>
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-[80] grid place-items-center overflow-y-auto bg-slate-900/40 p-4" onMouseDown={(e) => e.target === e.currentTarget && onCancel()}>
+  return createPortal(
+    <div className="fixed inset-0 z-[80] grid place-items-center overflow-y-auto bg-black/70 p-4" onMouseDown={(e) => e.target === e.currentTarget && onCancel()}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -380,7 +374,8 @@ function NewDocDialog({ by, onCancel, onCreated }: { by: string; onCancel: () =>
           </button>
         </div>
       </form>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
