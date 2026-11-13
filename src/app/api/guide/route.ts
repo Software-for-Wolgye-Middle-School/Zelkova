@@ -14,10 +14,12 @@ export async function GET(request: Request) {
 
 export async function PUT(request: Request) {
   if (!isAdmin(request)) return unauthorized();
-  const body = (await request.json().catch(() => null)) as { text?: unknown } | null;
+  const body = (await request.json().catch(() => null)) as { text?: unknown; students?: unknown } | null;
   if (!body || typeof body.text !== "string") return Response.json({ error: "text 가 필요해요." }, { status: 400, headers: NO_STORE });
   try {
-    return Response.json(await writeGuide(body.text), { headers: NO_STORE });
+    // students 를 보내지 않으면(예전 화면) 저장된 학생 소개를 그대로 둠
+    const students = typeof body.students === "string" ? body.students : (await readGuide()).students;
+    return Response.json(await writeGuide(body.text, students), { headers: NO_STORE });
   } catch (e) {
     console.error(e);
     return Response.json({ error: "업무 안내를 서버에 저장하지 못했어요." }, { status: 500, headers: NO_STORE });

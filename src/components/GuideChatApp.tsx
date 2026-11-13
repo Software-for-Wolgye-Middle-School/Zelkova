@@ -10,6 +10,9 @@ type Msg = { role: "user" | "model"; text: string };
 /** 처음 화면에 보여 주는 질문 예시 (누르면 바로 물어봄) */
 const SUGGESTIONS = ["첫 출근인데 업무에 대해서 설명해주세요", "느티나무반 학생들에 대해서 알려 주세요", "학생이 갑자기 사라지거나 돌발 상황이 일어나면 어떻게 하나요?"];
 
+/** 인터넷 주소 (끝의 문장부호 · 괄호는 빼고) */
+const URL_RE = /(https?:\/\/[^\s<>()]*[^\s<>().,!?])/g;
+
 /** 낱말 하나가 나타나는 간격 (ms) */
 const WORD_MS = 28;
 
@@ -29,10 +32,21 @@ function Rich({ text, animate }: { text: string; animate: boolean }) {
         </span>
       ),
     );
+  /** 글 속 인터넷 주소는 눌러서 새 탭으로 열리게 */
+  const linked = (s: string) =>
+    s.split(URL_RE).map((p, i) =>
+      i % 2 === 1 ? (
+        <a key={i} href={p} target="_blank" rel="noopener noreferrer" className="break-all font-medium text-indigo-600 underline underline-offset-2 hover:text-indigo-800">
+          {p}
+        </a>
+      ) : (
+        <span key={i}>{words(p)}</span>
+      ),
+    );
   return (
     <>
       {text.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
-        part.startsWith("**") && part.endsWith("**") ? <b key={i}>{words(part.slice(2, -2))}</b> : <span key={i}>{words(part.replace(/^([ \t]*)[*-][ \t]+/gm, "$1• "))}</span>,
+        part.startsWith("**") && part.endsWith("**") ? <b key={i}>{linked(part.slice(2, -2))}</b> : <span key={i}>{linked(part.replace(/^([ \t]*)[*-][ \t]+/gm, "$1• "))}</span>,
       )}
     </>
   );
@@ -91,8 +105,8 @@ export default function GuideChatApp() {
   return (
     <div className="fade-up mx-auto flex max-w-3xl flex-col">
       <div className="relative mb-5 text-center">
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-[28px]">업무 안내</h1>
-        <p className="mt-1 text-sm text-slate-500">{editing ? "챗봇이 참고할 인수인계 내용을 적어 주세요." : "학교 업무나 우리 반 학생에 대해 궁금한 걸 물어보세요."}</p>
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-[28px]">사회복무요원 업무 안내</h1>
+        <p className="mt-1 text-sm text-slate-500">{editing ? "챗봇이 참고할 인수인계 내용과 학생 소개를 적어 주세요." : "학교 업무나 우리 반 학생에 대해 궁금한 걸 물어보세요."}</p>
         {!editing && (
           <button
             type="button"
@@ -246,30 +260,45 @@ export default function GuideChatApp() {
   );
 }
 
-/** 업무 안내 글 최대 길이 (서버 guideStore 의 GUIDE_MAX 와 같음) */
+/** 업무 안내 글 · 학생 소개 최대 길이 (서버 guideStore 와 같음) */
 const GUIDE_MAX = 20000;
+const STUDENTS_INTRO_MAX = 10000;
 
 /** 2026-11-12 오후 3:05 */
 const when = (ms: number) => new Date(ms).toLocaleString("ko-KR", { year: "numeric", month: "long", day: "numeric", hour: "numeric", minute: "2-digit" });
 
+type Saved = { text: string; students: string; updatedAt: number | null };
+
+const TABS = [
+  { id: "text", label: "업무 안내" },
+  { id: "students", label: "학생 소개" },
+] as const;
+
 /**
- * 챗봇이 참고하는 업무 안내(인수인계) 글을 고치는 곳. 학생 정보가 들어가므로 코드가 아니라 서버 저장소에 저장함 (/api/guide)
+ * 챗봇이 참고하는 업무 안내(인수인계) 글과 학생 소개를 고치는 곳. 학생 정보가 들어가므로 코드가 아니라 서버 저장소에 저장함 (/api/guide)
  */
 function GuideEditor({ onClose }: { onClose: () => void }) {
+  const [tab, setTab] = useState<"text" | "students">("text");
   const [text, setText] = useState("");
-  const [saved, setSaved] = useState<{ text: string; updatedAt: number | null } | null>(null);
+  const [students, setStudents] = useState("");
+  const [saved, setSaved] = useState<Saved | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const apply = (data: { text?: string; students?: string; updatedAt?: number | null }) => {
+    const next = { text: data.text ?? "", students: data.students ?? "", updatedAt: data.updatedAt ?? null };
+    setSaved(next);
+    setText(next.text);
+    setStudents(next.students);
+  };
 
   useEffect(() => {
     let cancelled = false;
     fetch("/api/guide", { cache: "no-store" })
       .then(async (res) => {
-        const data = (await res.json().catch(() => null)) as { text?: string; updatedAt?: number | null; error?: string } | null;
+        const data = (await res.json().catch(() => null)) as { text?: string; students?: string; updatedAt?: number | null; error?: string } | null;
         if (!res.ok || !data) throw new Error(data?.error ?? "업무 안내를 불러오지 못했어요.");
-        if (cancelled) return;
-        setSaved({ text: data.text ?? "", updatedAt: data.updatedAt ?? null });
-        setText(data.text ?? "");
+        if (!cancelled) apply(data);
       })
       .catch((e: unknown) => !cancelled && setMsg({ ok: false, text: e instanceof Error ? e.message : "업무 안내를 불러오지 못했어요." }));
     return () => {
@@ -277,17 +306,16 @@ function GuideEditor({ onClose }: { onClose: () => void }) {
     };
   }, []);
 
-  const dirty = saved !== null && text.trim() !== saved.text;
+  const dirty = saved !== null && (text.trim() !== saved.text || students.trim() !== saved.students);
 
   const save = async () => {
     setBusy(true);
     setMsg(null);
     try {
-      const res = await fetch("/api/guide", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
-      const data = (await res.json().catch(() => null)) as { text?: string; updatedAt?: number; error?: string } | null;
+      const res = await fetch("/api/guide", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, students }) });
+      const data = (await res.json().catch(() => null)) as { text?: string; students?: string; updatedAt?: number; error?: string } | null;
       if (!res.ok || !data) throw new Error(data?.error ?? "저장하지 못했어요. 잠시 뒤 다시 해 주세요.");
-      setSaved({ text: data.text ?? "", updatedAt: data.updatedAt ?? null });
-      setText(data.text ?? "");
+      apply(data);
       setMsg({ ok: true, text: "✓ 저장했어요. 이제 챗봇이 이 내용으로 답해요." });
     } catch (e) {
       setMsg({ ok: false, text: e instanceof Error ? e.message : "저장하지 못했어요." });
@@ -301,6 +329,10 @@ function GuideEditor({ onClose }: { onClose: () => void }) {
     onClose();
   };
 
+  const isText = tab === "text";
+  const value = isText ? text : students;
+  const max = isText ? GUIDE_MAX : STUDENTS_INTRO_MAX;
+
   return (
     <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
       {saved === null && !msg ? (
@@ -309,18 +341,43 @@ function GuideEditor({ onClose }: { onClose: () => void }) {
         </div>
       ) : (
         <>
+          {/* 업무 안내 | 학생 소개 */}
+          <div role="tablist" aria-label="편집할 내용" className="inline-flex rounded-xl bg-slate-100 p-1">
+            {TABS.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                role="tab"
+                aria-selected={tab === t.id}
+                onClick={() => setTab(t.id)}
+                className={`rounded-lg px-4 py-1.5 text-sm font-semibold transition ${tab === t.id ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+          {!isText && (
+            <p className="text-xs leading-relaxed text-slate-500">
+              「느티나무반 학생들에 대해 알려 주세요」라고 물으면 챗봇이 이 소개로 답해요. 한 줄에 한 학생씩, 학년-반 이름과 성격 · 좋아하는 것 · 취미를 적어 주세요.
+            </p>
+          )}
           <textarea
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            maxLength={GUIDE_MAX}
-            aria-label="업무 안내 내용"
-            placeholder={"예)\n[출근 · 아침 일과]\n- 08:20 까지 교실로 출근\n\n[학생별 지원]\n- 이동 수업 · 급식 · 쉬는 시간에 할 일"}
+            key={tab}
+            value={value}
+            onChange={(e) => (isText ? setText : setStudents)(e.target.value)}
+            maxLength={max}
+            aria-label={isText ? "업무 안내 내용" : "학생 소개 내용"}
+            placeholder={
+              isText
+                ? "예)\n[출근 · 아침 일과]\n- 08:20 까지 교실로 출근\n\n[학생별 지원]\n- 이동 수업 · 급식 · 쉬는 시간에 할 일"
+                : "예)\n1-1 ○○이는 그림 그리는 것을 정말 좋아해요. 유튜브 채널도 운영해요 (주소)\n2-2 ○○이는 축구하는 것을 좋아해요."
+            }
             className="h-[min(60vh,32rem)] w-full resize-y rounded-xl border border-slate-200 px-4 py-3 text-[15px] leading-relaxed outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100"
           />
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
             <span>{saved?.updatedAt ? `마지막 저장: ${when(saved.updatedAt)}` : "아직 저장한 적이 없어요."}</span>
             <span className="tabular-nums">
-              {text.length.toLocaleString()} / {GUIDE_MAX.toLocaleString()}자
+              {value.length.toLocaleString()} / {max.toLocaleString()}자
             </span>
           </div>
           <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800">

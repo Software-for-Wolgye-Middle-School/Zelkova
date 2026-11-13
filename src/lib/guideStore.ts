@@ -7,9 +7,11 @@ import path from "node:path";
  * Upstash Redis 환경 변수가 있으면 거기에, 없으면 서버 디스크(STUDENTS_DATA_DIR, 기본값은 data 폴더)의 파일에 저장함.
  */
 
-export type Guide = { text: string; updatedAt: number | null };
+/** text: 업무 안내(인수인계) · students: 학생 소개 (성격 · 좋아하는 것 등, 챗봇이 학생에 대해 답할 때 씀) */
+export type Guide = { text: string; students: string; updatedAt: number | null };
 
 export const GUIDE_MAX = 20000;
+export const STUDENTS_INTRO_MAX = 10000;
 
 const DIR = process.env.STUDENTS_DATA_DIR ?? path.join(process.cwd(), "data");
 const REDIS_URL = process.env.KV_REST_API_URL ?? process.env.UPSTASH_REDIS_REST_URL;
@@ -52,12 +54,20 @@ async function writeJson(name: string, value: unknown) {
 
 export async function readGuide(): Promise<Guide> {
   const data = (await readJson("guide")) as Partial<Guide> | null;
-  return { text: typeof data?.text === "string" ? data.text : "", updatedAt: typeof data?.updatedAt === "number" ? data.updatedAt : null };
+  return {
+    text: typeof data?.text === "string" ? data.text : "",
+    students: typeof data?.students === "string" ? data.students : "",
+    updatedAt: typeof data?.updatedAt === "number" ? data.updatedAt : null,
+  };
 }
 
-/** 업무 안내 글을 통째로 바꿔 저장하고, 저장된 글을 돌려줌 */
-export async function writeGuide(input: unknown): Promise<Guide> {
-  const guide: Guide = { text: typeof input === "string" ? input.slice(0, GUIDE_MAX).trim() : "", updatedAt: Date.now() };
+/** 업무 안내 글과 학생 소개를 통째로 바꿔 저장하고, 저장된 글을 돌려줌 */
+export async function writeGuide(text: unknown, students: unknown): Promise<Guide> {
+  const guide: Guide = {
+    text: typeof text === "string" ? text.slice(0, GUIDE_MAX).trim() : "",
+    students: typeof students === "string" ? students.slice(0, STUDENTS_INTRO_MAX).trim() : "",
+    updatedAt: Date.now(),
+  };
   await writeJson("guide", guide);
   return guide;
 }
