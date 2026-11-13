@@ -129,15 +129,15 @@ export default function GuideChatApp() {
         <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-[28px]">사회복무요원 업무 안내</h1>
         {editing && <p className="mt-1 text-sm text-slate-500">챗봇이 참고할 인수인계 내용과 학생 소개를 적어 주세요.</p>}
         {!editing && (
-          // 업무 안내 편집: iOS 설정 앱처럼 회색 둥근 네모 안의 흰 톱니바퀴
+          // 업무 안내 편집: 톱니바퀴 아이콘 (사이트의 다른 보조 단추처럼 흰 바탕 · 옅은 테두리)
           <button
             type="button"
             onClick={() => void openEditor()}
             aria-label="업무 안내 편집"
             title="업무 안내 편집"
-            className="mx-auto mt-3 grid h-10 w-10 place-items-center rounded-[11px] bg-gradient-to-b from-slate-400 to-slate-600 text-white shadow-md shadow-slate-900/20 ring-1 ring-inset ring-white/20 transition hover:brightness-110 active:scale-95 sm:absolute sm:right-0 sm:top-1 sm:mt-0"
+            className="mx-auto mt-3 grid h-10 w-10 place-items-center rounded-xl bg-white text-slate-400 shadow-sm ring-1 ring-inset ring-slate-200 transition hover:bg-indigo-50 hover:text-indigo-600 hover:ring-indigo-200 sm:absolute sm:right-0 sm:top-1 sm:mt-0"
           >
-            <GearIcon className="h-7 w-7" />
+            <GearIcon className="h-5 w-5" />
           </button>
         )}
       </div>
