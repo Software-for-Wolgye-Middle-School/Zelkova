@@ -36,6 +36,8 @@ export async function POST(request: Request) {
     return Response.json(result, { headers: NO_STORE });
   } catch (e) {
     console.error(e);
-    return Response.json({ error: "서버에 저장하지 못했어요." }, { status: 500, headers: NO_STORE });
+    // 로그인한 사람만 보는 화면이라, 원인을 바로 알 수 있게 짧은 이유를 함께 보냄
+    const reason = e instanceof Error ? e.message.split("\n")[0].slice(0, 120) : "";
+    return Response.json({ error: `서버에 저장하지 못했어요.${reason ? ` ${reason}` : ""}` }, { status: 500, headers: NO_STORE });
   }
 }

@@ -136,6 +136,12 @@ function run(db: Db, [name, key, ...a]: string[]): unknown {
       return get("h")?.v[a[0]] ?? null;
     case "HGETALL":
       return Object.entries(get("h")?.v ?? {}).flat();
+    case "HEXISTS":
+      return a[0] in (get("h")?.v ?? {}) ? 1 : 0;
+    case "HLEN":
+      return Object.keys(get("h")?.v ?? {}).length;
+    case "HMGET":
+      return a.map((f) => get("h")?.v[f] ?? null);
     case "HDEL": {
       const h = get("h");
       let n = 0;

@@ -52,6 +52,8 @@ export function useIepSync(docId: string, me: Me) {
   const [values, setValues] = useState<IepFields>({});
   const [presence, setPresence] = useState<IepPresence[]>([]);
   const [status, setStatus] = useState<IepStatus>("connecting");
+  /** 서버에 닿지 못했을 때 그 이유 (상태 코드 · 서버가 준 오류 문구) */
+  const [detail, setDetail] = useState("");
   const [loaded, setLoaded] = useState(false);
   const schedule = useRef<(ms: number) => void>(() => {});
   const sendBeacon = useRef<() => void>(() => {});
@@ -108,6 +110,9 @@ export function useIepSync(docId: string, me: Me) {
       }
       if (!res || !res.ok) {
         setStatus(res?.status === 401 ? "login" : "offline");
+        // 원인을 바로 알 수 있게 서버가 준 이유와 상태 코드를 함께 보여 줌
+        const reason = res ? (((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? "") : "인터넷 연결 끊김";
+        if (!cancelled) setDetail(res ? `${res.status}${reason ? ` · ${reason}` : ""}` : reason);
         timer = setTimeout(tick, RETRY_MS[Math.min(failures++, RETRY_MS.length - 1)]);
         return;
       }
@@ -146,6 +151,7 @@ export function useIepSync(docId: string, me: Me) {
       });
       setLoaded(true);
       setStatus(pending.current.size ? "saving" : "live");
+      setDetail("");
       const next =
         again || pending.current.size
           ? EDIT_DELAY_MS
@@ -242,5 +248,5 @@ export function useIepSync(docId: string, me: Me) {
   /** 보내지 못한 글이 남아 있는지 */
   const hasPending = useCallback(() => pending.current.size > 0, []);
 
-  return { values, presence, status, loaded, set, focus, blur, compose, moveCursor, hasPending };
+  return { values, presence, status, detail, loaded, set, focus, blur, compose, moveCursor, hasPending };
 }

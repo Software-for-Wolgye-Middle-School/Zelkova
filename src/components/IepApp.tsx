@@ -464,7 +464,7 @@ function IepEditor({ docId, myName, onBack, onRename, nameDialog }: { docId: str
   const [clientId] = useState(() => `c${Math.random().toString(36).slice(2, 10)}`);
   const me = useMemo<Me>(() => ({ id: clientId, name: myName, color: colorFor(myName) }), [clientId, myName]);
   const sync = useIepSync(docId, me);
-  const { values, presence, status, loaded, set, focus, blur, compose, moveCursor } = sync;
+  const { values, presence, status, detail, loaded, set, focus, blur, compose, moveCursor } = sync;
   const docRef = useRef<HTMLDivElement>(null);
   /** 마우스 위치를 문서 기준으로 (가로는 문서 너비 비율, 세로는 문서 맨 위에서부터 px) */
   const trackMouse = (e: ReactMouseEvent) => {
@@ -517,6 +517,7 @@ function IepEditor({ docId, myName, onBack, onRename, nameDialog }: { docId: str
               <p className="truncate text-[15px] font-bold text-slate-900">{title}</p>
               <p aria-live="polite" className={`text-xs font-medium ${IEP_STATUS_TEXT[status].tone}`}>
                 {IEP_STATUS_TEXT[status].text}
+                {detail && status !== "live" && <span className="ml-1 opacity-80">({detail})</span>}
               </p>
             </div>
             {/* 지금 이 문서를 보고 있는 사람들 */}

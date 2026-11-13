@@ -73,51 +73,58 @@ return {r, ARGV[2]}
 /**
  * 한 번 주고받기 (개별화교육계획 실시간 편집). 문서가 있는지 확인 → 읽은 값이 그대로인 칸만 쓰기(판 번호 올림) →
  * 내 위치 알리기 → since 이후 바뀐 칸 · 지금 보고 있는 사람 읽기를 한꺼번에(원자적으로) 함.
- * 돌려주는 것: {'ok', 판 번호, 쓴 칸[k,v…], 그 사이 바뀌어 못 쓴 칸[k,지금값…], 바뀐 칸[k,v…], 보고 있는 사람[json…], 목록 요약}
+ * Upstash 에 없을 수도 있는 라이브러리(cjson 등)는 쓰지 않음: 바꾼 칸은 ARGV 에 [칸, 기준값, 새 값] 순서로 이어 붙여 받고,
+ * 보고 있는 사람은 "시각|JSON" 글자로 저장해 앞의 시각만 읽음.
+ * 돌려주는 것: {'ok', 판 번호, 쓴 칸[k,v…], 그 사이 바뀌어 못 쓴 칸[k,지금값…], 바뀐 칸[k,v…], 보고 있는 사람["시각|json"…], 목록 요약}
  */
 const SYNC_SCRIPT = `
 if redis.call('HEXISTS', KEYS[1], ARGV[1]) == 0 then return {'gone'} end
-local changes = cjson.decode(ARGV[7])
-local maxFields = tonumber(ARGV[8])
+local maxFields = tonumber(ARGV[6]) or 3000
 local count = redis.call('HLEN', KEYS[3])
 local applied, conflicts = {}, {}
-for _, c in ipairs(changes) do
-  local cur = redis.call('HGET', KEYS[3], c[1])
-  local isNew = (cur == false)
+for i = 7, #ARGV - 2, 3 do
+  local key, base, value = ARGV[i], ARGV[i + 1], ARGV[i + 2]
+  local cur = redis.call('HGET', KEYS[3], key)
+  local isNew = (cur == false or cur == nil)
   if isNew then cur = '' end
   if not (isNew and count >= maxFields) then
-    if cur == c[2] then
+    if cur == base then
       local r = redis.call('INCR', KEYS[2])
-      redis.call('HSET', KEYS[3], c[1], c[3])
-      redis.call('HSET', KEYS[4], c[1], r)
+      redis.call('HSET', KEYS[3], key, value)
+      redis.call('HSET', KEYS[4], key, r)
       if isNew then count = count + 1 end
-      table.insert(applied, c[1]); table.insert(applied, c[3])
+      applied[#applied + 1] = key
+      applied[#applied + 1] = value
     else
-      table.insert(conflicts, c[1]); table.insert(conflicts, cur)
+      conflicts[#conflicts + 1] = key
+      conflicts[#conflicts + 1] = cur
     end
   end
 end
 redis.call('HSET', KEYS[5], ARGV[3], ARGV[4])
 redis.call('EXPIRE', KEYS[5], 120)
-local rev = tonumber(redis.call('GET', KEYS[2]) or '0')
-local since = tonumber(ARGV[2])
+local rev = tonumber(redis.call('GET', KEYS[2]) or '0') or 0
+local since = tonumber(ARGV[2]) or 0
 local fields = {}
 if rev > since then
   local revs = redis.call('HGETALL', KEYS[4])
   for i = 1, #revs, 2 do
-    if tonumber(revs[i + 1]) > since then
+    if (tonumber(revs[i + 1]) or 0) > since then
       local v = redis.call('HGET', KEYS[3], revs[i])
-      if v then table.insert(fields, revs[i]); table.insert(fields, v) end
+      if v then
+        fields[#fields + 1] = revs[i]
+        fields[#fields + 1] = v
+      end
     end
   end
 end
 local live = {}
+local stale = tonumber(ARGV[5]) or 0
 local pres = redis.call('HGETALL', KEYS[5])
-local stale = tonumber(ARGV[6])
 for i = 1, #pres, 2 do
-  local ok, p = pcall(cjson.decode, pres[i + 1])
-  if ok and type(p) == 'table' and tonumber(p.at) and tonumber(p.at) >= stale then
-    if pres[i] ~= ARGV[3] then table.insert(live, pres[i + 1]) end
+  local at = tonumber(string.match(pres[i + 1], '^(%d+)|'))
+  if at and at >= stale then
+    if pres[i] ~= ARGV[3] then live[#live + 1] = pres[i + 1] end
   else
     redis.call('HDEL', KEYS[5], pres[i])
   end
@@ -257,58 +264,44 @@ export async function syncDoc(id: string, since: number, changes: Change[], me: 
   const applied: IepFields = {};
 
   if (redisOn()) {
-    // 한 번 주고받는 일 전체를 스크립트 하나로 (Upstash 는 스크립트 하나를 명령 1개로 셈)
-    const res = (await pipeline([
-      [
-        "EVAL",
-        SYNC_SCRIPT,
-        5,
-        K.index,
-        K.rev(id),
-        K.values(id),
-        K.revs(id),
-        K.presence(id),
-        id,
-        since,
-        me.id,
-        JSON.stringify({ ...me, at: now }),
-        now - PRESENCE_MS,
-        JSON.stringify(changes.map((c) => [c.key, c.base, c.value.slice(0, VALUE_MAX)])),
-        MAX_FIELDS,
-      ],
-    ]))[0] as unknown[];
-    if (res[0] !== "ok") return { gone: true };
-    const [, rev, appliedRaw, conflictRaw, fieldsRaw, liveRaw, metaRaw] = res as [string, number, string[], string[], string[], string[], string];
-    Object.assign(applied, pairs(appliedRaw));
+    let raw: RawSync;
+    try {
+      raw = await syncByScript(id, since, changes, me, now);
+    } catch (e) {
+      // 스크립트를 못 쓰는 상황이어도 문서는 열리도록, 명령 여러 개로 같은 일을 함 (원인은 서버 기록에 남김)
+      console.error("IEP 동기화 스크립트 실패, 일반 명령으로 처리:", e instanceof Error ? e.message : e);
+      raw = await syncByCommands(id, since, changes, me, now);
+    }
+    if (raw.gone) return { gone: true };
+    Object.assign(applied, raw.applied);
 
     // 다른 사람이 그 사이 같은 칸을 고쳤으면 합쳐서 다시 씀 (드문 경우)
-    const conflicts = pairs(conflictRaw);
     for (const c of changes) {
-      if (!(c.key in conflicts)) continue;
-      let current = conflicts[c.key];
+      if (!(c.key in raw.conflicts)) continue;
+      let current = raw.conflicts[c.key];
       for (let attempt = 0; attempt < 6; attempt++) {
         const value = mergeField(c.key, c.base, c.value, current).slice(0, VALUE_MAX);
-        const [r] = await pipeline([["EVAL", CAS_SCRIPT, 3, K.rev(id), K.values(id), K.revs(id), c.key, value, current]]);
-        const [ok, latest] = r as [number, string];
-        if (Number(ok) > 0) {
+        const latest = await writeIfSame(id, c.key, value, current);
+        if (latest === null) {
           applied[c.key] = value;
           break;
         }
-        current = latest ?? "";
+        current = latest;
       }
     }
 
-    const fields = pairs(fieldsRaw);
-    for (const [k, v] of Object.entries(applied)) fields[k] = v;
+    const fields = { ...raw.fields, ...applied };
     // 목록 요약은 이름 · 학년도 같은 요약 칸이 바뀌었거나 1분 넘게 지났을 때만 고침 (명령 수를 아끼려고)
+    // 합쳐서 다시 쓴 칸만 있으면 스크립트가 요약을 읽어 오지 않았으므로 따로 읽음
+    const metaRaw = raw.meta || (Object.keys(applied).length ? (((await pipeline([["HGET", K.index, id]]))[0] as string | null) ?? "") : "");
     const meta = readMeta(metaRaw || null);
     if (meta && Object.keys(applied).length) {
       const next = { ...meta, ...pickMeta(meta, applied), updatedAt: now, updatedBy: me.name };
       const summaryChanged = (["year", "semester", "grade", "cls", "name", "updatedBy"] as const).some((k) => next[k] !== meta[k]);
       if (summaryChanged || now - meta.updatedAt > 60_000) await pipeline([["HSET", K.index, id, JSON.stringify(next)]]);
     }
-    const presence = livePresence(Object.fromEntries(liveRaw.map((v, i) => [`p${i}`, v])), me.id, now);
-    return { gone: false, rev: Number(rev) || 0, fields, applied, presence };
+    const presence = livePresence(Object.fromEntries(raw.live.map((v, i) => [`p${i}`, v])), me.id, now);
+    return { gone: false, rev: raw.rev, fields, applied, presence };
   }
 
   // 파일 저장: 한 프로세스 안에서 바로 처리 (await 사이에 끼어드는 요청이 없도록 동기적으로 바꿈)
@@ -345,6 +338,109 @@ export async function syncDoc(id: string, since: number, changes: Change[], me: 
   return { gone: false, rev: doc.rev, fields, applied, presence: livePresence(raw, me.id, now) };
 }
 
+type RawSync =
+  | { gone: true }
+  | { gone: false; rev: number; applied: IepFields; conflicts: IepFields; fields: IepFields; live: string[]; meta: string };
+
+/** 보고 있는 사람 기록: "시각|JSON" (스크립트가 앞의 시각만 읽어 오래된 것을 지움) */
+const presenceValue = (me: IepPresence, now: number) => `${now}|${JSON.stringify({ ...me, at: now })}`;
+
+/** 스크립트 하나로 주고받기 (명령 1개) */
+async function syncByScript(id: string, since: number, changes: Change[], me: IepPresence, now: number): Promise<RawSync> {
+  const [res] = (await pipeline([
+    [
+      "EVAL",
+      SYNC_SCRIPT,
+      5,
+      K.index,
+      K.rev(id),
+      K.values(id),
+      K.revs(id),
+      K.presence(id),
+      id,
+      since,
+      me.id,
+      presenceValue(me, now),
+      now - PRESENCE_MS,
+      MAX_FIELDS,
+      ...changes.flatMap((c) => [c.key, c.base, c.value.slice(0, VALUE_MAX)]),
+    ],
+  ])) as [unknown[]];
+  if (Array.isArray(res) && res[0] === "gone") return { gone: true };
+  if (!Array.isArray(res) || res[0] !== "ok") throw new Error(`스크립트 결과가 이상해요: ${JSON.stringify(res).slice(0, 100)}`);
+  const [, rev, appliedRaw, conflictRaw, fieldsRaw, liveRaw, metaRaw] = res as [string, number, string[], string[], string[], string[], string];
+  return { gone: false, rev: Number(rev) || 0, applied: pairs(appliedRaw), conflicts: pairs(conflictRaw), fields: pairs(fieldsRaw), live: liveRaw ?? [], meta: metaRaw ?? "" };
+}
+
+/** 스크립트를 못 쓸 때: 같은 일을 일반 명령 여러 개로 (드문 동시 저장에서만 원자성이 약함) */
+async function syncByCommands(id: string, since: number, changes: Change[], me: IepPresence, now: number): Promise<RawSync> {
+  const [exists, len, ...currents] = await pipeline([["HEXISTS", K.index, id], ["HLEN", K.values(id)], ...changes.map((c) => ["HGET", K.values(id), c.key])]);
+  if (Number(exists) !== 1) return { gone: true };
+  const applied: IepFields = {};
+  const conflicts: IepFields = {};
+  let count = Number(len) || 0;
+  for (let i = 0; i < changes.length; i++) {
+    const c = changes[i];
+    const cur = (currents[i] as string | null) ?? null;
+    if (cur === null && count >= MAX_FIELDS) continue;
+    if ((cur ?? "") !== c.base) {
+      conflicts[c.key] = cur ?? "";
+      continue;
+    }
+    const value = c.value.slice(0, VALUE_MAX);
+    const [r] = await pipeline([["INCR", K.rev(id)]]);
+    await pipeline([
+      ["HSET", K.values(id), c.key, value],
+      ["HSET", K.revs(id), c.key, Number(r)],
+    ]);
+    if (cur === null) count++;
+    applied[c.key] = value;
+  }
+  // 판 번호를 먼저 읽고 칸 번호를 읽어야 빠뜨리는 칸이 없음
+  const [rev, revsAll, presAll, metaRaw] = await pipeline([
+    ["GET", K.rev(id)],
+    ["HGETALL", K.revs(id)],
+    ["HGETALL", K.presence(id)],
+    ["HGET", K.index, id],
+    ["HSET", K.presence(id), me.id, presenceValue(me, now)],
+    ["EXPIRE", K.presence(id), 120],
+  ]);
+  const changedKeys = Object.entries(pairs(revsAll))
+    .filter(([, r]) => Number(r) > since)
+    .map(([k]) => k);
+  const fields: IepFields = {};
+  if (changedKeys.length) {
+    const [vals] = await pipeline([["HMGET", K.values(id), ...changedKeys]]);
+    changedKeys.forEach((k, i) => {
+      const v = (vals as (string | null)[])[i];
+      if (v !== null && v !== undefined) fields[k] = v;
+    });
+  }
+  const live = Object.entries(pairs(presAll))
+    .filter(([k]) => k !== me.id)
+    .map(([, v]) => v);
+  return { gone: false, rev: Number(rev) || 0, applied, conflicts, fields, live, meta: (metaRaw as string | null) ?? "" };
+}
+
+/** 지금 값이 current 일 때만 value 로 씀. 썼으면 null, 그 사이 바뀌었으면 지금 값 */
+async function writeIfSame(id: string, key: string, value: string, current: string): Promise<string | null> {
+  try {
+    const [r] = await pipeline([["EVAL", CAS_SCRIPT, 3, K.rev(id), K.values(id), K.revs(id), key, value, current]]);
+    const [ok, latest] = r as [number, string];
+    return Number(ok) > 0 ? null : (latest ?? "");
+  } catch {
+    // 스크립트를 못 쓰면 확인 후 바로 씀
+    const [cur] = await pipeline([["HGET", K.values(id), key]]);
+    if (((cur as string | null) ?? "") !== current) return (cur as string | null) ?? "";
+    const [r] = await pipeline([["INCR", K.rev(id)]]);
+    await pipeline([
+      ["HSET", K.values(id), key, value],
+      ["HSET", K.revs(id), key, Number(r)],
+    ]);
+    return null;
+  }
+}
+
 /** 바뀐 칸 중 목록 요약에 들어가는 것 */
 const pickMeta = (meta: IepMeta, applied: IepFields): Partial<IepMeta> =>
   metaFromFields({ year: meta.year, semester: meta.semester, grade: meta.grade, classNo: meta.cls, name: meta.name, ...applied });
@@ -353,7 +449,8 @@ function livePresence(raw: Record<string, string>, myId: string, now: number): I
   const out: IepPresence[] = [];
   for (const [k, v] of Object.entries(raw)) {
     try {
-      const p = JSON.parse(v) as IepPresence & { at: number };
+      // Redis 에는 "시각|JSON" 으로, 파일 저장에서는 JSON 으로 들어 있음
+      const p = JSON.parse(v.replace(/^\d+\|/, "")) as IepPresence & { at: number };
       const id = typeof p.id === "string" ? p.id : k;
       if (id !== myId && p.at >= now - PRESENCE_MS) out.push({ id, name: String(p.name).slice(0, 20), color: String(p.color), field: String(p.field ?? ""), cursor: cleanCursor(p.cursor) });
     } catch {
