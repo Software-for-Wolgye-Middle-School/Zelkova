@@ -706,10 +706,11 @@ function LogPreview({
 
       {full &&
         createPortal(
-          <div role="dialog" aria-label={`${md(item.start)} ~ ${md(item.end)} 활동일지 전체 화면`} className="fixed inset-0 z-[70] grid place-items-center bg-slate-900/80 p-4" onClick={() => setFull(false)}>
+          <div role="dialog" aria-label={`${md(item.start)} ~ ${md(item.end)} 활동일지 전체 화면`} className="fixed inset-0 z-[70] flex overflow-auto bg-slate-900/80 p-4" onClick={() => setFull(false)}>
+            {/* 전체 화면은 원래 크기의 300%로 고정하고, 화면보다 크면 스크롤해서 봄 */}
             <div
-              className="relative max-h-full max-w-full overflow-hidden rounded-md bg-white shadow-2xl [&>svg]:block [&>svg]:h-full [&>svg]:w-full"
-              style={{ aspectRatio: `${LOG_W} / ${LOG_H}`, height: "calc(100vh - 2rem)" }}
+              className="relative m-auto shrink-0 overflow-hidden rounded-md bg-white shadow-2xl [&>svg]:block [&>svg]:h-full [&>svg]:w-full"
+              style={{ width: LOG_W * 3, height: LOG_H * 3 }}
               onClick={(e) => e.stopPropagation()}
               dangerouslySetInnerHTML={{ __html: svg }}
             />
@@ -718,7 +719,7 @@ function LogPreview({
               onClick={() => setFull(false)}
               title="전체 화면 닫기"
               aria-label="전체 화면 닫기"
-              className="absolute right-4 top-4 grid h-10 w-10 place-items-center rounded-full bg-white/90 text-lg text-slate-700 shadow transition hover:bg-white"
+              className="fixed right-4 top-4 grid h-10 w-10 place-items-center rounded-full bg-white/90 text-lg text-slate-700 shadow transition hover:bg-white"
             >
               ✕
             </button>
