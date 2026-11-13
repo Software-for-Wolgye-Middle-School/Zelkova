@@ -3,8 +3,8 @@ import { readGuide } from "@/lib/guideStore";
 import { DEFAULT_GUIDE } from "@/lib/serviceGuide";
 import { makePseudonymizer, type Pseudonymizer } from "@/lib/pseudonym";
 import { readStudents } from "@/lib/studentStore";
-import { NOTICE_BOARD_URL, type MealFile } from "@/lib/meal";
-import { getMonthlyMealNotice } from "@/lib/mealCache";
+import { NOTICE_BOARD_URL, schoolFileUrl } from "@/lib/meal";
+import { postFiles, searchMealPosts, seoulYearMonth } from "@/lib/mealNotice";
 import { BOARDS, monthNews } from "@/lib/schoolNews";
 
 /**
@@ -17,6 +17,7 @@ import { BOARDS, monthNews } from "@/lib/schoolNews";
  * 학교 홈페이지에서 바로 답하는 질문:
  *  - "이번달 급식표 알려줘" → 월계중학교 가정통신문의 이번 달 급식 안내 링크 (Gemini 를 거치지 않음)
  *  - "이번 달 월계중 소식 알려줘" → 공지사항 · 가정통신문의 이번 달 글을 Gemini 로 요약하고 게시판 링크를 붙임
+ *  둘 다 서버에 저장하지 않고 물어볼 때마다 학교 홈페이지에서 새로 읽음
  */
 
 const NO_STORE = { "Cache-Control": "no-store" };
@@ -115,20 +116,27 @@ const isMealQuestion = (q: string) => /급식|식단/.test(q) && !/건의|우유
 /** "이번 달 월계중 소식 알려줘" 같은 질문 */
 const isNewsQuestion = (q: string) => /(학교|월계중?)\s*(의\s*)?(소식|뉴스|공지)|가정통신문|공지사항|학교\s*행사/.test(q) && !isMealQuestion(q);
 
-const mealFileLink = (f: MealFile) => `/api/meals/file?${new URLSearchParams({ id: f.id, sn: f.sn, name: f.name, ...(f.ext === "pdf" ? { inline: "1" } : {}) })}`;
-
-/** 이번 달 급식 안내(월계중학교 가정통신문)의 링크 — Gemini 를 거치지 않고 바로 답함 */
+/**
+ * 이번 달 급식 안내(월계중학교 가정통신문)의 링크 — Gemini 를 거치지 않고 바로 답함.
+ * 급식표는 서버에 저장하지 않고, 물어볼 때마다 가정통신문 게시판을 검색해 글과 첨부 파일의 학교 홈페이지 주소만 알려 줌
+ */
 async function mealAnswer(): Promise<string> {
-  const notice = await getMonthlyMealNotice().catch(() => null);
   const board = `[가정통신문 게시판에서 보기](${NOTICE_BOARD_URL})`;
-  if (!notice) return `이번 달 급식 안내를 학교 홈페이지에서 아직 찾지 못했어요.\n• ${board}`;
-  const files = notice.files.filter((f) => ["pdf", "hwp", "hwpx", "png", "jpg", "jpeg"].includes(f.ext));
+  const posts = await searchMealPosts().catch(() => []);
+  const { year, month } = seoulYearMonth();
+  // 제목에 이번 달이 들어간 글 (예: '2026년 11월 급식 안내', '12월 ~ 1월 급식 안내'), 없으면 가장 최근 글
+  const monthRe = new RegExp(`(^|[^0-9])${month}\\s*월`);
+  const thisMonth = posts.find((p) => monthRe.test(p.title) && (!/\d{4}\s*년/.test(p.title) || p.title.includes(String(year))));
+  const notice = thisMonth ?? posts[0];
+  if (!notice) return `학교 홈페이지에서 급식 안내를 찾지 못했어요.\n• ${board}`;
+  const files = (await postFiles(notice.nttId).catch(() => [])).filter((f) => ["pdf", "hwp", "hwpx", "png", "jpg", "jpeg"].includes(f.ext));
   return [
-    `이번 달 급식표는 월계중학교 가정통신문 **「${notice.title}」**(${notice.date})에 있어요.`,
+    thisMonth
+      ? `이번 달 급식표는 월계중학교 가정통신문 **「${notice.title}」**(${notice.date})에 있어요.`
+      : `이번 달 급식 안내는 아직 올라오지 않았어요. 가장 최근 급식 안내는 **「${notice.title}」**(${notice.date})예요.`,
     "",
-    ...files.map((f) => `• [${f.ext === "pdf" ? "급식표 바로 보기" : "급식표 내려받기"} (${f.ext.toUpperCase()})](${mealFileLink(f)})`),
+    ...files.map((f) => `• [${f.name} 내려받기](${schoolFileUrl(f.id, f.sn)})`),
     `• ${board}`,
-    `• 메인 화면의 「급식표 조회하기」에서 날짜별 메뉴를 볼 수도 있어요.`,
   ].join("\n");
 }
 

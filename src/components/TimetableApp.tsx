@@ -394,26 +394,6 @@ export default function TimetableApp() {
             {phase === "iep" && <IepApp />}
             {phase === "board" && <BoardApp />}
           </main>
-
-          <footer className="px-4 pb-6 print:hidden text-center text-xs text-slate-400">
-            {phase === "dutylog"
-              ? null
-              : phase === "board"
-              ? "소통게시판의 글과 학생 이름은 암호화해서 학교 서버에 저장되고, 권한이 있는 사람만 볼 수 있어요."
-              : phase === "iep"
-              ? "개별화교육계획은 학교 서버에 저장되고, 로그인한 사람만 볼 수 있어요."
-              : phase === "guide"
-              ? "질문과 업무 안내가 답을 만들기 위해 Google Gemini로 전송돼요. 학생 이름은 보내지 않아요."
-              : phase === "handwriting"
-              ? "필사 학습지는 이 컴퓨터의 브라우저 안에서만 만들어져요."
-              : phase === "students"
-              ? "학생 정보는 학교 서버에 저장되고, 로그인한 사람만 볼 수 있어요."
-              : phase === "bankbook" || phase === "nametag"
-              ? "AI 그림을 그릴 때 그림 설명만 Pollinations AI로 보내요. 학생 이름은 밖으로 전송되지 않아요."
-              : phase === "meal"
-                ? "급식 안내는 월계중학교 홈페이지 가정통신문 게시판에서 가져와요."
-                : ""}
-          </footer>
         </>
       )}
     </div>

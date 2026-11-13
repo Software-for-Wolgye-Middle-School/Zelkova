@@ -59,7 +59,8 @@ async function boardSession() {
     .join("; ");
 }
 
-async function searchMealPosts() {
+/** 가정통신문 게시판에서 달마다 올라오는 급식 안내 글 목록 (최근 것부터, 저장하지 않고 그때그때 검색) */
+export async function searchMealPosts() {
   const cookie = await boardSession();
   const html = await post(
     "/dggb/module/board/selectBoardListAjax.do",
@@ -82,7 +83,8 @@ async function searchMealPosts() {
   return posts.filter((p) => isMonthlyMealNotice(p.title)).sort((a, b) => b.date.localeCompare(a.date) || Number(b.nttId) - Number(a.nttId));
 }
 
-async function postFiles(nttId: string): Promise<MealFile[]> {
+/** 글의 첨부 파일 (저장하지 않고 그때그때 읽음) */
+export async function postFiles(nttId: string): Promise<MealFile[]> {
   const html = await post("/dggb/module/board/selectBoardDetailAjax.do", { bbsId: BBS_ID, bbsTyCode: "dliv", nttId });
   const files: MealFile[] = [];
   // serverFileObj["name"] = "..."; ... serverFileObj["atchFileId"] = "..."; serverFileObj["fileSn"] = "...";

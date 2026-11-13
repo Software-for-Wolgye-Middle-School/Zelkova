@@ -4,7 +4,7 @@ import { seoulYearMonth } from "./mealNotice";
 /**
  * 월계중학교 홈페이지의 공개 게시판(공지사항 · 가정통신문)에서 이번 달 글을 읽어 옴 (서버 전용).
  * 게시판 목록 · 본문은 학교 홈페이지가 AJAX 로 불러오는 주소를 그대로 사용 (급식 안내 읽기와 같은 방식).
- * '월계소식' 게시판은 홈페이지 로그인이 필요해서 읽지 않음.
+ * '월계소식' 게시판은 홈페이지 로그인이 필요해서 읽지 않음. 읽은 글은 서버에 저장하지 않음.
  */
 
 export type Board = { name: string; bbsId: string; url: string };
@@ -16,7 +16,6 @@ export const BOARDS: Board[] = [
 export type SchoolPost = { board: string; title: string; date: string; body: string };
 
 const USER_AGENT = "Mozilla/5.0 (compatible; neutinamu-classroom-helper)";
-const CACHE_MS = 30 * 60 * 1000;
 
 const decode = (s: string) =>
   s
@@ -69,19 +68,16 @@ async function boardPosts(board: Board): Promise<(SchoolPost & { nttId: string }
   return posts;
 }
 
-type Cached = { at: number; month: string; posts: SchoolPost[]; thisMonth: boolean };
-const cache = globalThis as { __zelkovaNews?: Cached };
-
-/** 이번 달 공지사항 · 가정통신문 (최근 것부터). 이번 달 글이 없으면 가장 최근 글 몇 개 (thisMonth: false) */
+/**
+ * 이번 달 공지사항 · 가정통신문 (최근 것부터). 이번 달 글이 없으면 가장 최근 글 몇 개 (thisMonth: false).
+ * 서버에 저장하지 않고 물어볼 때마다 학교 홈페이지에서 새로 읽음
+ */
 export async function monthNews(): Promise<{ posts: SchoolPost[]; thisMonth: boolean; year: number; month: number }> {
   const { year, month } = seoulYearMonth();
   const key = `${year}-${String(month).padStart(2, "0")}`;
-  const c = cache.__zelkovaNews;
-  if (c && c.month === key && Date.now() - c.at < CACHE_MS) return { posts: c.posts, thisMonth: c.thisMonth, year, month };
   const all = (await Promise.all(BOARDS.map((b) => boardPosts(b).catch(() => [])))).flat().sort((a, b) => b.date.localeCompare(a.date));
+  if (!all.length) throw new Error("학교 홈페이지에서 글을 읽지 못했어요.");
   const mine = all.filter((p) => p.date.startsWith(key));
   const posts = (mine.length ? mine : all.slice(0, 5)).slice(0, 12).map(({ board, title, date, body }) => ({ board, title, date, body }));
-  if (!all.length) throw new Error("학교 홈페이지에서 글을 읽지 못했어요.");
-  cache.__zelkovaNews = { at: Date.now(), month: key, posts, thisMonth: mine.length > 0 };
   return { posts, thisMonth: mine.length > 0, year, month };
 }
