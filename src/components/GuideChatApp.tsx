@@ -9,10 +9,10 @@ type Msg = { role: "user" | "model"; text: string };
 
 /** 처음 화면에 보여 주는 질문 예시 (누르면 바로 물어봄) */
 const SUGGESTIONS = [
-  "첫 출근인데 업무에 대해서 설명해주세요",
+  "첫 출근인데 업무에 대해서 설명해 주세요",
   "느티나무반 학생들에 대해서 알려 주세요",
-  "이번달 급식표 알려줘",
-  "이번 달 월계중 소식 알려줘",
+  "이번 달 급식표 알려 줘",
+  "이번 달 월계중 소식 알려 줘",
   "학생이 갑자기 사라지거나 돌발 상황이 일어나면 어떻게 하나요?",
 ];
 
@@ -175,7 +175,7 @@ export default function GuideChatApp() {
               </span>
               <p className="text-[15px] font-semibold text-slate-700">안녕하세요! 무엇이든 물어보세요.</p>
               {/* 첫 화면: 질문 예시가 천천히 커졌다 작아졌다 함 (누르면 바로 물어봄) */}
-              <div className="mt-2 flex max-w-xl flex-wrap justify-center gap-x-3 gap-y-4 px-2">
+              <div className="mt-2 flex max-w-2xl flex-wrap justify-center gap-x-10 gap-y-6 px-6">
                 {SUGGESTIONS.map((s, i) => (
                   <button
                     key={s}
