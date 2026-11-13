@@ -13,13 +13,7 @@ const field =
   "h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-[15px] outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100";
 
 
-/** 목록 순서: 최근 등록한 학생이 위 · 이름 가나다순 · 학년마다 묶어서 (학년 안에서는 1반, 2반 … 순) */
-type Sort = "recent" | "name" | "grade";
-const SORTS: [Sort, string][] = [
-  ["recent", "최근 등록순"],
-  ["name", "이름순"],
-  ["grade", "학년별"],
-];
+/** 목록은 늘 학년마다 묶어서 보여 줌 (학년 안에서는 1반, 2반 … 순, 같은 반은 이름 가나다순) */
 const gradeOf = (r: StudentRow) => `${r.grade}학년`;
 
 type Props = { rows: StudentRow[]; onRowsChange: (rows: StudentRow[]) => void };
@@ -70,9 +64,7 @@ function StudentsPanel({ rows, onRowsChange, onLock }: Props & { onLock?: () => 
   const [name, setName] = useState("");
   const [subjects, setSubjects] = useState<string[]>([...DEFAULT_SUBJECTS]);
   const [error, setError] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
   const [confirmClear, setConfirmClear] = useState(false);
-  const [sort, setSort] = useState<Sort>("recent");
   const registerShake = useShake();
   /** 방금 등록한 학생 (목록에서 색칠해 보여 줌) */
   const [justAdded, setJustAdded] = useState<string | null>(null);
@@ -80,19 +72,13 @@ function StudentsPanel({ rows, onRowsChange, onLock }: Props & { onLock?: () => 
   const registered = useMemo(() => rows.filter((r) => !isBlank(r)), [rows]);
   const invalid = useMemo(() => validateRows(registered).errors, [registered]);
 
-  const shown = useMemo(() => {
-    const q = query.trim().replace(/\s+/g, "");
-    // 등록한 학생은 목록 끝에 붙으므로, 거꾸로 하면 최근에 등록한 학생이 위로 옴
-    const byClass = (a: StudentRow, b: StudentRow) => Number(a.grade) - Number(b.grade) || Number(a.cls) - Number(b.cls);
-    const byName = (a: StudentRow, b: StudentRow) => a.name.localeCompare(b.name, "ko");
-    const list =
-      sort === "recent"
-        ? [...registered].reverse()
-        : sort === "name"
-          ? [...registered].sort((a, b) => byName(a, b) || byClass(a, b))
-          : [...registered].sort((a, b) => byClass(a, b) || byName(a, b));
-    return q ? list.filter((r) => `${r.grade}학년${r.cls}반${r.grade}-${r.cls}${r.name}`.includes(q)) : list;
-  }, [registered, query, sort]);
+  const shown = useMemo(
+    () =>
+      [...registered].sort(
+        (a, b) => Number(a.grade) - Number(b.grade) || Number(a.cls) - Number(b.cls) || a.name.localeCompare(b.name, "ko"),
+      ),
+    [registered],
+  );
 
   // 방금 등록한 학생이 목록에서 보이도록
   useEffect(() => {
@@ -116,7 +102,6 @@ function StudentsPanel({ rows, onRowsChange, onLock }: Props & { onLock?: () => 
     setError(null);
     onRowsChange([...registered, row]);
     setJustAdded(row.id);
-    setQuery(""); // 찾기로 걸러져 방금 등록한 학생이 안 보이는 일이 없도록
     setName(""); // 같은 반 학생을 이어서 등록하기 쉽도록 학년 · 반 · 과목은 그대로 둠
     document.getElementById("st-name")?.focus();
   };
@@ -253,45 +238,14 @@ function StudentsPanel({ rows, onRowsChange, onLock }: Props & { onLock?: () => 
             </div>
           </div>
 
-          {registered.length > 0 && (
-            <div className="mb-3 flex flex-col gap-2 sm:flex-row">
-              <input
-                type="search"
-                value={query}
-                aria-label="학생 찾기"
-                placeholder="이름 · 학년 · 반으로 찾기 (예: 2-3, 이순신)"
-                onChange={(e) => setQuery(e.target.value)}
-                className={`${field} sm:flex-1`}
-              />
-              <div role="radiogroup" aria-label="목록 순서" className="inline-flex h-11 shrink-0 rounded-lg bg-slate-100 p-1">
-                {SORTS.map(([id, label]) => (
-                  <button
-                    key={id}
-                    type="button"
-                    role="radio"
-                    aria-checked={sort === id}
-                    onClick={() => setSort(id)}
-                    className={`flex-1 whitespace-nowrap rounded-md px-3 text-sm font-semibold transition ${
-                      sort === id ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
           {registered.length === 0 ? (
             <p className="py-12 text-center text-[15px] text-slate-500">아직 등록된 학생이 없어요. 왼쪽에서 학생을 등록해 보세요.</p>
-          ) : shown.length === 0 ? (
-            <p className="py-12 text-center text-[15px] text-slate-500">찾는 학생이 없어요.</p>
           ) : (
             <ul className="divide-y divide-slate-100">
               {shown.map((r, i) => (
                 <Fragment key={r.id}>
-                {sort === "grade" && gradeOf(r) !== (i > 0 ? gradeOf(shown[i - 1]) : "") && (
-                  // 학년별로 볼 때 학년마다 머리글
+                {gradeOf(r) !== (i > 0 ? gradeOf(shown[i - 1]) : "") && (
+                  // 학년마다 머리글
                   <li className="-mx-2 border-none px-2 pb-1 pt-4 text-xs font-bold text-slate-700 first:pt-0">
                     {gradeOf(r)} <span className="font-medium text-slate-400">{shown.filter((x) => gradeOf(x) === gradeOf(r)).length}명</span>
                   </li>
