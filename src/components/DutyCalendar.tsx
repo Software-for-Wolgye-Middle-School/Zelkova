@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import ConfirmDialog from "./ConfirmDialog";
-import { PencilIcon, TrashIcon } from "./icons";
+import { ArrowLeftIcon, ArrowRightIcon, PencilIcon, TrashIcon } from "./icons";
 import { SLIDE_MS } from "./StepFlow";
 import { dutyLogSvg, hasEntries, isoOf, LOG_FONTS_URL, LOG_H, LOG_W, logRange, mondayOf, type DutyLog } from "@/lib/dutyLogSvg";
 import { byTime, EVENT_MEMO_MAX, EVENT_TITLE_MAX, type DutyEvent } from "@/lib/dutyEvents";
@@ -227,6 +227,7 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onRemo
     setPreview(preview?.key === item.key ? null : { key: item.key, left, top });
   };
   const previewItem = preview ? logs.find((l) => l.key === preview.key) : undefined;
+  const previewIndex = preview ? logs.findIndex((l) => l.key === preview.key) : -1;
   const previewLog = previewItem ? weeks[previewItem.key]?.log : undefined;
   /** 오른쪽 목록에서 고른 일정이 있는 달로 달력을 옮기고, 누른 자리 옆에 그 일정을 보여 줌 */
   const showEvent = (e: React.MouseEvent<HTMLElement>, ev: DutyEvent) => {
@@ -540,6 +541,12 @@ export default function DutyCalendar({ weeks, events, status, onOpenWeek, onRemo
                 onClose={() => setPreview(null)}
                 onEdit={() => onOpenWeek(previewItem.key)}
                 onDelete={() => setConfirmDel(previewItem)}
+                onNavigate={(dir) => {
+                  const next = logs[previewIndex + dir];
+                  if (next) setPreview((p) => p && { ...p, key: next.key });
+                }}
+                canPrev={previewIndex > 0}
+                canNext={previewIndex >= 0 && previewIndex < logs.length - 1}
               />
             </>
           )}
@@ -652,6 +659,9 @@ function LogPreview({
   onClose,
   onEdit,
   onDelete,
+  onNavigate,
+  canPrev,
+  canNext,
 }: {
   item: LogItem;
   log: DutyLog;
@@ -660,9 +670,31 @@ function LogPreview({
   onClose: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  /** 앞(-1) · 다음(1) 활동일지로 넘김 */
+  onNavigate: (dir: 1 | -1) => void;
+  canPrev: boolean;
+  canNext: boolean;
 }) {
   const svg = useMemo(() => dutyLogSvg(log, true), [log]);
   const [full, setFull] = useState(false);
+  /** 넘기는 중: 앞 활동일지(fromSvg)는 제자리에 두고 새 활동일지가 옆에서 밀려 들어와 덮음 (칭찬카드 넘기기와 같음) */
+  const [anim, setAnim] = useState<{ fromSvg: string; dir: 1 | -1; slid: boolean } | null>(null);
+  const animTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (animTimer.current) clearTimeout(animTimer.current);
+    },
+    [],
+  );
+  const flip = (dir: 1 | -1) => {
+    if (anim) return;
+    setAnim({ fromSvg: svg, dir, slid: false });
+    onNavigate(dir);
+    requestAnimationFrame(() => requestAnimationFrame(() => setAnim((a) => a && { ...a, slid: true })));
+    animTimer.current = setTimeout(() => setAnim(null), SLIDE_MS);
+  };
+  const arrow =
+    "absolute top-1/2 z-[3] grid h-7 w-7 -translate-y-1/2 place-items-center rounded-full bg-white/90 text-slate-600 shadow ring-1 ring-slate-200 transition hover:bg-indigo-50 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-0";
 
   // 전체 화면에서 Esc 는 전체 화면만 닫음 (미리보기는 그대로)
   useEffect(() => {
@@ -702,7 +734,28 @@ function LogPreview({
         </div>
       </div>
       <div className="relative overflow-hidden rounded-md bg-white ring-1 ring-slate-200">
-        <div className="[&>svg]:block [&>svg]:h-full [&>svg]:w-full" style={{ aspectRatio: `${LOG_W} / ${LOG_H}` }} dangerouslySetInnerHTML={{ __html: svg }} />
+        {anim && (
+          <div
+            className="pointer-events-none absolute inset-0 z-0 [&>svg]:block [&>svg]:h-full [&>svg]:w-full"
+            aria-hidden="true"
+            dangerouslySetInnerHTML={{ __html: anim.fromSvg }}
+          />
+        )}
+        <div
+          className={`relative z-[2] bg-white [&>svg]:block [&>svg]:h-full [&>svg]:w-full ${anim ? "shadow-[0_0_24px_rgba(15,23,42,0.18)]" : ""} ${anim?.slid ? "transition-transform ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none" : ""}`}
+          style={{
+            aspectRatio: `${LOG_W} / ${LOG_H}`,
+            transform: anim && !anim.slid ? `translateX(${anim.dir * 105}%)` : undefined,
+            transitionDuration: `${SLIDE_MS}ms`,
+          }}
+          dangerouslySetInnerHTML={{ __html: svg }}
+        />
+        <button type="button" onClick={() => flip(-1)} disabled={!canPrev || !!anim} aria-label="이전 활동일지" title="이전 활동일지" className={`${arrow} left-1`}>
+          <ArrowLeftIcon className="h-3.5 w-3.5" />
+        </button>
+        <button type="button" onClick={() => flip(1)} disabled={!canNext || !!anim} aria-label="다음 활동일지" title="다음 활동일지" className={`${arrow} right-1`}>
+          <ArrowRightIcon className="h-3.5 w-3.5" />
+        </button>
         <button
           type="button"
           onClick={() => setFull(true)}
