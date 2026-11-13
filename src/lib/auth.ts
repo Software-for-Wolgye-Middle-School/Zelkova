@@ -29,11 +29,12 @@ const TEACHER_HASH = process.env.TEACHER_PASSWORD_HASH;
 const SCRYPT = { N: 16384, r: 8, p: 1 };
 
 /** user: 일반(실무사 · 사회복무요원 공용) · admin: 관리자 · teacher: 특수교사 · aide/sw/parent: 초대 코드로 만든 소통게시판 계정 */
-export type Role = "user" | "admin" | "teacher" | "aide" | "sw" | "parent";
+/** pending: 카카오 · 구글 · 네이버로 가입하고 관리자 승인을 기다리는 계정 (아무 도구도 못 씀) */
+export type Role = "user" | "admin" | "teacher" | "aide" | "sw" | "parent" | "pending";
 export type Session = { role: Role; userId: string };
-const BOARD_ROLES: Role[] = ["teacher", "aide", "sw", "parent"];
-/** 원래 있던 도구(시간표 · 학생 정보 · 활동일지 · 업무 안내 · 개별화교육계획)를 쓸 수 있는 역할 */
-export const STAFF_ROLES: Role[] = ["user", "admin", "teacher"];
+const ACCOUNT_ROLES: Role[] = ["teacher", "aide", "sw", "parent", "pending"];
+/** 원래 있던 도구(시간표 · 학생 정보 · 활동일지 · 업무 안내 · 개별화교육계획)를 쓸 수 있는 역할 (학부모 · 승인 대기는 아님) */
+export const STAFF_ROLES: Role[] = ["user", "admin", "teacher", "aide", "sw"];
 
 export const SESSION_COOKIE = "zelkova_session";
 /** 한 번 로그인하면 12시간 동안 유지 */
@@ -85,7 +86,7 @@ export function parseSession(token: string | undefined): Session | null {
   if (!(Number(exp) > Date.now())) return null;
   if (!role) return { role: "user", userId: "shared" };
   if (role === "admin") return { role: "admin", userId: "admin" };
-  if (BOARD_ROLES.includes(role as Role) && userId && /^[\w-]{1,40}$/.test(userId)) return { role: role as Role, userId };
+  if (ACCOUNT_ROLES.includes(role as Role) && userId && /^[\w-]{1,40}$/.test(userId)) return { role: role as Role, userId };
   return null;
 }
 
@@ -107,11 +108,40 @@ export function requestSession(request: Request): Session | null {
 /** 요청의 로그인 권한 (로그인하지 않았으면 null) */
 export const requestRole = (request: Request): Role | null => requestSession(request)?.role ?? null;
 
-/** 원래 있던 도구를 쓸 수 있는 로그인인지 (일반 · 관리자 · 특수교사). 소통게시판 전용 계정(학부모 등)은 아님 */
+/** 원래 있던 도구를 쓸 수 있는 로그인인지 (일반 · 관리자 · 특수교사 · 실무사 · 사회복무요원). 학부모 · 승인 대기는 아님 */
 export const isAuthed = (request: Request) => STAFF_ROLES.includes(requestRole(request) as Role);
 
 /** 관리자로 로그인했는지 */
 export const isAdmin = (request: Request) => requestRole(request) === "admin";
+
+/** 짧은 값에 서명 (소셜 로그인 가입 표 등). 만료 시각을 함께 넣음 */
+export function signValue(value: string, seconds: number) {
+  const payload = `${value}|${Date.now() + seconds * 1000}`;
+  return `${Buffer.from(payload).toString("base64url")}.${sign(payload)}`;
+}
+
+/** signValue 로 만든 값이 올바르고 아직 유효하면 원래 값, 아니면 null */
+export function verifyValue(token: string | undefined | null): string | null {
+  if (!token) return null;
+  const [b64, signature] = token.split(".");
+  if (!b64 || !signature) return null;
+  const payload = Buffer.from(b64, "base64url").toString();
+  if (!same(Buffer.from(signature), Buffer.from(sign(payload)))) return null;
+  const at = payload.lastIndexOf("|");
+  return Number(payload.slice(at + 1)) > Date.now() ? payload.slice(0, at) : null;
+}
+
+/** 요청의 쿠키 하나 */
+export const readCookie = (request: Request, name: string) =>
+  (request.headers.get("cookie") ?? "")
+    .split(";")
+    .map((c) => c.trim())
+    .find((c) => c.startsWith(`${name}=`))
+    ?.slice(name.length + 1);
+
+/** httpOnly 쿠키 한 줄 */
+export const cookieLine = (name: string, value: string, maxAge: number) =>
+  `${name}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${process.env.NODE_ENV === "production" ? "; Secure" : ""}`;
 
 export const sessionCookie = (value: string, maxAge: number) =>
   `${SESSION_COOKIE}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${process.env.NODE_ENV === "production" ? "; Secure" : ""}`;

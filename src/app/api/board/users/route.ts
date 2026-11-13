@@ -5,7 +5,7 @@ import { deleteUser, handle, listUsers, requireRole } from "@/lib/board";
 export async function GET(request: Request) {
   await connection();
   return handle(async () => {
-    requireRole(request, ["teacher"]);
+    await requireRole(request, ["teacher"]);
     return { users: await listUsers() };
   });
 }
@@ -13,7 +13,7 @@ export async function GET(request: Request) {
 /** 계정 지우기 (교사만): ?id= */
 export async function DELETE(request: Request) {
   return handle(async () => {
-    const s = requireRole(request, ["teacher"]);
+    const s = await requireRole(request, ["teacher"]);
     await deleteUser(s, new URL(request.url).searchParams.get("id") ?? "");
   });
 }

@@ -5,7 +5,7 @@ import { displayName, handle, requireRole, unreadSummary } from "@/lib/board";
 export async function GET(request: Request) {
   await connection();
   return handle(async () => {
-    const s = requireRole(request, ["teacher", "aide", "sw", "parent"]);
+    const s = await requireRole(request, ["teacher", "aide", "sw", "parent"]);
     return { role: s.board, userId: s.userId, name: await displayName(s), unread: await unreadSummary(s) };
   });
 }

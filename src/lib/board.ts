@@ -35,13 +35,27 @@ export class HttpError extends Error {
   }
 }
 
-/** 이 역할 중 하나로 로그인하지 않았으면 401/403 을 던짐. 모든 소통게시판 API 가 맨 처음 부름 */
-export function requireRole(request: Request, roles: BoardRole[]): BoardSession {
+/** 환경 변수로 만든 계정(관리자 · 특수교사 · 공용)의 id */
+export const isEnvUser = (id: string) => id === "admin" || id === "teacher" || id === "shared";
+
+/**
+ * 이 역할 중 하나로 로그인하지 않았으면 401/403 을 던짐. 모든 소통게시판 API 가 맨 처음 부름.
+ * 서버 저장소 계정은 지금도 있고 승인된 계정인지, 역할이 바뀌지 않았는지 매번 저장소에서 다시 확인함
+ * (지우거나 역할을 바꾼 계정이 예전 세션으로 들어오지 못하게)
+ */
+export async function requireRole(request: Request, roles: BoardRole[]): Promise<BoardSession> {
   const s = requestSession(request);
-  const board = s ? boardRoleOf(s.role) : null;
-  if (!s || !board) throw new HttpError(401, "로그인이 필요해요.");
+  if (!s) throw new HttpError(401, "로그인이 필요해요.");
+  let role = s.role;
+  if (!isEnvUser(s.userId)) {
+    const u = await getUser(s.userId);
+    if (!u) throw new HttpError(401, "계정이 없어졌어요. 다시 로그인해 주세요.");
+    role = u.status === "pending" ? "pending" : u.role;
+  }
+  const board = boardRoleOf(role);
+  if (!board) throw new HttpError(role === "pending" ? 403 : 401, role === "pending" ? "관리자 승인을 기다리고 있어요." : "로그인이 필요해요.");
   if (!roles.includes(board)) throw new HttpError(403, "이 기능을 쓸 권한이 없어요.");
-  return { ...s, board };
+  return { role, userId: s.userId, board };
 }
 
 /** 이 학생의 글을 볼 수 있는지: 교사 · 실무사는 모든 학생, 학부모는 자기 자녀만. 아니면 403 */
@@ -162,7 +176,22 @@ export async function readAudit(date: string) {
 
 // ---------------------------------------------------------------- 계정
 
-export type BoardUser = { id: string; role: "aide" | "sw" | "parent"; loginId: string; name: string; pw: string; studentIds: string[]; createdAt: number };
+/**
+ * 서버 저장소 계정. 초대 코드로 만든 계정은 아이디 · 비밀번호(loginId · pw), 카카오 · 구글 · 네이버로 만든 계정은 oauth(연결 열쇠)가 있음.
+ * status 가 pending 이면 관리자 승인 전 (requestedRole 은 가입할 때 고른 직급)
+ */
+export type BoardUser = {
+  id: string;
+  role: BoardRole;
+  loginId?: string;
+  name: string;
+  pw?: string;
+  studentIds: string[];
+  createdAt: number;
+  status?: "pending" | "active";
+  requestedRole?: BoardRole;
+  oauth?: string[];
+};
 export const ROLE_LABEL: Record<BoardRole, string> = { teacher: "특수교사", aide: "특수교육실무사", sw: "사회복무요원", parent: "학부모" };
 
 export async function getUser(id: string): Promise<BoardUser | null> {
@@ -200,16 +229,33 @@ export async function listUsers() {
 export async function deleteUser(s: BoardSession, id: string) {
   const user = await getUser(id);
   if (!user) throw new HttpError(404, "없는 계정이에요.");
-  await kv(["DEL", `${P}user:${id}`], ["DEL", `${P}login:${user.loginId.toLowerCase()}`], ["SREM", `${P}users`, id], auditCmd(s, "user.delete", id));
+  const keys = [`${P}user:${id}`, ...(user.loginId ? [`${P}login:${user.loginId.toLowerCase()}`] : []), ...(user.oauth ?? [])];
+  await kv(["DEL", ...keys], ["SREM", `${P}users`, id], auditCmd(s, "user.delete", id));
+}
+
+/** 회원 승인 · 직급 바꾸기 (관리자 · 특수교사). 학부모는 자녀를 하나 이상 연결해야 함 */
+export async function setMember(s: BoardSession, id: string, role: BoardRole, studentIds: string[]) {
+  const raw = (await kv1("GET", `${P}user:${id}`)) as string | null;
+  if (!raw) throw new HttpError(404, "없는 계정이에요.");
+  if (id === s.userId) throw new HttpError(400, "자기 계정의 직급은 바꿀 수 없어요.");
+  if (role === "parent") {
+    if (!studentIds.length) throw new HttpError(400, "학부모는 자녀를 골라 주세요.");
+    const known = toObj(await kv1("HGETALL", `${P}students`));
+    if (studentIds.some((sid) => !(sid in known))) throw new HttpError(400, "없는 학생이 있어요.");
+  }
+  const stored = JSON.parse(raw) as BoardUser; // 이름은 암호문 그대로 둠
+  const next: BoardUser = { ...stored, role, status: "active", studentIds: role === "parent" ? studentIds : [] };
+  await kv(["SET", `${P}user:${id}`, JSON.stringify(next)], auditCmd(s, stored.status === "pending" ? `user.approve.${role}` : `user.role.${role}`, id));
 }
 
 // ---------------------------------------------------------------- 초대 코드
 
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // 헷갈리는 O · 0 · I · 1 은 뺌
 const inviteKey = (code: string) => `${P}invite:${createHash("sha256").update(code.toUpperCase().replace(/[^A-Z0-9]/g, "")).digest("hex")}`;
-export type Invite = { role: BoardUser["role"]; studentIds: string[]; issuedBy: string; at: number };
+type InviteRole = "aide" | "sw" | "parent";
+export type Invite = { role: InviteRole; studentIds: string[]; issuedBy: string; at: number };
 
-export async function createInvite(s: BoardSession, role: BoardUser["role"], studentIds: string[]) {
+export async function createInvite(s: BoardSession, role: InviteRole, studentIds: string[]) {
   if (role === "parent" && !studentIds.length) throw new HttpError(400, "학부모 초대는 자녀를 골라야 해요.");
   const known = toObj(await kv1("HGETALL", `${P}students`));
   if (studentIds.some((id) => !(id in known))) throw new HttpError(400, "없는 학생이 있어요.");
@@ -249,6 +295,7 @@ export async function checkBoardLogin(loginId: string, password: string): Promis
     await dummyVerify(password);
     return null;
   }
+  if (!user.pw || user.status === "pending") return null;
   return (await verifyPassword(password, user.pw)) ? user : null;
 }
 

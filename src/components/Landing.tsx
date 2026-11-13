@@ -44,7 +44,7 @@ const writeTab = (tab: ToolCategory) => {
 };
 const isLocked = (tab: ToolCategory) => CATEGORIES.find((c) => c.id === tab)?.locked ?? false;
 
-export default function Landing({ onOpen }: { onOpen: (id: ToolId) => void }) {
+export default function Landing({ onOpen, only }: { onOpen: (id: ToolId) => void; /** 이 도구들만 보여 줌 (학부모는 소통게시판만) */ only?: ToolId[] }) {
   const reduceMotion = useReducedMotion();
   const wantedTab = useSyncExternalStore(subscribeTab, readTab, () => "general" as const);
   /** 로그인 여부 (확인 중이면 null) */
@@ -67,7 +67,7 @@ export default function Landing({ onOpen }: { onOpen: (id: ToolId) => void }) {
 
   // 로그인하지 않았으면 잠긴 탭 대신 일반 업무를 보여 줌
   const tab = isLocked(wantedTab) && !authed ? "general" : wantedTab;
-  const tools = TOOLS.filter((t) => t.category === tab);
+  const tools = only ? TOOLS.filter((t) => only.includes(t.id)) : TOOLS.filter((t) => t.category === tab);
   const featured = tools.filter((t) => t.featured);
   const rest = tools.filter((t) => !t.featured);
 
@@ -103,7 +103,7 @@ export default function Landing({ onOpen }: { onOpen: (id: ToolId) => void }) {
 
           <div className="w-full space-y-3">
             {/* 일반 업무 · 행정 업무 탭. 행정 업무 탭은 로그인해야 열림 */}
-            <motion.div {...appear(0.3)} role="tablist" aria-label="누구를 위한 도구인가요" className="mx-auto flex w-full max-w-md rounded-2xl bg-white/70 p-1.5 shadow-lg shadow-emerald-950/10 ring-1 ring-white/80 backdrop-blur-md">
+            {!only && <motion.div {...appear(0.3)} role="tablist" aria-label="누구를 위한 도구인가요" className="mx-auto flex w-full max-w-md rounded-2xl bg-white/70 p-1.5 shadow-lg shadow-emerald-950/10 ring-1 ring-white/80 backdrop-blur-md">
               {CATEGORIES.map((c) => {
                 const selected = c.id === tab;
                 return (
@@ -127,7 +127,7 @@ export default function Landing({ onOpen }: { onOpen: (id: ToolId) => void }) {
                   </button>
                 );
               })}
-            </motion.div>
+            </motion.div>}
 
             {/* 탭마다 카드 수가 달라도 탭 줄이 위아래로 움직이지 않게: 모든 탭의 카드 자리를 같은 칸에 보이지 않게 겹쳐 두어
                 가장 긴 탭의 높이를 늘 차지함 (실제 카드는 그 위 맨 위부터 그림) */}

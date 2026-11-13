@@ -33,6 +33,8 @@ import DutyLogApp from "./DutyLogApp";
 import GuideChatApp from "./GuideChatApp";
 import IepApp from "./IepApp";
 import BoardApp from "./BoardApp";
+import { doLogout, fetchAccount, LoginScreen, MembersApp, PendingScreen, ProfileMenu, SignupScreen, StartScreen, type Account } from "./account";
+import { Spinner } from "./icons";
 
 export type StudentDoc = { key: string; student: Student; blob: Blob; fileName: string; hours: number; subjectHours: [string, number][] };
 
@@ -72,7 +74,7 @@ function studentFileNames(students: Student[], term: string) {
   });
 }
 
-type Phase = "home" | "upload" | "generating" | "result" | "promise" | "bankbook" | "nametag" | "meal" | "students" | "handwriting" | "dutylog" | "guide" | "iep" | "board";
+type Phase = "home" | "upload" | "generating" | "result" | "promise" | "bankbook" | "nametag" | "meal" | "students" | "handwriting" | "dutylog" | "guide" | "iep" | "board" | "members";
 
 /** 각 단계가 너무 빨리 지나가 깜빡이지 않도록 최소 표시 시간 */
 const MIN_STAGE_MS = 600;
@@ -103,6 +105,39 @@ function loadDefaultTemplate() {
 
 export default function TimetableApp() {
   const [phase, setPhase] = useState<Phase>("home");
+  /** 로그인 상태 (확인 중이면 null). 로그인하지 않았으면 첫 화면 → 카카오 · 구글 · 네이버 로그인만 보여 줌 */
+  const [account, setAccount] = useState<Account | null>(null);
+  const [entry, setEntry] = useState<"start" | "login">("start");
+  const [loginError, setLoginError] = useState<string | null>(null);
+
+  const refreshAccount = useCallback(async () => {
+    const a = await fetchAccount();
+    setAccount(a ?? { authed: false, admin: false, board: null, role: null, name: "", signup: false, providers: [] });
+  }, []);
+  useEffect(() => {
+    let cancelled = false;
+    void fetchAccount().then((a) => {
+      if (cancelled) return;
+      // 소셜 로그인에서 돌아온 주소(?login_error= · ?signup=1)는 읽은 뒤 지움
+      const q = new URLSearchParams(window.location.search);
+      const err = q.get("login_error");
+      if (err) {
+        setLoginError(err);
+        setEntry("login");
+      }
+      if (q.has("login_error") || q.has("signup")) window.history.replaceState(null, "", `/${window.location.hash}`);
+      setAccount(a ?? { authed: false, admin: false, board: null, role: null, name: "", signup: false, providers: [] });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const signOut = useCallback(async () => {
+    await doLogout();
+    setPhase("home");
+    setEntry("start");
+    await refreshAccount();
+  }, [refreshAccount]);
   const [step, setStep] = useState(0);
   const [rows, setRows] = useState<StudentRow[]>(INITIAL_ROWS); // 학생 정보 관리에 등록한 학생
   const [ttRows, setTtRows] = useState<StudentRow[]>(INITIAL_ROWS); // 시간표에 쓸 학생
@@ -347,13 +382,30 @@ export default function TimetableApp() {
             </span>
             <span className="text-[15px] font-semibold tracking-tight text-slate-900">느티나무 교실 도우미</span>
           </button>
-          <DevContact />
+          <div className="flex items-center gap-2">
+            <DevContact />
+            {account?.role && account.role !== "pending" && <ProfileMenu account={account} onLogout={() => void signOut()} onMembers={() => setPhase("members")} />}
+          </div>
         </div>
       </header>
 
-      {phase === "home" ? (
-        // 시간표는 메인 화면에서 다시 열면 지난 결과 없이 항상 처음 단계부터, 나머지는 도구 id 가 곧 화면 이름
-        <Landing onOpen={(id) => (id === "timetable" ? restart() : setPhase(id))} />
+      {phase === "home" && account === null ? (
+        <div className="grid flex-1 place-items-center">
+          <Spinner className="h-8 w-8 text-indigo-600" />
+        </div>
+      ) : phase === "home" && account && !account.role ? (
+        account.signup ? (
+          <SignupScreen onDone={() => void refreshAccount()} onCancel={() => (setAccount({ ...account, signup: false }), setEntry("login"))} />
+        ) : entry === "start" ? (
+          <StartScreen onStart={() => setEntry("login")} />
+        ) : (
+          <LoginScreen error={loginError} onIdLogin={() => void refreshAccount()} onBack={() => (setEntry("start"), setLoginError(null))} />
+        )
+      ) : phase === "home" && account?.role === "pending" ? (
+        <PendingScreen name={account.name} onCheck={refreshAccount} onLogout={() => void signOut()} />
+      ) : phase === "home" ? (
+        // 시간표는 메인 화면에서 다시 열면 지난 결과 없이 항상 처음 단계부터, 나머지는 도구 id 가 곧 화면 이름. 학부모는 소통게시판만
+        <Landing only={account?.role === "parent" ? ["board"] : undefined} onOpen={(id) => (id === "timetable" ? restart() : setPhase(id))} />
       ) : (
         <>
           <main className={`mx-auto w-full flex-1 px-4 sm:px-6 print:max-w-none print:p-0 ${phase === "iep" ? "max-w-6xl py-0 sm:py-0" : "max-w-5xl py-8 sm:py-12"}`}>
@@ -393,6 +445,7 @@ export default function TimetableApp() {
             {phase === "guide" && <GuideChatApp />}
             {phase === "iep" && <IepApp />}
             {phase === "board" && <BoardApp />}
+            {phase === "members" && <MembersApp />}
           </main>
 
           <footer className="px-4 pb-6 print:hidden text-center text-xs text-slate-400">

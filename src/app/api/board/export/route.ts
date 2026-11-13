@@ -5,7 +5,7 @@ import { exportAll, handle, requireRole } from "@/lib/board";
 export async function GET(request: Request) {
   await connection();
   return handle(async () => {
-    const s = requireRole(request, ["teacher"]);
+    const s = await requireRole(request, ["teacher"]);
     const data = await exportAll(s);
     return new Response(JSON.stringify(data, null, 2), {
       headers: {
