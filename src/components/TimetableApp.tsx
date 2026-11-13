@@ -399,7 +399,7 @@ export default function TimetableApp() {
               : phase === "iep"
               ? "개별화교육계획은 학교 서버에 저장되고, 로그인한 사람만 볼 수 있어요."
               : phase === "guide"
-              ? "질문과 등록된 학생의 학년 · 반 · 이름이 답을 만들기 위해 Google Gemini로 전송돼요."
+              ? "질문과 업무 안내가 답을 만들기 위해 Google Gemini로 전송돼요. 학생 이름은 보내지 않아요."
               : phase === "handwriting"
               ? "필사 학습지는 이 컴퓨터의 브라우저 안에서만 만들어져요."
               : phase === "students"

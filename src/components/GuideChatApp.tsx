@@ -381,7 +381,7 @@ function GuideEditor({ onClose }: { onClose: () => void }) {
             </span>
           </div>
           <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800">
-            이 내용은 학교 서버 저장소에만 저장되고 로그인한 사람만 볼 수 있어요. 챗봇이 답을 만들 때 Google Gemini로 함께 전송돼요.
+            이 내용은 학교 서버 저장소에만 저장되고 로그인한 사람만 볼 수 있어요. 챗봇이 답을 만들 때 Google Gemini로 보내지만, 학생 이름은 「학생A」처럼 바꿔서 보내고 전화번호 · 주민등록번호는 지워서 보내요.
           </p>
         </>
       )}
