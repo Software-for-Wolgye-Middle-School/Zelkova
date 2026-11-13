@@ -1,6 +1,6 @@
 import { connection } from "next/server";
 import { isAuthed } from "@/lib/auth";
-import { initialFields, isDocId, newDocId } from "@/lib/iep";
+import { formFields, isDocId, newDocId } from "@/lib/iep";
 import { createDoc, deleteDoc, listDocs } from "@/lib/iepStore";
 
 const NO_STORE = { "Cache-Control": "no-store" };
@@ -20,25 +20,13 @@ export async function GET(request: Request) {
   }
 }
 
-/** 새 개별화교육계획 (한 학년도 · 학기): { year, semester, students: [{ grade, cls, name, subjects }], by } */
+/** 새 개별화교육계획 (한 학년도 · 학기, 학교 한글 양식을 그대로 고침): { year, semester, by } */
 export async function POST(request: Request) {
   if (!isAuthed(request)) return unauthorized();
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   const year = text(body?.year, 4);
   if (!/^\d{4}$/.test(year)) return Response.json({ error: "학년도를 네 자리 숫자로 적어 주세요." }, { status: 400, headers: NO_STORE });
-  const students = (Array.isArray(body?.students) ? body.students : [])
-    .slice(0, 40)
-    .map((s) => {
-      const v = (s ?? {}) as Record<string, unknown>;
-      return {
-        grade: text(v.grade, 2),
-        cls: text(v.cls, 2),
-        name: text(v.name, 20),
-        subjects: Array.isArray(v.subjects) ? v.subjects.map((x) => text(x, 20)).filter(Boolean).slice(0, 12) : [],
-      };
-    })
-    .filter((s) => s.name);
-  const fields = initialFields({ year, semester: body?.semester === "1" ? "1" : "2", students });
+  const fields = formFields(year, body?.semester === "1" ? "1" : "2");
   try {
     const meta = await createDoc(newDocId(), fields, text(body?.by, 20));
     return Response.json({ doc: meta }, { headers: NO_STORE });

@@ -41,7 +41,8 @@ export function cleanCursor(v: unknown): [number, number] | null {
 }
 
 export const VALUE_MAX = 4000;
-export const MAX_FIELDS = 3000;
+/** 한 문서의 칸 수 상한 (학교 한글 양식은 칸이 7,000개쯤이라 넉넉히) */
+export const MAX_FIELDS = 12000;
 export const isFieldKey = (k: unknown): k is string => typeof k === "string" && /^[A-Za-z0-9_.-]{1,64}$/.test(k);
 export const isDocId = (v: unknown): v is string => typeof v === "string" && /^[a-z0-9]{6,32}$/.test(v);
 export const newDocId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
@@ -132,7 +133,7 @@ export function currentTerm(now = new Date()) {
 export const studentKey = (sid: string, k: string) => (sid ? `st.${sid}.${k}` : k);
 
 /** 문서 전체에 하나뿐인 칸 */
-export const DOC_KEYS = new Set(["year", "semester", "school", "studentList"]);
+export const DOC_KEYS = new Set(["year", "semester", "school", "studentList", "form"]);
 
 /** 문서에 든 학생 id 들 */
 export const studentIds = (f: IepFields): string[] => ("studentList" in f ? parseList(f.studentList) : [""]);
@@ -164,7 +165,17 @@ export function studentFields(sid: string, s: NewStudent): IepFields {
   return f;
 }
 
-/** 새 문서(한 학년도 · 학기)의 처음 내용 */
+/** 학교 한글 양식(public/templates/iep-form.hwp)을 그대로 고치는 문서임을 나타내는 값 */
+export const FORM_ID = "iep-form";
+
+/** 새 문서(한 학년도 · 학기, 학교 한글 양식을 그대로 고침)의 처음 내용. 양식 칸은 고친 것만 저장함 */
+export const formFields = (year: string, semester: string): IepFields => ({ school: "월계중학교", year, semester, form: FORM_ID });
+
+/** 양식 글 속 "2026학년도 2학기" 를 이 문서의 학년도 · 학기로 */
+export const withTerm = (text: string, year: string, semester: string) =>
+  /^\d{4}$/.test(year) && /^\d$/.test(semester) ? text.replace(/\d{4}(\s*)학년도(\s*)\d(\s*)학기/g, `${year}$1학년도$2${semester}$3학기`) : text;
+
+/** 새 문서(한 학년도 · 학기, 직접 만든 양식)의 처음 내용 */
 export function initialFields(input: { year: string; semester: string; students: NewStudent[] }): IepFields {
   const f: IepFields = { school: "월계중학교", year: input.year, semester: input.semester };
   const ids: string[] = [];

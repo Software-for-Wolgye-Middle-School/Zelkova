@@ -1,15 +1,15 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
   currentTerm,
   DEFAULT_ROWS,
   DOC_KEYS,
   metaFromFields,
-  studentFields,
   studentIds,
   studentKey,
+  withTerm,
   diffRegion,
   docTitle,
   MAX_ROWS,
@@ -309,7 +309,7 @@ function IepList({
 
 const inputCls = "h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100";
 
-/** 개별화교육계획 만들기: 학년도와 학기만 정함 (학생은 만든 뒤 편집 화면 위의 「학생 더하기」로 넣음) */
+/** 개별화교육계획 만들기: 학년도와 학기만 정함 (학교 한글 양식의 학생 칸을 그대로 고침) */
 function NewDocDialog({ by, onCancel, onCreated }: { by: string; onCancel: () => void; onCreated: (m: IepMeta) => void }) {
   const term = currentTerm();
   const [year, setYear] = useState(term.year);
@@ -421,7 +421,9 @@ function IepEditor({ docId, myName, onBack, onRename, nameDialog }: { docId: str
   const legacy = !("studentList" in values);
   const [picked, setPicked] = useState("");
   const current = ids.includes(picked) ? picked : (ids[0] ?? "");
-  const key = useMemo(() => keyFor(current), [current]);
+  /** 학교 한글 양식을 그대로 고치는 문서 (새로 만드는 문서는 모두 이것) */
+  const isForm = !!values.form;
+  const key = useMemo(() => (isForm ? (k: string) => k : keyFor(current)), [isForm, current]);
   const ctx = useMemo<Ctx>(() => ({ values, set, focus, blur, compose, who, key }), [values, set, focus, blur, compose, who, key]);
   const [removingStudent, setRemovingStudent] = useState(false);
 
@@ -430,12 +432,6 @@ function IepEditor({ docId, myName, onBack, onRename, nameDialog }: { docId: str
   const studentLabel = (sid: string) => {
     const v = (k: string) => values[studentKey(sid, k)] ?? "";
     return `${v("grade") && v("classNo") ? `${v("grade")}-${v("classNo")} ` : ""}${v("name") || "이름 없음"}`;
-  };
-  const addStudent = () => {
-    const sid = newSectionId();
-    for (const [k, v] of Object.entries(studentFields(sid, { grade: "", cls: "", name: "", subjects: ["국어", "수학"] }))) set(k, v);
-    set("studentList", JSON.stringify([...ids, sid]));
-    setPicked(sid);
   };
   const removeStudent = () => {
     set("studentList", JSON.stringify(ids.filter((x) => x !== current)));
@@ -494,15 +490,6 @@ function IepEditor({ docId, myName, onBack, onRename, nameDialog }: { docId: str
               ))}
               {presence.length > 0 && <span className="ml-2 hidden text-xs font-medium text-slate-500 sm:inline">{presence.length + 1}명이 함께 편집 중</span>}
             </div>
-            <button
-              type="button"
-              onClick={() => window.print()}
-              disabled={!loaded}
-              title="지금 보고 있는 학생만 인쇄해요"
-              className="rounded-xl px-3.5 py-2.5 text-sm font-semibold text-slate-700 ring-1 ring-inset ring-slate-200 transition hover:bg-slate-50 disabled:opacity-40"
-            >
-              인쇄 · PDF
-            </button>
             <a
               href={`/api/iep/hwp?id=${docId}`}
               download
@@ -515,7 +502,7 @@ function IepEditor({ docId, myName, onBack, onRename, nameDialog }: { docId: str
             </a>
           </div>
           {/* 학생 고르기 (학년도 · 학기 문서 하나에 여러 학생) */}
-          {loaded && !legacy && (
+          {loaded && !legacy && !isForm && (
             <div className="mx-auto mt-3 flex max-w-[210mm] flex-wrap items-center gap-1.5">
               {ids.map((sid) => (
                 <button
@@ -529,10 +516,6 @@ function IepEditor({ docId, myName, onBack, onRename, nameDialog }: { docId: str
                   {presence.some((p) => p.field.startsWith(`st.${sid}.`)) && <span className="ml-1 inline-block h-2 w-2 rounded-full bg-emerald-400 align-middle" title="다른 선생님이 고치는 중" />}
                 </button>
               ))}
-              <button type="button" onClick={addStudent} className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-sm font-semibold text-indigo-600 ring-1 ring-inset ring-indigo-200 hover:bg-indigo-50">
-                <PlusIcon className="h-3.5 w-3.5" />
-                학생 더하기
-              </button>
               {ids.length > 0 && (
                 <button type="button" onClick={() => setRemovingStudent(true)} className="ml-auto inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50">
                   <TrashIcon className="h-3.5 w-3.5" />이 학생 빼기
@@ -583,9 +566,11 @@ function IepEditor({ docId, myName, onBack, onRename, nameDialog }: { docId: str
                   </div>
                 ),
             )}
-            {!legacy && !ids.length ? (
+            {isForm ? (
+              <FormDoc year={values.year ?? ""} semester={values.semester ?? ""} />
+            ) : !legacy && !ids.length ? (
               <p className="mx-auto max-w-md rounded-xl bg-white p-8 text-center text-sm text-slate-500 ring-1 ring-slate-200">
-                아직 학생이 없어요. 위의 「학생 더하기」를 눌러 주세요.
+                아직 학생이 없어요.
               </p>
             ) : (
               <>
@@ -600,7 +585,7 @@ function IepEditor({ docId, myName, onBack, onRename, nameDialog }: { docId: str
             )}
               </>
             )}
-            <div className={`mx-auto flex max-w-[210mm] flex-wrap justify-center gap-2 print:hidden ${!legacy && !ids.length ? "hidden" : ""}`}>
+            <div className={`mx-auto flex max-w-[210mm] flex-wrap justify-center gap-2 print:hidden ${isForm || (!legacy && !ids.length) ? "hidden" : ""}`}>
               <button type="button" onClick={() => addSection("subject")} className="inline-flex items-center gap-1.5 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50">
                 <PlusIcon className="h-4 w-4" />
                 교과 영역 더하기
@@ -618,16 +603,177 @@ function IepEditor({ docId, myName, onBack, onRename, nameDialog }: { docId: str
   );
 }
 
+// ---------------------------------------------------------------- 학교 한글 양식을 그대로 고치는 화면
+
+type FormStyle = { align: "left" | "center" | "right" | "justify"; bold: boolean; size: number };
+type FormCellT = FormStyle & { key: string; r: number; c: number; rs: number; cs: number; w: number; h: number; bg: string | null; valign: "top" | "middle" | "bottom"; text: string; locked: boolean };
+type FormBlockT =
+  | (FormStyle & { type: "p"; key: string; text: string; locked: boolean })
+  | { type: "table"; key: string; w: number; rows: number; cols: number; cells: FormCellT[] }
+  | { type: "object" };
+type FormT = { sections: { label: string; nameKey?: string; blocks: FormBlockT[] }[] };
+
+/** 한글 글자 크기(pt) → 화면 px (너무 큰 제목은 줄임) */
+const fontPx = (pt: number) => `${Math.round(Math.min(Math.max(pt || 10, 7), 32) * 1.333)}px`;
+const cellStyle = (s: FormStyle): CSSProperties => ({ fontSize: fontPx(s.size), fontWeight: s.bold ? 700 : 400, textAlign: s.align === "justify" ? "left" : s.align, lineHeight: 1.45 });
+
+/** 표의 열 너비: 한 칸짜리 칸의 너비로 정하고, 합친 칸만 있는 열은 남는 너비를 나눔 */
+function colWidths(t: Extract<FormBlockT, { type: "table" }>) {
+  const w: (number | null)[] = Array(t.cols).fill(null);
+  for (const c of t.cells) if (c.cs === 1 && c.c < t.cols) w[c.c] = Math.max(w[c.c] ?? 0, c.w);
+  for (let pass = 0; pass < 3; pass++) {
+    for (const c of [...t.cells].sort((a, b) => a.cs - b.cs)) {
+      const span = w.slice(c.c, c.c + c.cs);
+      const unknown = span.filter((x) => x === null).length;
+      if (!unknown) continue;
+      const known = span.reduce<number>((n, x) => n + (x ?? 0), 0);
+      const each = Math.max(8, (c.w - known) / unknown);
+      for (let i = c.c; i < c.c + c.cs && i < t.cols; i++) if (w[i] === null) w[i] = each;
+    }
+  }
+  return w.map((x) => x ?? Math.max(8, t.w / t.cols));
+}
+
+/** 학교 한글 양식(빈 양식 파일)을 화면에 그대로 그리고, 모든 문단 · 칸을 바로 고침. 학생 칸은 위 단추로 골라 한 명씩 */
+function FormDoc({ year, semester }: { year: string; semester: string }) {
+  const { values, who } = useIep();
+  const [form, setForm] = useState<FormT | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [section, setSection] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/iep/form")
+      .then(async (res) => {
+        const data = (await res.json()) as FormT & { error?: string };
+        if (!res.ok) throw new Error(data.error ?? "양식을 불러오지 못했어요.");
+        if (!cancelled) setForm(data);
+      })
+      .catch((e: unknown) => !cancelled && setError(e instanceof Error ? e.message : "양식을 불러오지 못했어요."));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (error) return <p className="mx-auto max-w-md rounded-xl bg-red-50 p-6 text-center text-sm text-red-700">{error}</p>;
+  if (!form)
+    return (
+      <div className="grid place-items-center py-20">
+        <Spinner className="h-8 w-8 text-indigo-600" />
+      </div>
+    );
+
+  const term = (t: string) => withTerm(t, year, semester);
+  const label = (i: number) => {
+    const s = form.sections[i];
+    return (s.nameKey && values[s.nameKey]?.trim()) || s.label;
+  };
+  const sec = form.sections[Math.min(section, form.sections.length - 1)];
+  /** 이 학생 칸 안에서 다른 선생님이 고치고 있는지 */
+  const busyIn = (i: number) =>
+    form.sections[i].blocks.some((b) => (b.type === "p" ? !!who[b.key] : b.type === "table" ? b.cells.some((c) => !!who[c.key]) : false));
+
+  return (
+    <div className="space-y-4">
+      <div className="mx-auto flex max-w-[210mm] flex-wrap gap-1.5">
+        {form.sections.map((_, i) => (
+          <button
+            key={i}
+            type="button"
+            aria-pressed={i === section}
+            onClick={() => setSection(i)}
+            className={`rounded-full px-3 py-1.5 text-sm font-semibold ring-1 ring-inset transition ${i === section ? "bg-indigo-600 text-white ring-indigo-600" : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"}`}
+          >
+            {label(i)}
+            {busyIn(i) && <span className="ml-1 inline-block h-2 w-2 rounded-full bg-emerald-400 align-middle" title="다른 선생님이 고치는 중" />}
+          </button>
+        ))}
+      </div>
+
+      {/* A4 한 쪽 너비(794px) 종이처럼. 좁은 화면에서는 옆으로 밀어서 봄 */}
+      <div className="overflow-x-auto">
+        <div className="mx-auto w-[794px] space-y-3 bg-white px-[56px] py-12 shadow-sm ring-1 ring-slate-200">
+          {sec.blocks.map((b, i) => {
+            if (b.type === "object") return null;
+            if (b.type === "p") {
+              if (!b.text && values[b.key] === undefined) return <div key={b.key} className="h-3" />;
+              return <F key={b.key} k={b.key} fallback={term(b.text)} style={cellStyle(b)} className="w-full" />;
+            }
+            const widths = colWidths(b);
+            const total = widths.reduce((n, x) => n + x, 0);
+            const scale = Math.min(1, 682 / total); // 종이 안 너비(794 - 양쪽 여백)를 넘지 않게
+            return (
+              <table key={`${b.key}-${i}`} className="mx-auto table-fixed border-collapse" style={{ width: total * scale }}>
+                <colgroup>
+                  {widths.map((w, ci) => (
+                    <col key={ci} style={{ width: w * scale }} />
+                  ))}
+                </colgroup>
+                <tbody>
+                  {Array.from({ length: b.rows }, (_, r) => (
+                    <tr key={r}>
+                      {b.cells
+                        .filter((c) => c.r === r)
+                        .sort((x, y) => x.c - y.c)
+                        .map((c) => (
+                          <td
+                            key={c.key}
+                            rowSpan={c.rs}
+                            colSpan={c.cs}
+                            className="border border-slate-700 p-0"
+                            style={{ background: c.bg ?? undefined, verticalAlign: c.valign, height: Math.max(20, c.h * scale) }}
+                          >
+                            {c.locked ? (
+                              <div className="whitespace-pre-wrap px-1.5 py-1 text-slate-500" style={cellStyle(c)}>
+                                {c.text}
+                              </div>
+                            ) : (
+                              <F k={c.key} fallback={term(c.text)} style={cellStyle(c)} />
+                            )}
+                          </td>
+                        ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------- 입력 칸
 
 /**
  * 양식의 칸 하나. 글이 길어지면 칸이 아래로 늘어남.
  * 다른 선생님이 같은 칸을 고쳐 글이 바뀌어도 내 커서가 엉뚱한 곳으로 튀지 않게 커서 위치를 옮겨 줌.
  */
-function F({ k: name, className = "", center = false, single = false, ph = "", minRows = 1 }: { k: string; className?: string; center?: boolean; single?: boolean; ph?: string; minRows?: number }) {
+function F({
+  k: name,
+  className = "",
+  center = false,
+  single = false,
+  ph = "",
+  minRows = 1,
+  fallback = "",
+  style,
+}: {
+  k: string;
+  className?: string;
+  center?: boolean;
+  single?: boolean;
+  ph?: string;
+  minRows?: number;
+  /** 아직 아무도 고치지 않았을 때 보여 줄 글 (학교 양식의 원래 글) */
+  fallback?: string;
+  /** 글자 크기 · 굵기 · 정렬 (학교 양식의 모양) */
+  style?: CSSProperties;
+}) {
   const { values, set, focus, blur, compose, who, key } = useIep();
   const k = key(name);
-  const value = values[k] ?? "";
+  const value = values[k] ?? fallback;
   const ref = useRef<HTMLTextAreaElement>(null);
   /** 내가 마지막으로 입력한 값 (이 값으로 바뀐 것은 내 입력이라 커서를 건드리지 않음) */
   const typed = useRef(value);
@@ -684,7 +830,7 @@ function F({ k: name, className = "", center = false, single = false, ph = "", m
         onCompositionStart={() => compose(k, true)}
         onCompositionEnd={() => compose(k, false)}
         className={`block w-full resize-none overflow-hidden rounded-[3px] bg-transparent px-1.5 py-1 text-[13px] leading-[1.55] text-slate-900 outline-none transition-[background-color,box-shadow] [field-sizing:content] placeholder:text-slate-300 hover:bg-slate-50 focus:bg-indigo-50/60 print:hidden ${center ? "text-center" : ""}`}
-        style={others ? { boxShadow: `inset 0 0 0 2px ${others[0].color}` } : undefined}
+        style={{ ...style, ...(others ? { boxShadow: `inset 0 0 0 2px ${others[0].color}` } : {}) }}
       />
       {others && (
         <span className="pointer-events-none absolute -top-2 right-1 z-10 rounded px-1.5 py-px text-[10px] font-semibold leading-tight text-white shadow-sm print:hidden" style={{ background: others[0].color }}>
