@@ -32,7 +32,6 @@ import HandwritingApp from "./HandwritingApp";
 import DutyLogApp from "./DutyLogApp";
 import GuideChatApp from "./GuideChatApp";
 import IepApp from "./IepApp";
-import BoardApp from "./BoardApp";
 
 export type StudentDoc = { key: string; student: Student; blob: Blob; fileName: string; hours: number; subjectHours: [string, number][] };
 
@@ -72,7 +71,7 @@ function studentFileNames(students: Student[], term: string) {
   });
 }
 
-type Phase = "home" | "upload" | "generating" | "result" | "promise" | "bankbook" | "nametag" | "meal" | "students" | "handwriting" | "dutylog" | "guide" | "iep" | "board";
+type Phase = "home" | "upload" | "generating" | "result" | "promise" | "bankbook" | "nametag" | "meal" | "students" | "handwriting" | "dutylog" | "guide" | "iep";
 
 /** 각 단계가 너무 빨리 지나가 깜빡이지 않도록 최소 표시 시간 */
 const MIN_STAGE_MS = 600;
@@ -392,7 +391,6 @@ export default function TimetableApp() {
             {phase === "dutylog" && <DutyLogApp />}
             {phase === "guide" && <GuideChatApp />}
             {phase === "iep" && <IepApp />}
-            {phase === "board" && <BoardApp />}
           </main>
         </>
       )}

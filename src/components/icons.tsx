@@ -156,14 +156,6 @@ export const FileTextIcon = (p: P) => (
   </Base>
 );
 
-export const MegaphoneIcon = (p: P) => (
-  <Base {...p}>
-    <path d="M3 11v2a1 1 0 0 0 1 1h2l5 4V6L6 10H4a1 1 0 0 0-1 1Z" />
-    <path d="M15 9a3 3 0 0 1 0 6" />
-    <path d="M18 6a7 7 0 0 1 0 12" />
-  </Base>
-);
-
 /** iOS 설정 앱 같은 톱니바퀴 (톱니 12개 + 가운데 구멍, 채운 모양) */
 export const GearIcon = (p: P) => {
   const teeth = 12;
