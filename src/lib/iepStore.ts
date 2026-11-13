@@ -245,6 +245,19 @@ export async function deleteDoc(id: string) {
   }
 }
 
+/** 문서의 모든 칸 (한글 파일로 내려받을 때). 없는 문서면 null */
+export async function readDocFields(id: string): Promise<IepFields | null> {
+  if (redisOn()) {
+    const [exists, values] = await pipeline([
+      ["HEXISTS", K.index, id],
+      ["HGETALL", K.values(id)],
+    ]);
+    return Number(exists) === 1 ? pairs(values) : null;
+  }
+  const data = await loadFile();
+  return data.docs[id] && data.index[id] ? { ...data.docs[id].values } : null;
+}
+
 export type Change = { key: string; base: string; value: string };
 export type SyncResult =
   | { gone: true }

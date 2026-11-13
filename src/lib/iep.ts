@@ -122,20 +122,34 @@ export function currentTerm(now = new Date()) {
   return { year: String(year), semester: m >= 3 && m < 8 ? "1" : "2" };
 }
 
-/** 새 문서의 처음 내용 */
-export function initialFields(input: { year: string; semester: string; grade: string; cls: string; name: string; subjects: string[] }): IepFields {
+// ---------------------------------------------------------------- 학생
+
+/**
+ * 문서 하나는 한 학년도 · 학기의 개별화교육계획이고, 그 안에 학생 여러 명이 들어 있음 (학교 한글 파일과 같은 구성).
+ * 학생마다의 칸은 "st.<학생 id>.<칸>" 이름이고, 교과 · 생활 영역(s.<영역 id>.*)은 id 가 따로라 그대로 씀.
+ * 학생 목록(studentList)이 없는 예전 문서(학생 한 명짜리)는 학생 id 가 빈 글자인 학생 한 명으로 봄.
+ */
+export const studentKey = (sid: string, k: string) => (sid ? `st.${sid}.${k}` : k);
+
+/** 문서 전체에 하나뿐인 칸 */
+export const DOC_KEYS = new Set(["year", "semester", "school", "studentList"]);
+
+/** 문서에 든 학생 id 들 */
+export const studentIds = (f: IepFields): string[] => ("studentList" in f ? parseList(f.studentList) : [""]);
+
+export type NewStudent = { grade: string; cls: string; name: string; subjects: string[] };
+
+/** 학생 한 명을 더할 때의 처음 칸들 (교과 영역들 + 일상생활적응 영역) */
+export function studentFields(sid: string, s: NewStudent): IepFields {
+  const k = (name: string) => studentKey(sid, name);
   const f: IepFields = {
-    school: "월계중학교",
-    unit: input.grade && input.cls ? `${input.grade}학년 ${input.cls}반` : "",
-    year: input.year,
-    semester: input.semester,
-    grade: input.grade,
-    classNo: input.cls,
-    name: input.name,
+    [k("name")]: s.name,
+    [k("grade")]: s.grade,
+    [k("classNo")]: s.cls,
+    [k("unit")]: s.grade && s.cls ? `${s.grade}학년 ${s.cls}반` : "",
   };
   const list: string[] = [];
-  const subjects = input.subjects.length ? input.subjects : ["국어", "수학"];
-  for (const subject of subjects) {
+  for (const subject of s.subjects.length ? s.subjects : ["국어", "수학"]) {
     const id = newSectionId();
     list.push(id);
     f[sk(id, "kind")] = "subject";
@@ -146,11 +160,24 @@ export function initialFields(input: { year: string; semester: string; grade: st
   list.push(life);
   f[sk(life, "kind")] = "life";
   f[sk(life, "rows")] = String(DEFAULT_ROWS);
-  f.sectionList = JSON.stringify(list);
+  f[k("sectionList")] = JSON.stringify(list);
   return f;
 }
 
-/** 문서 내용에서 목록에 보여 줄 요약 칸 */
+/** 새 문서(한 학년도 · 학기)의 처음 내용 */
+export function initialFields(input: { year: string; semester: string; students: NewStudent[] }): IepFields {
+  const f: IepFields = { school: "월계중학교", year: input.year, semester: input.semester };
+  const ids: string[] = [];
+  for (const s of input.students) {
+    const sid = newSectionId();
+    ids.push(sid);
+    Object.assign(f, studentFields(sid, s));
+  }
+  f.studentList = JSON.stringify(ids);
+  return f;
+}
+
+/** 문서 내용에서 목록에 보여 줄 요약 칸 (학년도 · 학기. 예전 학생 한 명짜리 문서는 학생도) */
 export const metaFromFields = (f: IepFields) => ({
   year: f.year ?? "",
   semester: f.semester ?? "",
@@ -160,7 +187,9 @@ export const metaFromFields = (f: IepFields) => ({
 });
 
 export const docTitle = (m: Pick<IepMeta, "year" | "semester" | "grade" | "cls" | "name">) =>
-  `${m.year ? `${m.year}학년도 ` : ""}${m.semester ? `${m.semester}학기 ` : ""}${m.grade && m.cls ? `${m.grade}-${m.cls} ` : ""}${m.name || "이름 없음"}`;
+  m.name || m.grade
+    ? `${m.year ? `${m.year}학년도 ` : ""}${m.semester ? `${m.semester}학기 ` : ""}${m.grade && m.cls ? `${m.grade}-${m.cls} ` : ""}${m.name || "이름 없음"}`
+    : `${m.year ? `${m.year}학년도 ` : ""}${m.semester ? `${m.semester}학기 ` : ""}개별화교육계획`;
 
 /** 받은 칸들 중 올바른 것만 길이를 맞춰 받음 */
 export function sanitizeFields(input: unknown): IepFields {

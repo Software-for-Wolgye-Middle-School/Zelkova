@@ -4,6 +4,11 @@ import { createContext, useCallback, useContext, useEffect, useLayoutEffect, use
 import {
   currentTerm,
   DEFAULT_ROWS,
+  DOC_KEYS,
+  metaFromFields,
+  studentFields,
+  studentIds,
+  studentKey,
   diffRegion,
   docTitle,
   MAX_ROWS,
@@ -17,8 +22,8 @@ import {
 } from "@/lib/iep";
 import ConfirmDialog from "./ConfirmDialog";
 import LoginOverlay from "./LoginOverlay";
-import { ArrowLeftIcon, PlusIcon, Spinner, TrashIcon } from "./icons";
-import { fetchServerRows, SUBJECTS, type StudentRow } from "./students";
+import { ArrowLeftIcon, DownloadIcon, PlusIcon, Spinner, TrashIcon } from "./icons";
+import { fetchServerRows, type StudentRow } from "./students";
 import { IEP_STATUS_TEXT, useIepSync, type Me } from "./useIepSync";
 
 /**
@@ -91,8 +96,8 @@ export default function IepApp() {
     };
   }, []);
 
-  /** 이름을 아직 안 정했으면 먼저 묻고 나서 then 을 함 */
-  const withName = (then: () => void) => (myName ? then() : setAskName(() => then));
+  /** 계획에 들어갈 때마다 이름을 묻고(지난번 이름을 미리 채움) 나서 then 을 함 */
+  const withName = (then: () => void) => setAskName(() => then);
 
   if (openId && myName) {
     return (
@@ -168,8 +173,8 @@ function NameDialog({ initial, onSave, onCancel }: { initial: string; onSave: (n
         }}
         className="fade-up w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl"
       >
-        <h2 className="text-lg font-bold text-slate-900">선생님 이름을 알려 주세요</h2>
-        <p className="mt-1 text-sm text-slate-500">함께 편집하는 다른 선생님 화면에 이 이름으로 보여요. 이 컴퓨터에 기억해 둬요.</p>
+        <h2 className="text-lg font-bold text-slate-900">이름을 적고 들어가 주세요</h2>
+        <p className="mt-1 text-sm text-slate-500">함께 편집하는 다른 선생님 화면에 이 이름으로 보여요.</p>
         <input
           value={name}
           autoFocus
@@ -183,7 +188,7 @@ function NameDialog({ initial, onSave, onCancel }: { initial: string; onSave: (n
             취소
           </button>
           <button type="submit" disabled={!name.trim()} className="flex-1 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:bg-slate-200 disabled:text-slate-400">
-            확인
+            들어가기
           </button>
         </div>
       </form>
@@ -311,40 +316,34 @@ function IepList({
 
 const inputCls = "h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100";
 
+/** 새 계획: 학년도와 학기만 정하면 만들어지고, 등록된 학생을 골라 처음부터 넣을 수 있음 (나중에 편집 화면에서 더하거나 뺄 수 있음) */
 function NewDocDialog({ by, onCancel, onCreated }: { by: string; onCancel: () => void; onCreated: (m: IepMeta) => void }) {
   const term = currentTerm();
   const [year, setYear] = useState(term.year);
   const [semester, setSemester] = useState(term.semester);
   const [students, setStudents] = useState<StudentRow[] | null>(null);
-  const [grade, setGrade] = useState("");
-  const [cls, setCls] = useState("");
-  const [name, setName] = useState("");
-  const [subjects, setSubjects] = useState<string[]>(["국어", "수학"]);
+  const [picked, setPicked] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    void fetchServerRows().then((rows) => setStudents((rows ?? []).filter((r) => r.name.trim())));
+    void fetchServerRows().then((rows) => {
+      const list = (rows ?? []).filter((r) => r.name.trim()).sort((a, b) => Number(a.grade) - Number(b.grade) || Number(a.cls) - Number(b.cls) || a.name.localeCompare(b.name, "ko"));
+      setStudents(list);
+      setPicked(list.map((r) => r.id)); // 처음에는 모두 넣음
+    });
   }, []);
 
-  const pick = (key: string) => {
-    const s = students?.find((r) => r.id === key);
-    if (!s) return;
-    setGrade(s.grade);
-    setCls(s.cls);
-    setName(s.name);
-    if (s.subjects.length) setSubjects(s.subjects);
-  };
-
   const create = async () => {
-    if (!name.trim()) return setError("학생 이름을 입력해 주세요.");
+    if (!/^\d{4}$/.test(year)) return setError("학년도를 네 자리 숫자로 적어 주세요.");
     setBusy(true);
     setError(null);
     try {
+      const chosen = (students ?? []).filter((r) => picked.includes(r.id)).map(({ grade, cls, name, subjects }) => ({ grade, cls, name, subjects }));
       const res = await fetch("/api/iep", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ year, semester, grade, cls, name, subjects, by }),
+        body: JSON.stringify({ year, semester, students: chosen, by }),
       });
       const data = (await res.json().catch(() => null)) as { doc?: IepMeta; error?: string } | null;
       if (!res.ok || !data?.doc) throw new Error(data?.error ?? "만들지 못했어요.");
@@ -355,6 +354,7 @@ function NewDocDialog({ by, onCancel, onCreated }: { by: string; onCancel: () =>
     }
   };
 
+  const all = students && students.length > 0 && picked.length === students.length;
   return (
     <div className="fixed inset-0 z-[80] grid place-items-center overflow-y-auto bg-slate-900/40 p-4" onMouseDown={(e) => e.target === e.currentTarget && onCancel()}>
       <form
@@ -379,52 +379,38 @@ function NewDocDialog({ by, onCancel, onCreated }: { by: string; onCancel: () =>
           </label>
         </div>
 
-        <label className="mt-4 block">
-          <span className="mb-1 block text-xs font-semibold text-slate-600">등록된 학생에서 고르기</span>
-          <select defaultValue="" onChange={(e) => pick(e.target.value)} disabled={!students?.length} className={inputCls}>
-            <option value="">{students === null ? "불러오는 중…" : students.length ? "학생을 고르면 아래 칸이 채워져요" : "등록된 학생이 없어요"}</option>
-            {students?.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.grade}학년 {s.cls}반 {s.name}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <div className="mt-3 grid grid-cols-[1fr_1fr_2fr] gap-3">
-          <label className="block">
-            <span className="mb-1 block text-xs font-semibold text-slate-600">학년</span>
-            <input value={grade} onChange={(e) => setGrade(e.target.value.slice(0, 2))} className={inputCls} />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-semibold text-slate-600">반</span>
-            <input value={cls} onChange={(e) => setCls(e.target.value.slice(0, 2))} className={inputCls} />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-semibold text-slate-600">학생 이름</span>
-            <input value={name} onChange={(e) => setName(e.target.value.slice(0, 20))} className={inputCls} />
-          </label>
-        </div>
-
-        <fieldset className="mt-4">
-          <legend className="mb-1.5 text-xs font-semibold text-slate-600">교과 영역 (나중에 더하거나 뺄 수 있어요)</legend>
-          <div className="flex flex-wrap gap-2">
-            {SUBJECTS.map((s) => {
-              const on = subjects.includes(s);
-              return (
-                <button
-                  key={s}
-                  type="button"
-                  aria-pressed={on}
-                  onClick={() => setSubjects((list) => (on ? list.filter((x) => x !== s) : [...list, s]))}
-                  className={`rounded-full px-3.5 py-1.5 text-sm font-semibold ring-1 ring-inset transition ${on ? "bg-indigo-600 text-white ring-indigo-600" : "text-slate-600 ring-slate-200 hover:bg-slate-50"}`}
-                >
-                  {s}
-                </button>
-              );
-            })}
-          </div>
-          <p className="mt-1.5 text-xs text-slate-400">일상생활적응 및 사회적 기술훈련 영역은 항상 들어가요.</p>
+        <fieldset className="mt-5">
+          <legend className="mb-1.5 flex w-full items-center justify-between text-xs font-semibold text-slate-600">
+            <span>함께 넣을 학생 (학생 정보 관리에 등록된 학생)</span>
+            {students && students.length > 0 && (
+              <button type="button" onClick={() => setPicked(all ? [] : students.map((r) => r.id))} className="font-semibold text-indigo-600 hover:underline">
+                {all ? "모두 빼기" : "모두 넣기"}
+              </button>
+            )}
+          </legend>
+          {students === null ? (
+            <Spinner className="h-5 w-5 text-indigo-600" />
+          ) : !students.length ? (
+            <p className="rounded-lg bg-slate-50 px-3 py-3 text-sm text-slate-500">등록된 학생이 없어요. 만든 뒤 편집 화면에서 학생을 더할 수 있어요.</p>
+          ) : (
+            <div className="flex max-h-48 flex-wrap gap-1.5 overflow-y-auto">
+              {students.map((r) => {
+                const on = picked.includes(r.id);
+                return (
+                  <button
+                    key={r.id}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => setPicked((p) => (on ? p.filter((x) => x !== r.id) : [...p, r.id]))}
+                    className={`rounded-full px-3 py-1 text-sm font-medium ring-1 ring-inset transition ${on ? "bg-indigo-600 text-white ring-indigo-600" : "text-slate-600 ring-slate-200 hover:bg-slate-50"}`}
+                  >
+                    {r.grade}-{r.cls} {r.name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          <p className="mt-1.5 text-xs text-slate-400">학생마다 학생 정보 관리에 적은 과목으로 교과 영역이 들어가고, 일상생활적응 영역은 항상 들어가요.</p>
         </fieldset>
 
         {error && (
@@ -448,6 +434,9 @@ function NewDocDialog({ by, onCancel, onCreated }: { by: string; onCancel: () =>
 
 // ---------------------------------------------------------------- 편집 화면
 
+/** 이 학생의 칸 이름을 만드는 함수 (교과 · 생활 영역 칸과 문서 전체 칸은 그대로) */
+const keyFor = (sid: string) => (k: string) => (k.startsWith("s.") || DOC_KEYS.has(k) ? k : studentKey(sid, k));
+
 type Ctx = {
   values: Record<string, string>;
   set: (key: string, value: string) => void;
@@ -456,6 +445,8 @@ type Ctx = {
   compose: (key: string, on: boolean) => void;
   /** 칸 → 그 칸을 입력 중인 다른 선생님들 */
   who: Record<string, IepPresence[]>;
+  /** 화면의 칸 이름 → 저장 칸 이름 (학생마다 따로인 칸은 "st.<학생 id>." 를 붙임) */
+  key: (k: string) => string;
 };
 const IepCtx = createContext<Ctx | null>(null);
 const useIep = () => useContext(IepCtx)!;
@@ -478,10 +469,31 @@ function IepEditor({ docId, myName, onBack, onRename, nameDialog }: { docId: str
     for (const p of presence) if (p.field) (map[p.field] ??= []).push(p);
     return map;
   }, [presence]);
-  const ctx = useMemo<Ctx>(() => ({ values, set, focus, blur, compose, who }), [values, set, focus, blur, compose, who]);
+  // 학생: 한 학년도 · 학기 문서에 여러 명. 위쪽 학생 단추로 골라 한 명씩 고침 (예전 학생 한 명짜리 문서는 학생 id 가 빈 글자)
+  const ids = useMemo(() => studentIds(values), [values]);
+  const legacy = !("studentList" in values);
+  const [picked, setPicked] = useState("");
+  const current = ids.includes(picked) ? picked : (ids[0] ?? "");
+  const key = useMemo(() => keyFor(current), [current]);
+  const ctx = useMemo<Ctx>(() => ({ values, set, focus, blur, compose, who, key }), [values, set, focus, blur, compose, who, key]);
+  const [removingStudent, setRemovingStudent] = useState(false);
 
-  const sections = parseList(values.sectionList);
-  const title = docTitle({ year: values.year ?? "", semester: values.semester ?? "", grade: values.grade ?? "", cls: values.classNo ?? "", name: values.name ?? "" });
+  const sections = parseList(values[key("sectionList")]);
+  const title = docTitle(metaFromFields(values));
+  const studentLabel = (sid: string) => {
+    const v = (k: string) => values[studentKey(sid, k)] ?? "";
+    return `${v("grade") && v("classNo") ? `${v("grade")}-${v("classNo")} ` : ""}${v("name") || "이름 없음"}`;
+  };
+  const addStudent = () => {
+    const sid = newSectionId();
+    for (const [k, v] of Object.entries(studentFields(sid, { grade: "", cls: "", name: "", subjects: ["국어", "수학"] }))) set(k, v);
+    set("studentList", JSON.stringify([...ids, sid]));
+    setPicked(sid);
+  };
+  const removeStudent = () => {
+    set("studentList", JSON.stringify(ids.filter((x) => x !== current)));
+    setPicked("");
+  };
 
   // 창 제목을 바꿔 인쇄 · PDF 저장 때 파일 이름이 되게 함
   useEffect(() => {
@@ -497,9 +509,9 @@ function IepEditor({ docId, myName, onBack, onRename, nameDialog }: { docId: str
     set(sk(id, "kind"), kind);
     set(sk(id, "rows"), String(DEFAULT_ROWS));
     if (kind === "subject") set(sk(id, "subject"), "");
-    set("sectionList", JSON.stringify([...sections, id]));
+    set(key("sectionList"), JSON.stringify([...sections, id]));
   };
-  const removeSection = (id: string) => set("sectionList", JSON.stringify(sections.filter((s) => s !== id)));
+  const removeSection = (id: string) => set(key("sectionList"), JSON.stringify(sections.filter((s) => s !== id)));
 
   const people = [{ id: me.id, name: myName, color: me.color, field: "" }, ...presence];
 
@@ -539,12 +551,62 @@ function IepEditor({ docId, myName, onBack, onRename, nameDialog }: { docId: str
               type="button"
               onClick={() => window.print()}
               disabled={!loaded}
-              className="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
+              title="지금 보고 있는 학생만 인쇄해요"
+              className="rounded-xl px-3.5 py-2.5 text-sm font-semibold text-slate-700 ring-1 ring-inset ring-slate-200 transition hover:bg-slate-50 disabled:opacity-40"
             >
-              인쇄 · PDF 저장
+              인쇄 · PDF
             </button>
+            <a
+              href={`/api/iep/hwp?id=${docId}`}
+              download
+              aria-disabled={!loaded}
+              title="학생 모두를 학교 양식 그대로 한글 파일 하나로 내려받아요"
+              className={`inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700 ${loaded ? "" : "pointer-events-none opacity-40"}`}
+            >
+              <DownloadIcon className="h-4 w-4" />
+              한글(HWP) 내려받기
+            </a>
           </div>
+          {/* 학생 고르기 (학년도 · 학기 문서 하나에 여러 학생) */}
+          {loaded && !legacy && (
+            <div className="mx-auto mt-3 flex max-w-[210mm] flex-wrap items-center gap-1.5">
+              {ids.map((sid) => (
+                <button
+                  key={sid}
+                  type="button"
+                  aria-pressed={sid === current}
+                  onClick={() => setPicked(sid)}
+                  className={`rounded-full px-3 py-1.5 text-sm font-semibold ring-1 ring-inset transition ${sid === current ? "bg-indigo-600 text-white ring-indigo-600" : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"}`}
+                >
+                  {studentLabel(sid)}
+                  {presence.some((p) => p.field.startsWith(`st.${sid}.`)) && <span className="ml-1 inline-block h-2 w-2 rounded-full bg-emerald-400 align-middle" title="다른 선생님이 고치는 중" />}
+                </button>
+              ))}
+              <button type="button" onClick={addStudent} className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-sm font-semibold text-indigo-600 ring-1 ring-inset ring-indigo-200 hover:bg-indigo-50">
+                <PlusIcon className="h-3.5 w-3.5" />
+                학생 더하기
+              </button>
+              {ids.length > 0 && (
+                <button type="button" onClick={() => setRemovingStudent(true)} className="ml-auto inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50">
+                  <TrashIcon className="h-3.5 w-3.5" />이 학생 빼기
+                </button>
+              )}
+            </div>
+          )}
         </div>
+        {removingStudent && (
+          <ConfirmDialog
+            title={`${studentLabel(current)} 학생을 뺄까요?`}
+            confirmLabel="빼기"
+            onCancel={() => setRemovingStudent(false)}
+            onConfirm={() => {
+              setRemovingStudent(false);
+              removeStudent();
+            }}
+          >
+            이 학생의 계획이 함께 편집하는 선생님 화면에서도 사라지고, 한글 파일에도 들어가지 않아요.
+          </ConfirmDialog>
+        )}
 
         {status === "gone" ? (
           <p className="mx-auto max-w-md rounded-xl bg-red-50 p-6 text-center text-sm text-red-700">다른 선생님이 이 문서를 지웠어요. 목록으로 돌아가 주세요.</p>
@@ -574,6 +636,12 @@ function IepEditor({ docId, myName, onBack, onRename, nameDialog }: { docId: str
                   </div>
                 ),
             )}
+            {!legacy && !ids.length ? (
+              <p className="mx-auto max-w-md rounded-xl bg-white p-8 text-center text-sm text-slate-500 ring-1 ring-slate-200">
+                아직 학생이 없어요. 위의 「학생 더하기」를 눌러 주세요.
+              </p>
+            ) : (
+              <>
             <CoverPage />
             <ProfilePage />
             {sections.map((id) =>
@@ -583,7 +651,9 @@ function IepEditor({ docId, myName, onBack, onRename, nameDialog }: { docId: str
                 <SubjectSection key={id} id={id} onRemove={() => removeSection(id)} />
               ),
             )}
-            <div className="mx-auto flex max-w-[210mm] flex-wrap justify-center gap-2 print:hidden">
+              </>
+            )}
+            <div className={`mx-auto flex max-w-[210mm] flex-wrap justify-center gap-2 print:hidden ${!legacy && !ids.length ? "hidden" : ""}`}>
               <button type="button" onClick={() => addSection("subject")} className="inline-flex items-center gap-1.5 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50">
                 <PlusIcon className="h-4 w-4" />
                 교과 영역 더하기
@@ -607,8 +677,9 @@ function IepEditor({ docId, myName, onBack, onRename, nameDialog }: { docId: str
  * 양식의 칸 하나. 글이 길어지면 칸이 아래로 늘어남.
  * 다른 선생님이 같은 칸을 고쳐 글이 바뀌어도 내 커서가 엉뚱한 곳으로 튀지 않게 커서 위치를 옮겨 줌.
  */
-function F({ k, className = "", center = false, single = false, ph = "", minRows = 1 }: { k: string; className?: string; center?: boolean; single?: boolean; ph?: string; minRows?: number }) {
-  const { values, set, focus, blur, compose, who } = useIep();
+function F({ k: name, className = "", center = false, single = false, ph = "", minRows = 1 }: { k: string; className?: string; center?: boolean; single?: boolean; ph?: string; minRows?: number }) {
+  const { values, set, focus, blur, compose, who, key } = useIep();
+  const k = key(name);
   const value = values[k] ?? "";
   const ref = useRef<HTMLTextAreaElement>(null);
   /** 내가 마지막으로 입력한 값 (이 값으로 바뀐 것은 내 입력이라 커서를 건드리지 않음) */
@@ -679,7 +750,10 @@ function F({ k, className = "", center = false, single = false, ph = "", minRows
 }
 
 /** 글자가 아닌 값으로 보여 주기만 하는 칸 (인쇄에도 그대로) */
-const V = ({ k, fallback = "" }: { k: string; fallback?: string }) => <>{useIep().values[k] || fallback}</>;
+function V({ k, fallback = "" }: { k: string; fallback?: string }) {
+  const { values, key } = useIep();
+  return <>{values[key(k)] || fallback}</>;
+}
 
 // ---------------------------------------------------------------- 표 부품
 
