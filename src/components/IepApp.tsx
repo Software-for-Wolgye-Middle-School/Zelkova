@@ -931,7 +931,9 @@ function fmtPhone(raw: string) {
 const PHONE_WHO = ["부", "모", "본인"] as const;
 
 type PostcodeData = { userSelectedType: "R" | "J"; roadAddress: string; jibunAddress: string; bname: string; buildingName: string; apartment: "Y" | "N" };
-type PostcodeApi = { Postcode: new (o: { oncomplete: (d: PostcodeData) => void; width?: string; height?: string }) => { embed: (el: HTMLElement) => void } };
+type PostcodeApi = {
+  Postcode: new (o: { oncomplete: (d: PostcodeData) => void; width?: string; height?: string }) => { open: (o?: { popupTitle?: string; popupKey?: string; left?: number; top?: number }) => void };
+};
 const POSTCODE_SRC = "https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js";
 let postcodeLoading: Promise<PostcodeApi> | null = null;
 /** 카카오(다음) 우편번호 서비스 스크립트를 한 번만 불러옴 */
@@ -959,38 +961,39 @@ function postcodeAddress(d: PostcodeData) {
   return extra ? `${d.roadAddress} (${extra})` : d.roadAddress;
 }
 
-/** 주소 검색 (카카오 우편번호 서비스를 창 안에 펼침) + 세부주소 */
+/** 주소 검색 (카카오 우편번호 서비스를 새 창으로 띄움) + 세부주소 */
 function AddressInput({ base, detail, onBase, onDetail }: { base: string; detail: string; onBase: (v: string) => void; onDetail: (v: string) => void }) {
-  const [open, setOpen] = useState(false);
   const [failed, setFailed] = useState(false);
-  const box = useRef<HTMLDivElement>(null);
+  const api = useRef<PostcodeApi | null>(null);
   const detailRef = useRef<HTMLInputElement>(null);
+  // 미리 불러 둬야 단추를 누르는 순간 바로 새 창을 띄움 (늦게 띄우면 브라우저가 팝업을 막음)
   useEffect(() => {
-    if (!open) return;
     let cancelled = false;
     loadPostcode()
-      .then((api) => {
-        if (cancelled || !box.current) return;
-        box.current.innerHTML = "";
-        new api.Postcode({
-          width: "100%",
-          height: "100%",
-          oncomplete: (d) => {
-            onBase(postcodeAddress(d));
-            setOpen(false);
-            setTimeout(() => detailRef.current?.focus(), 0);
-          },
-        }).embed(box.current);
+      .then((a) => {
+        if (!cancelled) api.current = a;
       })
       .catch(() => {
-        if (cancelled) return;
-        setFailed(true);
-        setOpen(false);
+        if (!cancelled) setFailed(true);
       });
     return () => {
       cancelled = true;
     };
-  }, [open, onBase]);
+  }, []);
+  const search = async () => {
+    const a = api.current ?? (await loadPostcode().catch(() => null));
+    if (!a) return setFailed(true);
+    const w = 500;
+    const h = 600;
+    new a.Postcode({
+      width: `${w}px`,
+      height: `${h}px`,
+      oncomplete: (d) => {
+        onBase(postcodeAddress(d));
+        setTimeout(() => detailRef.current?.focus(), 0);
+      },
+    }).open({ popupTitle: "주소 검색", popupKey: "iepAddress", left: Math.round(window.screenX + (window.outerWidth - w) / 2), top: Math.round(window.screenY + (window.outerHeight - h) / 2) });
+  };
   return (
     <div className="space-y-2">
       <div className="flex gap-2">
@@ -998,28 +1001,27 @@ function AddressInput({ base, detail, onBase, onDetail }: { base: string; detail
           value={base}
           onChange={(e) => onBase(e.target.value)}
           readOnly={!failed}
-          onClick={() => !failed && setOpen(true)}
+          onClick={() => !failed && search()}
           placeholder={failed ? "주소를 직접 적어 주세요" : "주소 검색을 눌러 찾아 주세요"}
           className={`${wizInput} ${failed ? "" : "cursor-pointer"}`}
           aria-label="주소"
         />
         {!failed && (
-          <button type="button" onClick={() => setOpen((o) => !o)} className="shrink-0 rounded-lg bg-slate-800 px-4 text-sm font-semibold text-white hover:bg-slate-900">
-            {open ? "닫기" : "주소 검색"}
+          <button type="button" onClick={search} className="shrink-0 rounded-lg bg-slate-800 px-4 text-sm font-semibold text-white hover:bg-slate-900">
+            주소 검색
           </button>
         )}
       </div>
-      {open && <div ref={box} className="h-[400px] overflow-hidden rounded-lg ring-1 ring-slate-200" />}
       {failed && <p className="text-xs text-amber-700">주소 검색을 불러오지 못했어요. 주소를 직접 적어 주세요.</p>}
       <input ref={detailRef} value={detail} onChange={(e) => onDetail(e.target.value)} placeholder="세부주소 (동 · 호수 등)" className={wizInput} aria-label="세부주소" />
     </div>
   );
 }
 
-/** 학생 추가 창의 항목 이름 (크게) */
+/** 학생 추가 창의 항목 이름 (창 제목보다 조금 작게) */
 const BigLabel = ({ label, children }: { label: string; children: ReactNode }) => (
   <label className="block">
-    <span className="mb-1.5 block text-2xl font-bold text-slate-700">{label}</span>
+    <span className="mb-1.5 block text-[15px] font-semibold text-slate-700">{label}</span>
     {children}
   </label>
 );
@@ -1085,7 +1087,7 @@ function StudentWizard({ onCancel, onDone }: { onCancel: () => void; onDone: (si
             </BigLabel>
           </div>
           <fieldset>
-            <legend className="mb-1.5 text-2xl font-bold text-slate-700">수강 과목</legend>
+            <legend className="mb-1.5 text-[15px] font-semibold text-slate-700">수강 과목</legend>
             <div className="flex gap-2">
               {SUBJECTS_V2.map((x) => {
                 const on = s.subjects.includes(x);
@@ -1194,9 +1196,6 @@ function StudentWizard({ onCancel, onDone }: { onCancel: () => void; onDone: (si
               )}
             </div>
           </fieldset>
-          <p className="rounded-lg bg-indigo-50 px-3 py-2 text-xs leading-relaxed text-indigo-800">
-            교육활동계획 · 재량(외부)활동 및 방과후 학교 · 특수교육 관련서비스 및 평가조정은 학교 양식의 기본값으로 들어가고, 수강 과목마다 개별화교육계획이 만들어져요. 모두 나중에 고칠 수 있어요.
-          </p>
         </>
       )}
       {error && <p className="text-sm font-medium text-red-600">{error}</p>}
