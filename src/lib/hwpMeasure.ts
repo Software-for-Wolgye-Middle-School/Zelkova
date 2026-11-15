@@ -8,13 +8,17 @@ import { paraCharShapes, parseRecords, readParaText, serializeRecords, subtreeEn
  */
 
 type ParaShape = { left: number; right: number; indent: number; top: number; bottom: number; lsType: number; ls: number };
-export type Metrics = { para: ParaShape[]; char: { size: number; ratio: number; spacing: number }[]; paraShapeRecs: Rec[]; docInfo: Rec[] };
+type CharShape = { size: number; ratio: number; spacing: number };
+/** para · char: 문단 · 글자 모양 (번호 순) · faces: 언어(한글 · 영문 · 한자 · 일어 · 기타 · 기호 · 사용자)마다 글꼴 이름 */
+export type Metrics = { para: ParaShape[]; char: CharShape[]; paraShapeRecs: Rec[]; charShapeRecs: Rec[]; faces: string[][] };
 
 const DOCINFO = "/DocInfo";
 const TAG_PARA_SHAPE = 25;
 const TAG_CHAR_SHAPE = 21;
 const TAG_ID_MAPPINGS = 17;
-/** ID_MAPPINGS 안에서 문단 모양 개수의 자리 (그림 · 글꼴 7 · 테두리 · 글자 · 탭 · 번호 · 글머리표 다음) */
+const TAG_FACE_NAME = 19;
+/** ID_MAPPINGS 안에서 개수 자리: 글자 모양 · 문단 모양 (그림 · 글꼴 7 · 테두리 다음) */
+const ID_CHAR_SHAPES = 9;
 const ID_PARA_SHAPES = 13;
 
 function readDocInfo(cfb: ReturnType<typeof CFB.read>, compressed: boolean): Rec[] {
@@ -37,16 +41,23 @@ function paraShapeOf(d: Buffer): ParaShape {
     ls: late ? d.readInt32LE(50) : d.readInt32LE(24),
   };
 }
+const charShapeOf = (d: Buffer): CharShape => ({ size: d.readInt32LE(42), ratio: d[14] || 100, spacing: d.readInt8(21) });
 
 export function readMetrics(cfb: ReturnType<typeof CFB.read>, compressed: boolean): Metrics {
   const docInfo = readDocInfo(cfb, compressed);
   const paraShapeRecs = docInfo.filter((r) => r.tag === TAG_PARA_SHAPE);
-  return {
-    docInfo,
-    paraShapeRecs,
-    para: paraShapeRecs.map((r) => paraShapeOf(r.data)),
-    char: docInfo.filter((r) => r.tag === TAG_CHAR_SHAPE && r.data.length >= 46).map((r) => ({ size: r.data.readInt32LE(42), ratio: r.data[14] || 100, spacing: r.data.readInt8(21) })),
-  };
+  const charShapeRecs = docInfo.filter((r) => r.tag === TAG_CHAR_SHAPE && r.data.length >= 46);
+  const idm = docInfo.find((r) => r.tag === TAG_ID_MAPPINGS)?.data;
+  const counts = idm ? Array.from({ length: Math.floor(idm.length / 4) }, (_, i) => idm.readInt32LE(i * 4)) : [];
+  const names = docInfo.filter((r) => r.tag === TAG_FACE_NAME && r.data.length >= 3).map((r) => r.data.toString("utf16le", 3, 3 + r.data.readUInt16LE(1) * 2));
+  const faces: string[][] = [];
+  let at = 0;
+  for (let l = 0; l < 7; l++) {
+    const n = counts[1 + l] ?? 0;
+    faces.push(names.slice(at, at + n));
+    at += n;
+  }
+  return { paraShapeRecs, charShapeRecs, faces, para: paraShapeRecs.map((r) => paraShapeOf(r.data)), char: charShapeRecs.map((r) => charShapeOf(r.data)) };
 }
 
 /** 줄 간격만 바꾼 문단 모양 (새 모양을 DocInfo 끝에 더할 때 씀) */
@@ -57,24 +68,89 @@ export function withLineSpacing(src: Buffer, ls: number): Buffer {
   return d;
 }
 
-/** DocInfo 끝에 문단 모양을 더해 문서 파일 안에 씀 (더한 모양의 번호는 원래 개수부터 차례로) */
-export function writeParaShapes(cfb: ReturnType<typeof CFB.read>, compressed: boolean, added: Buffer[]) {
-  if (!added.length) return;
-  const recs = readDocInfo(cfb, compressed);
-  const last = recs.reduce((at, r, i) => (r.tag === TAG_PARA_SHAPE ? i : at), -1);
-  if (last < 0) throw new Error("문단 모양이 없는 문서예요");
-  const level = recs[last].level;
-  recs.splice(last + 1, 0, ...added.map((data) => ({ tag: TAG_PARA_SHAPE, level, data })));
-  const idm = recs.find((r) => r.tag === TAG_ID_MAPPINGS);
-  if (!idm) throw new Error("ID_MAPPINGS 가 없는 문서예요");
-  idm.data = Buffer.from(idm.data);
-  idm.data.writeInt32LE(recs.filter((r) => r.tag === TAG_PARA_SHAPE).length, ID_PARA_SHAPES * 4);
-  let body = serializeRecords(recs);
-  if (compressed) body = deflateRawSync(body);
-  const e = CFB.find(cfb, DOCINFO);
-  if (!e) throw new Error("DocInfo 가 없어요");
-  e.content = body as unknown as typeof e.content;
-  e.size = body.length;
+/**
+ * 문서 하나를 만들 때 더하는 글자 · 문단 모양 모음. 같은 모양은 한 번만 더하고, m 은 더한 모양까지 포함해 늘 최신.
+ * 저장할 때 write 로 DocInfo 에 넣음 (번호는 원래 개수부터 차례로)
+ */
+export class ShapeBook {
+  m: Metrics;
+  private base: { para: number; char: number };
+  private addedPara: Buffer[] = [];
+  private addedChar: Buffer[] = [];
+  private seen = new Map<string, number>();
+  constructor(base: Metrics) {
+    this.base = { para: base.para.length, char: base.char.length };
+    this.m = { ...base, para: [...base.para], char: [...base.char] };
+  }
+  paraData(id: number) {
+    return id < this.base.para ? this.m.paraShapeRecs[id]?.data : this.addedPara[id - this.base.para];
+  }
+  charData(id: number) {
+    return id < this.base.char ? this.m.charShapeRecs[id]?.data : this.addedChar[id - this.base.char];
+  }
+  private add(kind: "p" | "c", data: Buffer) {
+    const key = `${kind}:${data.toString("hex")}`;
+    const had = this.seen.get(key);
+    if (had !== undefined) return had;
+    let id: number;
+    if (kind === "p") {
+      id = this.base.para + this.addedPara.length;
+      this.addedPara.push(data);
+      this.m.para.push(paraShapeOf(data));
+    } else {
+      id = this.base.char + this.addedChar.length;
+      this.addedChar.push(data);
+      this.m.char.push(charShapeOf(data));
+    }
+    this.seen.set(key, id);
+    return id;
+  }
+  /** 줄 간격(%)만 바꾼 문단 모양 번호 */
+  lineSpacing(from: number, ls: number) {
+    const d = this.paraData(from);
+    return d ? this.add("p", withLineSpacing(d, ls)) : from;
+  }
+  /** 글꼴(이름) · 크기(pt)를 바꾼 글자 모양 번호. 그 글꼴이 없는 언어는 원래 글꼴 그대로 */
+  charVariant(from: number, o: { font?: string; size?: number }) {
+    const src = this.charData(from);
+    if (!src) return from;
+    const d = Buffer.from(src);
+    if (o.font) {
+      for (let l = 0; l < 7; l++) {
+        const i = this.m.faces[l]?.indexOf(o.font) ?? -1;
+        if (i >= 0) d.writeUInt16LE(i, l * 2);
+      }
+    }
+    if (o.size) d.writeInt32LE(Math.round(o.size * 100), 42);
+    return d.equals(src) ? from : this.add("c", d);
+  }
+  get added() {
+    return this.addedPara.length + this.addedChar.length;
+  }
+  /** 더한 모양을 문서 파일 묶음의 DocInfo 에 씀 */
+  write(cfb: ReturnType<typeof CFB.read>, compressed: boolean) {
+    if (!this.added) return;
+    const recs = readDocInfo(cfb, compressed);
+    const insertAfter = (tag: number, list: Buffer[]) => {
+      if (!list.length) return;
+      const last = recs.reduce((at, r, i) => (r.tag === tag ? i : at), -1);
+      if (last < 0) throw new Error("모양 목록이 없는 문서예요");
+      recs.splice(last + 1, 0, ...list.map((data) => ({ tag, level: recs[last].level, data })));
+    };
+    insertAfter(TAG_CHAR_SHAPE, this.addedChar);
+    insertAfter(TAG_PARA_SHAPE, this.addedPara);
+    const idm = recs.find((r) => r.tag === TAG_ID_MAPPINGS);
+    if (!idm) throw new Error("ID_MAPPINGS 가 없는 문서예요");
+    idm.data = Buffer.from(idm.data);
+    idm.data.writeInt32LE(recs.filter((r) => r.tag === TAG_CHAR_SHAPE).length, ID_CHAR_SHAPES * 4);
+    idm.data.writeInt32LE(recs.filter((r) => r.tag === TAG_PARA_SHAPE).length, ID_PARA_SHAPES * 4);
+    let body = serializeRecords(recs);
+    if (compressed) body = deflateRawSync(body);
+    const e = CFB.find(cfb, DOCINFO);
+    if (!e) throw new Error("DocInfo 가 없어요");
+    e.content = body as unknown as typeof e.content;
+    e.size = body.length;
+  }
 }
 
 /** 글자 하나의 너비 (글자 크기의 몇 배인지). 한글 · 한자는 1, 영문 · 숫자는 0.58, 빈칸 · 문장부호는 0.4 (조금 넉넉하게) */
@@ -178,4 +254,12 @@ export function bodySize(recs: Rec[]) {
   if (!pd || pd.data.length < 32) return { width: 45354, height: 73700 };
   const v = (i: number) => pd.data.readUInt32LE(i * 4);
   return { width: v(0) - v(2) - v(3), height: v(1) - v(4) - v(5) - v(6) - v(7) };
+}
+
+/** 쪽 모양 (한글 단위): 크기와 본문 둘레 여백 (위 = 위 여백 + 머리말, 아래 = 아래 여백 + 꼬리말) */
+export function pageDef(recs: Rec[]) {
+  const pd = recs.find((r) => r.tag === 73);
+  if (!pd || pd.data.length < 32) return { width: 59528, height: 84188, left: 7000, right: 7000, top: 5669, bottom: 4252 };
+  const v = (i: number) => pd.data.readUInt32LE(i * 4);
+  return { width: v(0), height: v(1), left: v(2), right: v(3), top: v(4) + v(6), bottom: v(5) + v(7) };
 }

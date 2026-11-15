@@ -173,5 +173,10 @@ export function structureKey(f: IepFields) {
     f.year,
     f.semester,
     ids.map((sid) => [sid, parseList(f[studentKey(sid, "sectionList")]).map((sec) => [sec, f[sk(sec, "kind")], f[sk(sec, "goalList")]])]),
+    // 표 크기 · 글자 모양 (한글 파일과 같은 모양을 다시 받음)
+    Object.keys(f)
+      .filter((k) => k.startsWith("size.") || k.startsWith("fmt."))
+      .sort()
+      .map((k) => [k, f[k]]),
   ]);
 }

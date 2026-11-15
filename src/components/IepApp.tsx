@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
   currentTerm,
@@ -459,6 +459,46 @@ function IepEditor({ docId, myName, onBack, onRename, nameDialog }: { docId: str
   const removeSection = (id: string) => set(key("sectionList"), JSON.stringify(sections.filter((s) => s !== id)));
 
   const people = [{ id: me.id, name: myName, color: me.color, field: "" }, ...presence];
+  /** 따라가는 선생님 (프로필을 누르면 그 선생님이 고치는 곳을 구글 문서처럼 따라감) */
+  const [following, setFollowing] = useState<string | null>(null);
+  const followed = following ? (presence.find((p) => p.id === following) ?? null) : null;
+  /** 개별화교육계획(학교 양식) 화면에서 고른 학생 */
+  const [v2Sid, setV2Sid] = useState<string | null>(null);
+  const followField = followed?.field ?? "";
+  /** 따라가기 멈추기: 멈춘 뒤에도 따라가던 학생 화면에 그대로 머묾 */
+  const stopFollow = () => {
+    const s = followField ? sidOfField(values, followField) : null;
+    if (s) setV2Sid(s);
+    setFollowing(null);
+  };
+  // 내가 화면을 움직이거나 글을 적으면 따라가기를 멈춤 (구글 문서처럼)
+  useEffect(() => {
+    if (!following) return;
+    const stop = (e: Event) => {
+      if (e.target instanceof Element && e.target.closest("[data-follow-ui]")) return;
+      const s = followField ? sidOfField(values, followField) : null;
+      if (s) setV2Sid(s);
+      setFollowing(null);
+    };
+    const opts = { passive: true } as const;
+    window.addEventListener("wheel", stop, opts);
+    window.addEventListener("touchmove", stop, opts);
+    window.addEventListener("keydown", stop);
+    window.addEventListener("mousedown", stop);
+    return () => {
+      window.removeEventListener("wheel", stop);
+      window.removeEventListener("touchmove", stop);
+      window.removeEventListener("keydown", stop);
+      window.removeEventListener("mousedown", stop);
+    };
+  }, [following, followField, values]);
+  // 따라가는 선생님이 칸을 고치지 않을 때는 그 선생님의 마우스 높이로 화면을 옮김
+  const followY = followed && !followed.field && followed.cursor ? Math.round(followed.cursor[1] / 40) * 40 : null;
+  useEffect(() => {
+    if (followY === null || !docRef.current) return;
+    const top = docRef.current.getBoundingClientRect().top + window.scrollY + followY;
+    window.scrollTo({ top: Math.max(0, top - window.innerHeight / 2), behavior: "smooth" });
+  }, [followY]);
 
   return (
     <IepCtx.Provider value={ctx}>
@@ -478,18 +518,23 @@ function IepEditor({ docId, myName, onBack, onRename, nameDialog }: { docId: str
               </p>
             </div>
             {/* 지금 이 문서를 보고 있는 사람들 */}
-            <div className="flex items-center">
-              {people.map((p, i) => (
-                <span
-                  key={p.id}
-                  title={i === 0 ? `나 (${p.name}) · 누르면 이름 바꾸기` : `${p.name} 선생님이 보고 있어요`}
-                  onClick={i === 0 ? onRename : undefined}
-                  className={`-ml-1.5 grid h-8 w-8 place-items-center rounded-full text-xs font-bold text-white ring-2 ring-white first:ml-0 ${i === 0 ? "cursor-pointer" : ""}`}
-                  style={{ background: p.color }}
-                >
-                  {[...p.name][0]}
-                </span>
-              ))}
+            <div className="flex items-center" data-follow-ui>
+              {people.map((p, i) => {
+                const on = i > 0 && p.id === following;
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    title={i === 0 ? `나 (${p.name}) · 누르면 이름 바꾸기` : on ? `${p.name} 선생님 따라가기 멈추기` : `${p.name} 선생님 따라가기 (그 선생님이 고치는 곳을 따라가요)`}
+                    aria-pressed={i === 0 ? undefined : on}
+                    onClick={i === 0 ? onRename : () => (on ? stopFollow() : setFollowing(p.id))}
+                    className={`-ml-1.5 grid h-8 w-8 cursor-pointer place-items-center rounded-full text-xs font-bold text-white ring-2 first:ml-0 ${on ? "relative z-10 ring-offset-2" : "ring-white"}`}
+                    style={{ background: p.color, ...(on ? ({ "--tw-ring-color": p.color } as CSSProperties) : {}) }}
+                  >
+                    {[...p.name][0]}
+                  </button>
+                );
+              })}
               {presence.length > 0 && <span className="ml-2 hidden text-xs font-medium text-slate-500 sm:inline">{presence.length + 1}명이 함께 편집 중</span>}
             </div>
             <a
@@ -568,8 +613,23 @@ function IepEditor({ docId, myName, onBack, onRename, nameDialog }: { docId: str
                   </div>
                 ),
             )}
+            {/* 따라가는 중 알림 */}
+            {followed &&
+              createPortal(
+                <>
+                  {/* 구글 문서처럼 화면 가장자리를 그 선생님 색으로 */}
+                  <div aria-hidden className="pointer-events-none fixed inset-0 z-50 print:hidden" style={{ boxShadow: `inset 0 0 0 3px ${followed.color}` }} />
+                  <div data-follow-ui className="fixed left-1/2 top-[76px] z-50 flex -translate-x-1/2 items-center gap-2 rounded-full py-1.5 pl-3 pr-1.5 text-sm font-semibold text-white shadow-lg print:hidden" style={{ background: followed.color }}>
+                    {followed.name} 선생님을 따라가는 중
+                    <button type="button" onClick={stopFollow} className="rounded-full bg-white/20 px-2.5 py-0.5 text-xs hover:bg-white/30">
+                      멈추기
+                    </button>
+                  </div>
+                </>,
+                document.body,
+              )}
             {values.form === FORM_V2 ? (
-              <DocV2 />
+              <DocV2 sid={v2Sid} onSid={setV2Sid} follow={followed?.field ? { field: followed.field } : null} />
             ) : isForm ? (
               <FormDoc year={values.year ?? ""} semester={values.semester ?? ""} />
             ) : !legacy && !ids.length ? (
@@ -609,7 +669,7 @@ function IepEditor({ docId, myName, onBack, onRename, nameDialog }: { docId: str
 
 // ---------------------------------------------------------------- 학교 한글 양식을 그대로 고치는 화면
 
-type FormStyle = { align: "left" | "center" | "right" | "justify"; bold: boolean; size: number; font?: string; spacing?: number; color?: string };
+type FormStyle = { align: "left" | "center" | "right" | "justify"; bold: boolean; size: number; font?: string; fontName?: string; spacing?: number; color?: string; ls?: number };
 type FormCellT = FormStyle & {
   key: string;
   r: number;
@@ -623,10 +683,13 @@ type FormCellT = FormStyle & {
   valign: "top" | "middle" | "bottom";
   text: string;
   locked: boolean;
+  lines?: string[];
+  /** 칸 안 문단마다의 모양 */
+  styles?: FormStyle[];
 };
 type FormBlockT = { pi?: number; page?: boolean } & (
   | (FormStyle & { type: "p"; key: string; text: string; locked: boolean })
-  | { type: "table"; key: string; w: number; rows: number; cols: number; cells: FormCellT[] }
+  | { type: "table"; key: string; w: number; rows: number; cols: number; split?: boolean; cells: FormCellT[] }
   | { type: "object"; w?: number; h?: number; align?: FormStyle["align"]; image?: boolean }
 );
 type FormT = { sections: { label: string; nameKey?: string; blocks: FormBlockT[] }[] };
@@ -641,7 +704,8 @@ const cellStyle = (s: FormStyle): CSSProperties => ({
   letterSpacing: s.spacing ? `${s.spacing / 100}em` : undefined,
   color: s.color && s.color !== "#000000" ? s.color : undefined,
   textAlign: s.align === "justify" ? "left" : s.align,
-  lineHeight: 1.45,
+  // 한글의 줄 간격(글자 크기에 대한 %)을 그대로
+  lineHeight: s.ls ? s.ls / 100 : 1.45,
 });
 /** 칸 테두리 (한글 파일의 칸마다의 선 종류 · 굵기 그대로) */
 const borderStyle = (c: FormCellT): CSSProperties =>
@@ -777,9 +841,15 @@ function FormDoc({ year, semester }: { year: string; semester: string }) {
 // ---------------------------------------------------------------- 개별화교육계획 (학교 한글 파일 형식 그대로)
 
 type BindT = { field: string; para?: number } | { parts: { label: string; field: string }[] } | { choice: { field: string; value: string } };
-type V2Cell = FormCellT & { lines?: string[]; bind?: BindT; goal?: { sec: string; gid: string } };
-type V2Block = Exclude<FormBlockT, { type: "table" }> | (Extract<FormBlockT, { type: "table" }> & { cells: V2Cell[]; goalSec?: string });
-type V2Layout = { sections: { sid: string | null; label: string; blocks: V2Block[] }[] };
+type V2Cell = FormCellT & { bind?: BindT; goal?: { sec: string; gid: string } };
+type V2Block = Exclude<FormBlockT, { type: "table" }> | (Extract<FormBlockT, { type: "table" }> & { cells: V2Cell[]; goalSec?: string; sizeId?: string; rowKeys?: string[] });
+type V2Layout = {
+  sections: { sid: string | null; label: string; blocks: V2Block[] }[];
+  /** 쪽 크기 · 본문 둘레 여백 (px) */
+  page?: { width: number; height: number; left: number; right: number; top: number; bottom: number };
+  /** 고를 수 있는 글꼴 */
+  fonts?: string[];
+};
 
 const wizInput = "h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-[15px] outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100";
 const wizArea = "w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-[15px] outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100";
@@ -1203,15 +1273,39 @@ function StudentWizard({ onCancel, onDone }: { onCancel: () => void; onDone: (si
   );
 }
 
-/** 한 칸: 이어진 저장 칸을 바로 고치고, 이어지지 않은 칸(양식 글)은 그대로 보여 줌 */
+/** 고른 글꼴 이름 → CSS 글꼴 목록 */
+const fontFamilyOf = (name: string) => `"${name.replace(/"/g, "")}", ${/바탕|명조/.test(name) ? '"Batang", "AppleMyungjo", serif' : '"Malgun Gothic", "Apple SD Gothic Neo", sans-serif'}`;
+/** 칸마다 고른 글자 모양을 저장하는 칸 이름 */
+const fmtKey = (field: string) => `fmt.${field}`;
+type CellFmt = { font?: string; size?: number; ls?: number };
+const readFmt = (raw: string | undefined): CellFmt => {
+  try {
+    const o = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+    return { font: typeof o.font === "string" ? o.font : undefined, size: typeof o.size === "number" ? o.size : undefined, ls: typeof o.ls === "number" ? o.ls : undefined };
+  } catch {
+    return {};
+  }
+};
+/** 양식 모양 위에 고른 글자 모양(글꼴 · 크기 · 줄 간격)을 얹음 */
+function withFormat(base: FormStyle, raw: string | undefined): FormStyle {
+  const o = readFmt(raw);
+  return { ...base, ...(o.font ? { fontName: o.font, font: fontFamilyOf(o.font) } : {}), ...(o.size ? { size: o.size } : {}), ...(o.ls ? { ls: o.ls } : {}) };
+}
+
+/** 한 칸: 이어진 저장 칸을 바로 고치고, 이어지지 않은 칸(양식 글)은 그대로 보여 줌. 문단마다 그 문단의 글자 모양으로 */
 function CellV2({ cell, canRemoveGoal, onRemoveGoal }: { cell: V2Cell; canRemoveGoal: boolean; onRemoveGoal: () => void }) {
   const { values, set } = useIep();
-  const style = cellStyle(cell);
+  const paraStyle = (i: number): FormStyle => cell.styles?.[i] ?? cell;
   const b = cell.bind;
   if (!b) {
+    const lines = cell.lines?.length ? cell.lines : [cell.text];
     return (
-      <div className="whitespace-pre-wrap break-words px-1.5 py-1 text-slate-800" style={style}>
-        {cell.text}
+      <div className="break-words px-1.5 py-1 text-slate-800">
+        {lines.map((l, i) => (
+          <div key={i} className="whitespace-pre-wrap" style={cellStyle(paraStyle(i))}>
+            {l || " "}
+          </div>
+        ))}
       </div>
     );
   }
@@ -1224,7 +1318,7 @@ function CellV2({ cell, canRemoveGoal, onRemoveGoal }: { cell: V2Cell; canRemove
         aria-pressed={on}
         aria-label={`성취평가 ${b.choice.value}점`}
         className="grid h-full min-h-7 w-full place-items-center font-bold text-indigo-700 transition hover:bg-indigo-50"
-        style={style}
+        style={cellStyle(paraStyle(0))}
       >
         {on ? "○" : ""}
       </button>
@@ -1233,28 +1327,32 @@ function CellV2({ cell, canRemoveGoal, onRemoveGoal }: { cell: V2Cell; canRemove
   if ("parts" in b) {
     return (
       <div className="px-0.5 py-0.5">
-        {b.parts.map((p) => (
-          <div key={p.field} className="flex items-start">
-            {p.label && (
-              <span className="shrink-0 py-1 pl-1 text-slate-800" style={style}>
-                {p.label}
-              </span>
-            )}
-            <F k={p.field} className="min-w-0 flex-1" style={p.label ? { ...style, textAlign: "left" } : style} />
-          </div>
-        ))}
+        {b.parts.map((p, i) => {
+          const st = cellStyle(withFormat(paraStyle(i), values[fmtKey(p.field)]));
+          return (
+            <div key={p.field} className="flex items-start">
+              {p.label && (
+                <span className="shrink-0 py-1 pl-1 text-slate-800" style={{ ...st, fontFamily: cellStyle(paraStyle(i)).fontFamily }}>
+                  {p.label}
+                </span>
+              )}
+              <F k={p.field} className="min-w-0 flex-1" style={p.label ? { ...st, textAlign: "left" } : st} />
+            </div>
+          );
+        })}
       </div>
     );
   }
+  const st = cellStyle(withFormat(paraStyle(b.para ?? 0), values[fmtKey(b.field)]));
   return (
     <div className="group/cell relative">
       {b.para !== undefined &&
         (cell.lines ?? []).slice(0, b.para).map((l, i) => (
-          <div key={i} className="whitespace-pre-wrap px-1.5 pt-1 text-slate-800" style={style}>
+          <div key={i} className="whitespace-pre-wrap px-1.5 pt-1 text-slate-800" style={cellStyle(paraStyle(i))}>
             {l}
           </div>
         ))}
-      <F k={b.field} style={style} />
+      <F k={b.field} style={st} />
       {cell.goal && canRemoveGoal && (
         <button
           type="button"
@@ -1273,7 +1371,7 @@ function CellV2({ cell, canRemoveGoal, onRemoveGoal }: { cell: V2Cell; canRemove
 /** 칸(td)의 빈 곳을 눌러도 그 칸을 고치게: 누른 곳에서 가장 가까운 글 상자로 커서를 옮김 (성취평가 칸은 누른 것처럼) */
 function focusCell(e: ReactMouseEvent<HTMLElement>) {
   const target = e.target as HTMLElement;
-  if (target.closest("textarea, input, button, select, a")) return;
+  if (target.closest("textarea, input, button, select, a, [data-resize]")) return;
   const areas = Array.from(e.currentTarget.querySelectorAll("textarea"));
   if (!areas.length) {
     const btn = e.currentTarget.querySelector("button");
@@ -1294,38 +1392,192 @@ function focusCell(e: ReactMouseEvent<HTMLElement>) {
   el.setSelectionRange(end, end);
 }
 
-/** 문단 묶음을 한글 파일의 쪽마다 나눔 (새 쪽이 시작되는 문단에서 끊음). 쪽 끝의 빈 문단은 뺌 */
-function pagesOf(blocks: V2Block[]): V2Block[][] {
-  const pages: V2Block[][] = [];
-  for (const b of blocks) {
-    if (b.page || !pages.length) pages.push([]);
-    pages[pages.length - 1].push(b);
-  }
-  for (const p of pages) {
-    while (p.length > 1) {
-      const last = p[p.length - 1];
-      if (last.type !== "p" || last.text) break;
-      p.pop();
+/** 쪽에 놓는 조각: 문단 묶음 하나, 또는 표의 from~to 줄 (표가 쪽을 넘으면 줄 단위로 나눔) */
+type PagePiece = { bi: number; from?: number; to?: number };
+/** 화면에 그린 높이(px): 문단 묶음 · 표의 줄마다 · 표에서 줄 말고 더 차지하는 높이(테두리 등) */
+type Measure = { h: Record<number, number>; rows: Record<number, number[]>; extra: Record<number, number> };
+
+/**
+ * 쪽 나누기: 쪽 크기는 그대로 두고, 넘치는 내용은 다음 쪽으로 (한글처럼).
+ * 새 쪽 표시가 있는 문단은 늘 새 쪽에서 · 나누지 않는 표는 통째로 다음 쪽으로 · 나눌 수 있는 표(또는 한 쪽보다 큰 표)는 줄 단위로 나눔.
+ */
+function paginate(blocks: V2Block[], height: number, m: Measure | null): PagePiece[][] {
+  const pages: PagePiece[][] = [[]];
+  let used = 0;
+  const page = () => pages[pages.length - 1];
+  const newPage = () => {
+    pages.push([]);
+    used = 0;
+  };
+  blocks.forEach((b, bi) => {
+    if (b.page && page().length) newPage();
+    if (b.type === "table") {
+      const rh = m?.rows[bi];
+      if (!rh) {
+        page().push({ bi });
+        return;
+      }
+      const extra = m?.extra[bi] ?? 0;
+      const total = rh.reduce((n, x) => n + (x || 0), 0) + extra;
+      if (used + total <= height) {
+        page().push({ bi });
+        used += total;
+        return;
+      }
+      if (!b.split && total <= height) {
+        if (page().length) newPage();
+        page().push({ bi });
+        used += total;
+        return;
+      }
+      let r = 0;
+      while (r < rh.length) {
+        let k = r;
+        let sum = extra;
+        while (k < rh.length && used + sum + (rh[k] || 0) <= height) sum += rh[k++] || 0;
+        if (k === r) {
+          if (used > 0) {
+            newPage();
+            continue;
+          }
+          sum += rh[k++] || 0; // 한 줄이 쪽보다 큼: 그 줄만 한 쪽에
+        }
+        page().push({ bi, from: r, to: k });
+        used += sum;
+        r = k;
+        if (r < rh.length) newPage();
+      }
+      return;
     }
-  }
-  return pages;
+    const h = m?.h[bi] ?? 0;
+    const empty = b.type === "p" && !b.text;
+    // 빈 문단은 쪽 끝에서 넘치거나 넘어간 쪽 맨 앞이면 뺌 (한글도 빈 줄 때문에 쪽을 늘리지 않음)
+    if (empty && m && (used + h > height || (used === 0 && !b.page))) return;
+    if (m && used + h > height && used > 0) newPage();
+    page().push({ bi });
+    used += h;
+  });
+  return pages.filter((p) => p.length);
 }
 
-/** 학교 한글 파일 형식 그대로의 개별화교육계획: 처음 설정 → 표지 → 「학생 추가」로 학생마다 인적 사항과 과목별 계획 */
-function DocV2() {
+const sameMeasure = (a: Measure, b: Measure) => JSON.stringify(a) === JSON.stringify(b);
+
+/** 칸 이름 → 그 칸이 든 학생 (표지 · 학생과 상관없는 칸은 null) */
+function sidOfField(values: Record<string, string>, field: string): string | null {
+  const st = /^st\.([a-z0-9]+)\./.exec(field);
+  if (st) return st[1];
+  const s = /^s\.([a-z0-9]+)\./.exec(field);
+  if (s) return parseList(values.studentList).find((sid) => parseList(values[studentKey(sid, "sectionList")]).includes(s[1])) ?? null;
+  return null;
+}
+
+const SIZES = [8, 9, 10, 10.5, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24, 28, 32, 36, 40];
+const SPACINGS = [100, 120, 130, 140, 150, 160, 170, 180, 200, 220, 250, 300];
+
+/** 글자 모양 막대: 지금 고치는 칸의 글꼴 · 크기 · 줄 간격 (한글 편집기처럼) */
+function FormatBar({ field, base, fonts, onDone }: { field: string | null; base: FormStyle | null; fonts: string[]; onDone: () => void }) {
   const { values, set } = useIep();
-  const [layout, setLayout] = useState<V2Layout | null>(null);
+  const cur = field ? readFmt(values[fmtKey(field)]) : {};
+  const font = cur.font ?? base?.fontName ?? "";
+  const size = cur.size ?? base?.size ?? 10;
+  const ls = cur.ls ?? base?.ls ?? 160;
+  const apply = (patch: CellFmt) => {
+    if (!field) return;
+    const next = { ...cur, ...patch };
+    set(fmtKey(field), JSON.stringify(next));
+    onDone();
+  };
+  const sizeAt = (d: 1 | -1) => {
+    const i = SIZES.findIndex((x) => x >= size);
+    const at = i < 0 ? SIZES.length - 1 : SIZES[i] === size ? i + d : d > 0 ? i : i - 1;
+    return SIZES[Math.min(SIZES.length - 1, Math.max(0, at))];
+  };
+  const box = "h-9 rounded-lg border border-slate-200 bg-white px-2 text-sm text-slate-700 outline-none focus:border-indigo-500 disabled:opacity-50";
+  const off = !field;
+  return createPortal(
+    <div
+      data-follow-ui
+      onMouseDown={(e) => {
+        // 단추를 눌러도 고치던 칸에서 커서가 빠지지 않게 (고르는 상자는 그대로 열림)
+        if (!(e.target as HTMLElement).closest("select")) e.preventDefault();
+      }}
+      className="fixed bottom-4 left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 rounded-2xl bg-white/95 px-3 py-2 shadow-lg ring-1 ring-slate-200 backdrop-blur print:hidden"
+      role="toolbar"
+      aria-label="글자 모양"
+    >
+      <select aria-label="글꼴" value={fonts.includes(font) ? font : ""} disabled={off} onChange={(e) => apply({ font: e.target.value || undefined })} className={`${box} w-36`} style={{ fontFamily: font ? fontFamilyOf(font) : undefined }}>
+        {!fonts.includes(font) && <option value="">글꼴</option>}
+        {fonts.map((f) => (
+          <option key={f} value={f} style={{ fontFamily: fontFamilyOf(f) }}>
+            {f}
+          </option>
+        ))}
+      </select>
+      <div className="flex items-center">
+        <button type="button" disabled={off} onClick={() => apply({ size: sizeAt(-1) })} aria-label="글자 작게" className="grid h-9 w-8 place-items-center rounded-l-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50">
+          −
+        </button>
+        <select aria-label="글자 크기(pt)" value={String(size)} disabled={off} onChange={(e) => apply({ size: Number(e.target.value) })} className={`${box} -ml-px w-[4.5rem] rounded-none`}>
+          {[...new Set([...SIZES, size])].sort((a, b) => a - b).map((s) => (
+            <option key={s} value={String(s)}>
+              {s}pt
+            </option>
+          ))}
+        </select>
+        <button type="button" disabled={off} onClick={() => apply({ size: sizeAt(1) })} aria-label="글자 크게" className="-ml-px grid h-9 w-8 place-items-center rounded-r-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50">
+          +
+        </button>
+      </div>
+      <label className="flex items-center gap-1 text-xs font-semibold text-slate-500">
+        줄 간격
+        <select aria-label="줄 간격(%)" value={String(ls)} disabled={off} onChange={(e) => apply({ ls: Number(e.target.value) })} className={`${box} w-20`}>
+          {[...new Set([...SPACINGS, ls])].sort((a, b) => a - b).map((s) => (
+            <option key={s} value={String(s)}>
+              {s}%
+            </option>
+          ))}
+        </select>
+      </label>
+      {field && (cur.font || cur.size || cur.ls) && (
+        <button type="button" onClick={() => {
+            set(fmtKey(field), "");
+            onDone();
+          }} className="rounded-lg px-2 py-1.5 text-xs font-semibold text-slate-500 hover:bg-slate-100">
+          양식대로
+        </button>
+      )}
+      {off && <span className="pl-1 text-xs text-slate-400">칸을 누르면 글자 모양을 바꿀 수 있어요</span>}
+    </div>,
+    document.body,
+  );
+}
+
+/** 표 테두리 끌기: 열 경계(좌우) · 줄 경계(위아래) */
+type DragState = { bi: number; kind: "col" | "row"; i: number; start: number; d: number; base: number[]; scale: number };
+
+/** 학교 한글 파일 형식 그대로의 개별화교육계획: 처음 설정 → 표지 → 「학생 추가」로 학생마다 인적 사항과 과목별 계획 */
+function DocV2({ sid, onSid, follow }: { sid: string | null; onSid: (sid: string | null) => void; follow: { field: string } | null }) {
+  const { values, set, who } = useIep();
+  const [layout, setLayout] = useState<{ data: V2Layout; v: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [sid, setSid] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
+  /** 재어 둔 높이 (학생마다). 모양을 새로 받아도 다시 잴 때까지 앞서 잰 높이로 쪽을 나눠 화면이 흔들리지 않게 함 */
+  const [meas, setMeas] = useState<{ key: string; sid: string; m: Measure } | null>(null);
+  const [cur, setCur] = useState<string | null>(null);
+  const [drag, setDrag] = useState<DragState | null>(null);
+  /** 끌어서 바꾼 크기: 새 모양을 받을 때까지 화면에 그대로 둠 */
+  const [held, setHeld] = useState<{ v: number; bi: number; cols?: number[]; row?: { i: number; h: number } } | null>(null);
   const latest = useRef(values);
+  const box = useRef<HTMLDivElement>(null);
+  /** 마지막으로 고치던 글 상자 (쪽이 바뀌어 다시 그려지면 그 자리로 커서를 돌려 놓음) */
+  const lastFocus = useRef<{ el: HTMLTextAreaElement; field: string; s: number; e: number } | null>(null);
   useEffect(() => {
     latest.current = values;
   });
   const skey = structureKey(values);
 
-  // 학생 · 영역 · 단기목표 줄이 바뀌면 조립한 한글 문서의 모양을 다시 받음
+  // 학생 · 영역 · 단기목표 줄 · 표 크기 · 글자 모양이 바뀌면 조립한 한글 문서의 모양을 다시 받음
   useEffect(() => {
     let cancelled = false;
     const t = setTimeout(async () => {
@@ -1334,7 +1586,7 @@ function DocV2() {
         const data = (await res.json()) as V2Layout & { error?: string };
         if (!res.ok) throw new Error(data.error ?? "양식을 만들지 못했어요.");
         if (!cancelled) {
-          setLayout(data);
+          setLayout((old) => ({ data, v: (old?.v ?? 0) + 1 }));
           setError(null);
         }
       } catch (e) {
@@ -1347,126 +1599,450 @@ function DocV2() {
     };
   }, [skey]);
 
+  const data = layout?.data ?? null;
+  const followSid = follow ? sidOfField(values, follow.field) : null;
+  const sec = data ? (data.sections.find((x) => x.sid === (followSid ?? sid)) ?? data.sections[0]) : null;
+  const pg = data?.page ?? { width: 794, height: 1123, left: 93, right: 94, top: 76, bottom: 62 };
+  const contentW = pg.width - pg.left - pg.right;
+  const contentH = pg.height - pg.top - pg.bottom;
+  const mkey = `${layout?.v ?? 0}:${sec?.sid ?? ""}`;
+  const sidNow = sec?.sid ?? "";
+  const usable = meas && meas.sid === (sec?.sid ?? "") ? meas.m : null;
+  const plan = useMemo(() => (sec ? paginate(sec.blocks, contentH, usable) : []), [sec, contentH, usable]);
+  const planSig = JSON.stringify(plan);
+
+  // 그린 높이를 재어 쪽을 나눔. 글을 적어 칸이 커지면 다시 잼
+  useLayoutEffect(() => {
+    const root = box.current;
+    if (!root) return;
+    let frame = 0;
+    const measure = () => {
+      frame = 0;
+      const m: Measure = { h: {}, rows: {}, extra: {} };
+      root.querySelectorAll<HTMLElement>("[data-bi]").forEach((el) => {
+        const bi = Number(el.dataset.bi);
+        const r2 = (x: number) => Math.round(x * 2) / 2;
+        if (el.dataset.table) {
+          let sum = 0;
+          const rows = (m.rows[bi] ??= []);
+          el.querySelectorAll<HTMLElement>("tr[data-r]").forEach((tr) => {
+            const h = r2(tr.getBoundingClientRect().height);
+            const r = Number(tr.dataset.r);
+            rows[r] = Math.max(rows[r] ?? 0, h);
+            sum += h;
+          });
+          m.extra[bi] = Math.max(m.extra[bi] ?? 0, r2(el.getBoundingClientRect().height - sum));
+        } else m.h[bi] = r2(el.getBoundingClientRect().height);
+      });
+      for (const k of Object.keys(m.rows)) m.rows[Number(k)] = Array.from(m.rows[Number(k)], (x) => x ?? 0);
+      setMeas((old) => {
+        // 지금 그리지 않은 묶음(쪽 끝에서 뺀 빈 줄 등)은 앞서 잰 높이를 그대로 둠 (없으면 0 으로 보여 쪽 나누기가 흔들림)
+        const merged: Measure = old && old.sid === sidNow ? { h: { ...old.m.h, ...m.h }, rows: { ...old.m.rows, ...m.rows }, extra: { ...old.m.extra, ...m.extra } } : m;
+        return old && old.key === mkey && sameMeasure(old.m, merged) ? old : { key: mkey, sid: sidNow, m: merged };
+      });
+    };
+    let timer = 0;
+    const schedule = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(measure);
+      // 창이 가려져 그리기가 멈춘 때에도 재도록
+      clearTimeout(timer);
+      timer = window.setTimeout(() => frame && (cancelAnimationFrame(frame), measure()), 150);
+    };
+    const ro = new ResizeObserver(schedule);
+    root.querySelectorAll("[data-bi]").forEach((el) => ro.observe(el));
+    schedule();
+    // 쪽이 바뀌어 고치던 글 상자가 다시 그려졌으면 같은 칸 · 같은 자리로 커서를 돌려 놓음
+    const lf = lastFocus.current;
+    if (lf && !lf.el.isConnected && (document.activeElement === document.body || !document.activeElement)) {
+      const next = root.querySelector<HTMLTextAreaElement>(`textarea[data-field="${CSS.escape(lf.field)}"]`);
+      if (next) {
+        next.focus({ preventScroll: true });
+        next.setSelectionRange(lf.s, lf.e);
+        lastFocus.current = { ...lf, el: next };
+      }
+    }
+    return () => {
+      ro.disconnect();
+      clearTimeout(timer);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, [planSig, mkey, sidNow]);
+
+  // 따라가기: 따라가는 선생님이 고치는 칸으로 화면을 옮김
+  const followField = follow?.field ?? "";
+  useEffect(() => {
+    if (!followField) return;
+    const el = box.current?.querySelector<HTMLElement>(`[data-field="${CSS.escape(followField)}"]`);
+    el?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [followField, planSig]);
+
+  /** 칸 이름 → 그 칸(문단)의 양식 글자 모양 (글자 모양 막대에 지금 값으로 보여 줌) */
+  const baseStyles = useMemo(() => {
+    const map = new Map<string, FormStyle>();
+    for (const b of sec?.blocks ?? []) {
+      if (b.type !== "table") continue;
+      for (const c of b.cells as V2Cell[]) {
+        const bind = c.bind;
+        if (!bind || "choice" in bind) continue;
+        if ("parts" in bind) bind.parts.forEach((p, i) => map.set(p.field, c.styles?.[i] ?? c));
+        else map.set(bind.field, c.styles?.[bind.para ?? 0] ?? c);
+      }
+    }
+    return map;
+  }, [sec]);
+
   if (!values.setup) return <SetupWizard />;
-  if (error && !layout) return <p className="mx-auto max-w-md rounded-xl bg-red-50 p-6 text-center text-sm text-red-700">{error}</p>;
-  if (!layout)
+  if (error && !data) return <p className="mx-auto max-w-md rounded-xl bg-red-50 p-6 text-center text-sm text-red-700">{error}</p>;
+  if (!data || !sec)
     return (
       <div className="grid place-items-center py-20">
         <Spinner className="h-8 w-8 text-indigo-600" />
       </div>
     );
 
-  const students = layout.sections.filter((x) => x.sid);
-  const sec = layout.sections.find((x) => x.sid === sid) ?? layout.sections[0];
+  const students = data.sections.filter((x) => x.sid);
   const nameOf = (id: string | null) => (id ? (values[studentKey(id, "name")] ?? "").trim() || "이름 없음" : "표지");
+  // 왼쪽 학생 목록: 학년마다
+  const groups = new Map<string, string[]>();
+  for (const x of students) {
+    const g = (values[studentKey(x.sid!, "grade")] ?? "").trim();
+    groups.set(g, [...(groups.get(g) ?? []), x.sid!]);
+  }
+  const busySids = new Set(Object.keys(who).map((f) => sidOfField(values, f)));
+
+  // 끌어서 바꾸는 표 크기 (끄는 중 → 놓은 뒤 새 모양을 받을 때까지)
+  const colsOf = (b: Extract<V2Block, { type: "table" }>, bi: number) => {
+    const w = colWidths(b);
+    if (drag && drag.bi === bi && drag.kind === "col") {
+      const out = [...drag.base];
+      const d = drag.d / drag.scale;
+      if (drag.i < out.length - 1) {
+        const dd = Math.max(12 - out[drag.i], Math.min(out[drag.i + 1] - 12, d));
+        out[drag.i] += dd;
+        out[drag.i + 1] -= dd;
+      } else out[drag.i] = Math.max(12, out[drag.i] + d);
+      return out;
+    }
+    if (held && held.v === layout!.v && held.bi === bi && held.cols) return held.cols;
+    return w;
+  };
+  const rowOverride = (bi: number): { i: number; h: number } | null => {
+    if (drag && drag.bi === bi && drag.kind === "row") return { i: drag.i, h: Math.max(10, drag.base[drag.i] + drag.d) };
+    if (held && held.v === layout!.v && held.bi === bi && held.row) return held.row;
+    return null;
+  };
+  const saveSize = (b: Extract<V2Block, { type: "table" }>, patch: { c?: number[]; r?: Record<string, number> }) => {
+    if (!b.sizeId) return;
+    const k = `size.${b.sizeId}`;
+    let old: { c?: number[]; r?: Record<string, number> } = {};
+    try {
+      old = values[k] ? (JSON.parse(values[k]) as typeof old) : {};
+    } catch {
+      old = {};
+    }
+    set(k, JSON.stringify({ ...old, ...(patch.c ? { c: patch.c } : {}), ...(patch.r ? { r: { ...(old.r ?? {}), ...patch.r } } : {}) }));
+  };
+  const startDrag = (e: ReactPointerEvent<HTMLElement>, st: Omit<DragState, "start" | "d">) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setDrag({ ...st, start: st.kind === "col" ? e.clientX : e.clientY, d: 0 });
+  };
+  const moveDrag = (e: ReactPointerEvent<HTMLElement>) => {
+    if (!drag) return;
+    setDrag({ ...drag, d: (drag.kind === "col" ? e.clientX : e.clientY) - drag.start });
+  };
+  const endDrag = (b: Extract<V2Block, { type: "table" }>, bi: number, scale: number) => {
+    if (!drag) return;
+    const d = drag;
+    setDrag(null);
+    if (Math.abs(d.d) < 1) return;
+    if (d.kind === "col") {
+      const cols = colsOf(b, bi);
+      setHeld({ v: layout!.v, bi, cols });
+      saveSize(b, { c: cols.map((w) => Math.round(w * 75)) });
+    } else {
+      const h = Math.max(10, d.base[d.i] + d.d);
+      const key = b.rowKeys?.[d.i];
+      if (!key) return;
+      setHeld({ v: layout!.v, bi, row: { i: d.i, h } });
+      saveSize(b, { r: { [key]: Math.round((h / scale) * 75) } });
+    }
+  };
+
+  const renderPiece = ({ bi, from, to }: PagePiece) => {
+    const b = sec.blocks[bi];
+    if (b.type === "object")
+      return b.image && b.w ? (
+        <div key={`o-${bi}`} data-bi={bi} className="flex" style={{ justifyContent: b.align === "right" ? "flex-end" : b.align === "left" ? "flex-start" : "center" }}>
+          {/* eslint-disable-next-line @next/next/no-img-element -- 한글 양식 안의 그림을 그대로 보여 줌 */}
+          <img src="/api/iep/logo" alt="월계중학교 로고" width={b.w} height={b.h} style={{ width: b.w, height: b.h }} />
+        </div>
+      ) : (
+        <div key={`o-${bi}`} data-bi={bi} />
+      );
+    if (b.type === "p")
+      return b.text ? (
+        <div key={`p-${bi}`} data-bi={bi} className="whitespace-pre-wrap" style={cellStyle(b)}>
+          {b.text}
+        </div>
+      ) : (
+        // 빈 문단도 한글 파일처럼 그 글자 크기 · 줄 간격만큼 띄움
+        <div key={`p-${bi}`} data-bi={bi} style={{ height: `calc(${fontPx(b.size)} * ${(b.ls ?? 160) / 100})` }} />
+      );
+    const cols = colsOf(b, bi);
+    const total = cols.reduce((n, x) => n + x, 0);
+    const scale = Math.min(1, contentW / total);
+    const goals = b.goalSec ? goalIdsOf(values, b.goalSec) : [];
+    const r0 = from ?? 0;
+    const r1 = to ?? b.rows;
+    const rowO = rowOverride(bi);
+    const cells = b.cells as V2Cell[];
+    const measured = usable?.rows[bi];
+    // 줄 · 열 경계 위치: 줄은 재어 둔 높이로, 열은 너비로
+    const rowTop: number[] = [];
+    let yy = 0;
+    for (let r = r0; r <= r1; r++) {
+      rowTop[r] = yy;
+      if (r < r1) yy += rowO && rowO.i === r ? rowO.h : (measured?.[r] ?? 0);
+    }
+    const colLeft: number[] = [0];
+    cols.forEach((w, i) => (colLeft[i + 1] = colLeft[i] + w * scale));
+    /** 겹치거나 붙은 구간을 하나로 */
+    const merge = (xs: [number, number][]) =>
+      xs
+        .sort((p, q) => p[0] - q[0])
+        .reduce<[number, number][]>((out, [a, z]) => {
+          const last = out[out.length - 1];
+          if (last && a <= last[1] + 0.5) last[1] = Math.max(last[1], z);
+          else out.push([a, z]);
+          return out;
+        }, []);
+    const inPart = cells.filter((c) => c.r < r1 && c.r + c.rs > r0);
+    // 테두리가 실제로 있는 곳에만 끄는 손잡이 (합친 칸 한가운데에는 없음, 한글처럼)
+    const rowEdges = measured
+      ? Array.from({ length: r1 - r0 }, (_, k) => r0 + k).flatMap((r) =>
+          merge(inPart.filter((c) => c.r + c.rs - 1 === r).map((c): [number, number] => [colLeft[c.c], colLeft[c.c + c.cs]])).map(([x0, x1]) => ({ i: r, y: rowTop[r + 1], x0, x1 })),
+        )
+      : [];
+    const colEdges = cols.flatMap((_, i) =>
+      measured
+        ? merge(inPart.filter((c) => c.c + c.cs - 1 === i).map((c): [number, number] => [rowTop[Math.max(c.r, r0)], rowTop[Math.min(c.r + c.rs, r1)]])).map(([y0, y1]) => ({ i, x: colLeft[i + 1], y0, y1 }))
+        : [{ i, x: colLeft[i + 1], y0: 0, y1: -1 }],
+    );
+    return (
+      <div key={`t-${bi}-${r0}`} data-bi={bi} data-table="1" className="relative mx-auto" style={{ width: total * scale }}>
+        <table className="table-fixed border-collapse" style={{ width: total * scale }}>
+          <colgroup>
+            {cols.map((w, ci) => (
+              <col key={ci} style={{ width: w * scale }} />
+            ))}
+          </colgroup>
+          <tbody>
+            {Array.from({ length: r1 - r0 }, (_, k) => {
+              const r = r0 + k;
+              // 이 조각에서 그릴 칸: 이 줄에서 시작하는 칸 + (조각 첫 줄이면) 앞 조각에서 이어져 내려온 칸
+              const row = cells.filter((c) => c.r === r || (k === 0 && c.r < r && c.r + c.rs > r));
+              return (
+                <tr key={r} data-r={r} style={rowO && rowO.i === r ? { height: rowO.h } : undefined}>
+                  {row
+                    .sort((x, y) => x.c - y.c)
+                    .map((c) => {
+                      const cont = c.r < r; // 앞 조각에서 이어진 칸: 테두리 · 배경만
+                      const span = Math.min(c.r + c.rs, r1) - Math.max(c.r, r0);
+                      const clipped = cont || c.r + c.rs > r1;
+                      const editable = !!c.bind && !cont;
+                      const h = rowO && rowO.i === r && c.rs === 1 ? rowO.h : clipped ? undefined : Math.max(c.text || c.bind ? 20 : 4, c.h * scale);
+                      return (
+                        <td
+                          key={c.key}
+                          rowSpan={span}
+                          colSpan={c.cs}
+                          onMouseDown={editable ? focusCell : undefined}
+                          className={`p-0 ${editable ? "cursor-text" : ""}`}
+                          style={{
+                            ...borderStyle(c),
+                            position: "relative",
+                            background: c.bg ?? undefined,
+                            verticalAlign: c.bind && !("choice" in c.bind) && c.align !== "center" ? "top" : c.valign,
+                            height: h,
+                          }}
+                        >
+                          {!cont && (
+                            <CellV2
+                              cell={c}
+                              canRemoveGoal={goals.length > 1}
+                              onRemoveGoal={() => c.goal && set(sk(c.goal.sec, "goalList"), JSON.stringify(goals.filter((g) => g !== c.goal!.gid)))}
+                            />
+                          )}
+                          {/* 마지막 단기목표 줄 아래 선(성취평가 작성준거 바로 위)에 「단기목표 추가」 */}
+                          {!cont && c.goal && c.goal.gid === goals[goals.length - 1] && (
+                            <button
+                              type="button"
+                              onMouseDown={(e) => e.stopPropagation()}
+                              onClick={() => set(sk(c.goal!.sec, "goalList"), JSON.stringify([...goals, newSectionId()]))}
+                              className="absolute -bottom-3 left-1/2 z-10 inline-flex -translate-x-1/2 items-center gap-1 rounded-full bg-white px-2.5 py-1 text-xs font-semibold whitespace-nowrap text-indigo-600 shadow-sm ring-1 ring-indigo-200 transition hover:bg-indigo-50"
+                            >
+                              <PlusIcon className="h-3.5 w-3.5" />
+                              단기목표 추가
+                            </button>
+                          )}
+                        </td>
+                      );
+                    })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {/* 테두리를 눌러 끌면 크기 바꾸기 (한글처럼): 세로선은 열 너비, 가로선은 줄 높이 */}
+        {b.sizeId &&
+          colEdges.map(({ i, x, y0, y1 }) => (
+            <div
+              key={`c${i}-${y0}`}
+              data-resize
+              title="끌어서 열 너비 바꾸기"
+              onPointerDown={(e) => startDrag(e, { bi, kind: "col", i, base: cols, scale })}
+              onPointerMove={moveDrag}
+              onPointerUp={() => endDrag(b, bi, scale)}
+              onPointerCancel={() => setDrag(null)}
+              className={`absolute z-[5] w-[7px] -translate-x-1/2 cursor-col-resize touch-none hover:bg-indigo-400/40 ${drag?.bi === bi && drag.kind === "col" && drag.i === i ? "bg-indigo-500/50" : ""}`}
+              style={y1 < 0 ? { left: x, top: 0, bottom: 0 } : { left: x, top: y0, height: y1 - y0 }}
+            />
+          ))}
+        {b.sizeId &&
+          b.rowKeys &&
+          rowEdges.map(({ i, y, x0, x1 }) => (
+            <div
+              key={`r${i}-${x0}`}
+              data-resize
+              title="끌어서 줄 높이 바꾸기"
+              onPointerDown={(e) => startDrag(e, { bi, kind: "row", i, base: measured ?? [], scale })}
+              onPointerMove={moveDrag}
+              onPointerUp={() => endDrag(b, bi, scale)}
+              onPointerCancel={() => setDrag(null)}
+              className={`absolute z-[5] h-[7px] -translate-y-1/2 cursor-row-resize touch-none hover:bg-indigo-400/40 ${drag?.bi === bi && drag.kind === "row" && drag.i === i ? "bg-indigo-500/50" : ""}`}
+              style={{ top: y, left: x0, width: x1 - x0 }}
+            />
+          ))}
+      </div>
+    );
+  };
+
+  const curBase = cur ? (baseStyles.get(cur) ?? null) : null;
 
   return (
-    <div className="space-y-4">
-      {students.length > 0 && (
-        <div className="mx-auto flex max-w-[210mm] flex-wrap items-center gap-1.5">
-          {students.map((x) => (
-            <button
-              key={x.sid}
-              type="button"
-              aria-pressed={x === sec}
-              onClick={() => setSid(x.sid)}
-              className={`rounded-full px-3 py-1.5 text-sm font-semibold ring-1 ring-inset transition ${x === sec ? "bg-indigo-600 text-white ring-indigo-600" : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"}`}
+    <div className="space-y-4 pb-20">
+      <div className="flex flex-col items-center gap-6 lg:flex-row lg:items-start lg:justify-center">
+        {/* 왼쪽 학생 목록 (학년마다) */}
+        {students.length > 0 && (
+          <aside className="w-full max-w-[794px] shrink-0 rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200 lg:sticky lg:top-24 lg:w-48" aria-label="학생 목록">
+            {[...groups.entries()]
+              .sort(([a], [b]) => (a || "9").localeCompare(b || "9"))
+              .map(([g, list]) => (
+                <div key={g} className="mb-2 last:mb-0">
+                  <p className="px-2 pb-1 pt-1 text-xs font-bold text-slate-400">{g ? `${g}학년` : "학년 없음"}</p>
+                  <div className="flex flex-wrap gap-1 lg:flex-col">
+                    {list.map((id) => {
+                      const on = id === sec.sid;
+                      return (
+                        <button
+                          key={id}
+                          type="button"
+                          aria-pressed={on}
+                          onClick={() => onSid(id)}
+                          className={`flex items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-sm font-semibold transition ${on ? "bg-indigo-600 text-white" : "text-slate-700 hover:bg-slate-50"}`}
+                        >
+                          <span className="truncate">{nameOf(id)}</span>
+                          {busySids.has(id) && <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-400" title="다른 선생님이 고치는 중" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            <div className="mt-2 space-y-1 border-t border-slate-100 pt-2">
+              <button type="button" onClick={() => setAdding(true)} className="flex w-full items-center gap-1.5 rounded-lg px-2.5 py-2 text-sm font-semibold text-indigo-600 hover:bg-indigo-50">
+                <PlusIcon className="h-4 w-4" />
+                학생 추가
+              </button>
+              {sec.sid && (
+                <button type="button" onClick={() => setRemoving(sec.sid)} className="flex w-full items-center gap-1.5 rounded-lg px-2.5 py-2 text-xs font-semibold text-red-600 hover:bg-red-50">
+                  <TrashIcon className="h-3.5 w-3.5" />이 학생 지우기
+                </button>
+              )}
+            </div>
+          </aside>
+        )}
+
+        {/* 쪽마다 A4 종이 한 장 (크기 고정, 넘치는 내용은 다음 쪽으로). 좁은 화면에서는 옆으로 밀어서 봄 */}
+        <div
+          ref={box}
+          className="w-full min-w-0 space-y-6 overflow-x-auto pb-2 lg:w-auto"
+          onFocusCapture={(e) => {
+            const el = e.target as HTMLElement;
+            if (el instanceof HTMLTextAreaElement && el.dataset.field) {
+              setCur(el.dataset.field);
+              lastFocus.current = { el, field: el.dataset.field, s: el.selectionStart, e: el.selectionEnd };
+            }
+          }}
+          onSelectCapture={(e) => {
+            const el = e.target as HTMLElement;
+            if (el instanceof HTMLTextAreaElement && el.dataset.field) lastFocus.current = { el, field: el.dataset.field, s: el.selectionStart, e: el.selectionEnd };
+          }}
+          onBlurCapture={(e) => {
+            // 다른 곳을 눌러 빠져나간 것이면 돌려 놓지 않음 (쪽이 바뀌어 다시 그려진 경우만 돌려 놓음)
+            const el = e.target as HTMLElement;
+            requestAnimationFrame(() => {
+              if (el.isConnected && lastFocus.current?.el === el) lastFocus.current = null;
+            });
+          }}
+        >
+          {plan.map((page, pn) => (
+            <div
+              key={pn}
+              className="relative mx-auto overflow-hidden bg-white shadow-md ring-1 ring-slate-200"
+              style={{ width: pg.width, height: pg.height, padding: `${pg.top}px ${pg.right}px ${pg.bottom}px ${pg.left}px` }}
+              aria-label={`${pn + 1}쪽`}
             >
-              {nameOf(x.sid)}
-            </button>
+              {page.map(renderPiece)}
+              <span className="pointer-events-none absolute bottom-2 right-4 text-[10px] text-slate-300 select-none">{pn + 1}</span>
+            </div>
           ))}
-          {sec.sid && (
-            <button type="button" onClick={() => setRemoving(sec.sid)} className="ml-auto inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50">
-              <TrashIcon className="h-3.5 w-3.5" />이 학생 지우기
-            </button>
-          )}
+        </div>
+      </div>
+
+      {students.length === 0 && (
+        <div className="flex justify-center pb-6">
+          <button type="button" onClick={() => setAdding(true)} className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700">
+            <PlusIcon className="h-4 w-4" />
+            학생 추가
+          </button>
         </div>
       )}
 
-      {/* 한글 파일의 쪽마다 A4 종이(794 × 1123px) 한 장씩. 좁은 화면에서는 옆으로 밀어서 봄 */}
-      <div className="space-y-6 overflow-x-auto pb-2">
-        {pagesOf(sec.blocks).map((page, pn) => (
-          <div key={pn} className="mx-auto min-h-[1123px] w-[794px] bg-white px-[56px] py-12 shadow-md ring-1 ring-slate-200" aria-label={`${pn + 1}쪽`}>
-            {page.map((b, i) => {
-              if (b.type === "object")
-                return b.image && b.w ? (
-                  <div key={`o-${i}`} className="flex" style={{ justifyContent: b.align === "right" ? "flex-end" : b.align === "left" ? "flex-start" : "center" }}>
-                    {/* eslint-disable-next-line @next/next/no-img-element -- 한글 양식 안의 그림을 그대로 보여 줌 */}
-                    <img src="/api/iep/logo" alt="월계중학교 로고" width={b.w} height={b.h} style={{ width: b.w, height: b.h }} />
-                  </div>
-                ) : null;
-              if (b.type === "p")
-                return b.text ? (
-                  <div key={`${b.key}-${i}`} className="whitespace-pre-wrap" style={cellStyle(b)}>
-                    {b.text}
-                  </div>
-                ) : (
-                  // 빈 문단도 한글 파일처럼 그 글자 크기만큼 띄움
-                  <div key={`${b.key}-${i}`} style={{ height: `calc(${fontPx(b.size)} * 1.45)` }} />
-                );
-            const widths = colWidths(b);
-            const total = widths.reduce((n, x) => n + x, 0);
-            const scale = Math.min(1, 682 / total);
-            const goals = b.goalSec ? goalIdsOf(values, b.goalSec) : [];
-            return (
-              <div key={`${b.key}-${i}`}>
-                <table className="mx-auto table-fixed border-collapse" style={{ width: total * scale }}>
-                  <colgroup>
-                    {widths.map((w, ci) => (
-                      <col key={ci} style={{ width: w * scale }} />
-                    ))}
-                  </colgroup>
-                  <tbody>
-                    {Array.from({ length: b.rows }, (_, r) => (
-                      <tr key={r}>
-                        {(b.cells as V2Cell[])
-                          .filter((c) => c.r === r)
-                          .sort((x, y) => x.c - y.c)
-                          .map((c) => (
-                            <td key={c.key} rowSpan={c.rs} colSpan={c.cs} onMouseDown={c.bind ? focusCell : undefined} className={`p-0 ${c.bind ? "cursor-text" : ""}`} style={{ ...borderStyle(c), position: "relative", background: c.bg ?? undefined, verticalAlign: c.bind && !("choice" in c.bind) && c.align !== "center" ? "top" : c.valign, height: Math.max(c.text || c.bind ? 20 : 4, c.h * scale) }}>
-                              <CellV2
-                                cell={c}
-                                canRemoveGoal={goals.length > 1}
-                                onRemoveGoal={() => c.goal && set(sk(c.goal.sec, "goalList"), JSON.stringify(goals.filter((g) => g !== c.goal!.gid)))}
-                              />
-                              {/* 마지막 단기목표 줄 아래 선(성취평가 작성준거 바로 위)에 「단기목표 추가」 */}
-                              {c.goal && c.goal.gid === goals[goals.length - 1] && (
-                                <button
-                                  type="button"
-                                  onMouseDown={(e) => e.stopPropagation()}
-                                  onClick={() => set(sk(c.goal!.sec, "goalList"), JSON.stringify([...goals, newSectionId()]))}
-                                  className="absolute -bottom-3 left-1/2 z-10 inline-flex -translate-x-1/2 items-center gap-1 rounded-full bg-white px-2.5 py-1 text-xs font-semibold whitespace-nowrap text-indigo-600 shadow-sm ring-1 ring-indigo-200 transition hover:bg-indigo-50"
-                                >
-                                  <PlusIcon className="h-3.5 w-3.5" />
-                                  단기목표 추가
-                                </button>
-                              )}
-                            </td>
-                          ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            );
-            })}
-          </div>
-        ))}
-      </div>
-
-      <div className="flex justify-center pb-6">
-        <button type="button" onClick={() => setAdding(true)} className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700">
-          <PlusIcon className="h-4 w-4" />
-          학생 추가
-        </button>
-      </div>
+      <FormatBar
+        field={cur}
+        base={curBase}
+        fonts={data.fonts ?? []}
+        onDone={() => {
+          // 고른 뒤에는 고치던 칸으로 커서를 돌려 놓음
+          const lf = lastFocus.current;
+          const el = lf && box.current?.querySelector<HTMLTextAreaElement>(`textarea[data-field="${CSS.escape(lf.field)}"]`);
+          if (el && lf) {
+            el.focus({ preventScroll: true });
+            el.setSelectionRange(lf.s, lf.e);
+          }
+        }}
+      />
 
       {adding && (
         <StudentWizard
           onCancel={() => setAdding(false)}
           onDone={(id) => {
             setAdding(false);
-            setSid(id);
+            onSid(id);
           }}
         />
       )}
@@ -1478,7 +2054,7 @@ function DocV2() {
           onConfirm={() => {
             set("studentList", JSON.stringify(parseList(values.studentList).filter((x) => x !== removing)));
             setRemoving(null);
-            setSid(null);
+            onSid(null);
           }}
         >
           이 학생의 개별화교육계획이 함께 편집하는 선생님 화면에서도 사라지고, 한글 파일에도 들어가지 않아요.
@@ -1553,6 +2129,7 @@ function F({
     <div className={`relative ${className}`}>
       <textarea
         ref={ref}
+        data-field={k}
         value={value}
         rows={minRows}
         placeholder={ph}

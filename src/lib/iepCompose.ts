@@ -20,7 +20,7 @@ import {
 } from "@/lib/hwpEdit";
 import { CFB } from "xlsx";
 import { readFormDoc, type FormBlock, type FormCell } from "@/lib/hwpForm";
-import { blockHeight, bodySize, cellContentHeight, readMetrics, withLineSpacing, writeParaShapes, type Metrics } from "@/lib/hwpMeasure";
+import { blockHeight, bodySize, cellContentHeight, pageDef, readMetrics, ShapeBook, type Metrics } from "@/lib/hwpMeasure";
 import { monthsFor, parseList, sk, studentKey, withTerm, type IepFields } from "@/lib/iep";
 import { goalIdsOf, termText } from "@/lib/iepV2";
 
@@ -42,11 +42,48 @@ export type Bind =
   | { parts: { label: string; field: string }[] } // 문단마다 "이름표 : 값" (인적 사항 목록 · 특수교사 두 줄)
   | { choice: { field: string; value: string } }; // 성취평가 1~4 (누르면 ○)
 export type LayoutCell = FormCell & { bind?: Bind; goal?: { sec: string; gid: string } };
-export type LayoutBlock = Exclude<FormBlock, { type: "table" }> | (Extract<FormBlock, { type: "table" }> & { cells: LayoutCell[]; goalSec?: string });
-export type Layout = { sections: { sid: string | null; label: string; blocks: LayoutBlock[] }[] };
+/** sizeId: 표 크기를 저장하는 칸 이름(size.<sizeId>) · rowKeys: 줄마다의 이름 (단기목표 줄이 늘고 줄어도 같은 줄을 가리킴) */
+export type LayoutBlock =
+  | Exclude<FormBlock, { type: "table" }>
+  | (Extract<FormBlock, { type: "table" }> & { cells: LayoutCell[]; goalSec?: string; sizeId?: string; rowKeys?: string[] });
+/** page: 쪽 크기와 본문 둘레 여백(px) · fonts: 고를 수 있는 글꼴 (양식에 든 글꼴) */
+export type Layout = {
+  sections: { sid: string | null; label: string; blocks: LayoutBlock[] }[];
+  page: { width: number; height: number; left: number; right: number; top: number; bottom: number };
+  fonts: string[];
+};
+
+/** 칸마다의 글자 모양 바꾸기 (fmt.<저장 칸 이름> 에 JSON 으로) */
+export type CellFormat = { font?: string; size?: number; ls?: number };
+export function parseFormat(raw: string | undefined, fonts: string[]): CellFormat | null {
+  if (!raw) return null;
+  try {
+    const o = JSON.parse(raw) as Record<string, unknown>;
+    const out: CellFormat = {};
+    if (typeof o.font === "string" && fonts.includes(o.font)) out.font = o.font;
+    if (typeof o.size === "number" && o.size >= 5 && o.size <= 72) out.size = Math.round(o.size * 10) / 10;
+    if (typeof o.ls === "number" && o.ls >= 50 && o.ls <= 500) out.ls = Math.round(o.ls);
+    return out.font || out.size || out.ls ? out : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 문단 하나의 글꼴 · 크기 · 줄 간격을 바꿈 (레코드 수는 그대로, 모양 번호만) */
+function formatPara(recs: Rec[], p: number, fm: CellFormat, book: ShapeBook) {
+  const end = subtreeEnd(recs, p);
+  if (fm.font || fm.size) {
+    const cs = recs.slice(p + 1, end).find((r) => r.tag === TAG.PARA_CHAR_SHAPE && r.level === recs[p].level + 1);
+    if (cs) {
+      cs.data = Buffer.from(cs.data);
+      for (let o = 0; o + 8 <= cs.data.length; o += 8) cs.data.writeUInt32LE(book.charVariant(cs.data.readUInt32LE(o + 4), fm), o + 4);
+    }
+  }
+  if (fm.ls) recs[p].data.writeUInt16LE(book.lineSpacing(recs[p].data.readUInt16LE(8), fm.ls), 8);
+}
 
 /** page: 한글 파일에서 이 묶음이 새 쪽에서 시작함 (화면도 쪽을 나눠 그림) */
-type Piece = { recs: Rec[]; binds?: Map<string, Bind>; goals?: Map<string, { sec: string; gid: string }>; goalSec?: string; page?: boolean };
+type Piece = { recs: Rec[]; binds?: Map<string, Bind>; goals?: Map<string, { sec: string; gid: string }>; goalSec?: string; page?: boolean; tableId?: string; rowKeys?: () => string[] };
 
 /** 빈 양식이 예상한 모양인지 확인 (다른 양식으로 바뀌면 칸 위치가 어긋나므로) */
 function checkTemplate(doc: HwpDoc) {
@@ -81,6 +118,10 @@ class Block implements Piece {
   goals = new Map<string, { sec: string; gid: string }>();
   goalSec?: string;
   page?: boolean;
+  /** 표 크기를 저장하는 이름 (size.<tableId>) */
+  tableId?: string;
+  /** 줄 이름 (r: 줄 번호, rows: 줄 수) */
+  rowKeyOf?: (r: number, rows: number) => string;
   constructor(recs: Rec[]) {
     this.recs = recs;
   }
@@ -134,6 +175,78 @@ class Block implements Piece {
     if (m && shapes.length >= 4) setParaRuns(this.recs, cell.paras[0], [{ text: m[1], shape: shapes[0] }, { text: m[2], shape: shapes[1] }, { text: m[3] || " ", shape: shapes[2] }, { text: m[4], shape: shapes[3] }]);
     else setParaText(this.recs, cell.paras[0], text);
     this.binds.set(`${r}.${c}`, { field });
+  }
+  rowKeys() {
+    const t = this.recs.find((r) => r.tag === TAG.TABLE);
+    const rows = t ? t.data.readUInt16LE(4) : 0;
+    return Array.from({ length: rows }, (_, r) => (this.rowKeyOf ? this.rowKeyOf(r, rows) : `r${r}`));
+  }
+  /** 저장 칸마다 고른 글꼴 · 크기 · 줄 간격을 그 칸의 문단에 */
+  applyFormats(fmtOf: (field: string) => CellFormat | null, book: ShapeBook) {
+    for (const [at, bind] of this.binds) {
+      if ("choice" in bind) continue;
+      const [r, c] = at.split(".").map(Number);
+      const cell = this.cell(r, c);
+      if (!cell) continue;
+      if ("parts" in bind) {
+        bind.parts.forEach((part, i) => {
+          const fm = fmtOf(part.field);
+          if (fm && cell.paras[i] !== undefined) formatPara(this.recs, cell.paras[i], fm, book);
+        });
+        continue;
+      }
+      const fm = fmtOf(bind.field);
+      if (!fm) continue;
+      for (const p of bind.para !== undefined ? [cell.paras[bind.para]] : cell.paras) if (p !== undefined) formatPara(this.recs, p, fm, book);
+    }
+  }
+  /** 저장한 표 크기(열 너비 · 줄 높이, 한글 단위)를 칸에 */
+  applySize(raw: string | undefined) {
+    if (!raw) return;
+    let sz: { c?: unknown; r?: unknown };
+    try {
+      sz = JSON.parse(raw) as typeof sz;
+    } catch {
+      return;
+    }
+    const t = this.recs.findIndex((r) => r.tag === TAG.TABLE);
+    if (t < 0) return;
+    const rows = this.recs[t].data.readUInt16LE(4);
+    const cols = this.recs[t].data.readUInt16LE(6);
+    const cells = tableCells(this.recs, 0, this.recs.length);
+    const ctrl = this.recs.slice(0, t).reverse().find((r) => r.tag === TAG.CTRL_HEADER);
+    const ok = (x: unknown): x is number => typeof x === "number" && Number.isFinite(x) && x >= 200 && x <= 200000;
+    if (Array.isArray(sz.c) && sz.c.length === cols && sz.c.every(ok)) {
+      const w = sz.c as number[];
+      for (const c of cells) this.recs[c.list].data.writeUInt32LE(Math.round(w.slice(c.col, c.col + c.colSpan).reduce((n, x) => n + x, 0)), 16);
+      if (ctrl && ctrl.data.length >= 20) ctrl.data.writeUInt32LE(Math.round(w.reduce((n, x) => n + x, 0)), 16);
+    }
+    if (sz.r && typeof sz.r === "object") {
+      const want = sz.r as Record<string, unknown>;
+      const keys = this.rowKeys();
+      const h = (c: (typeof cells)[number]) => this.recs[c.list].data.readUInt32LE(20);
+      const rowH = Array<number>(rows).fill(0);
+      for (const c of cells) if (c.rowSpan === 1) rowH[c.row] = Math.max(rowH[c.row], h(c));
+      // 합친 칸만 있는 줄은 그 칸 높이를 나눠 가짐
+      for (const c of cells.filter((x) => x.rowSpan > 1)) {
+        const span = Array.from({ length: c.rowSpan }, (_, i) => c.row + i).filter((r) => r < rows);
+        const missing = span.filter((r) => !rowH[r]);
+        if (!missing.length) continue;
+        const known = span.reduce((n, r) => n + rowH[r], 0);
+        for (const r of missing) rowH[r] = Math.max(0, (h(c) - known) / missing.length);
+      }
+      let changed = false;
+      keys.forEach((k, r) => {
+        if (ok(want[k])) {
+          rowH[r] = Math.round(want[k] as number);
+          changed = true;
+        }
+      });
+      if (changed) {
+        for (const c of cells) this.recs[c.list].data.writeUInt32LE(Math.round(Array.from({ length: c.rowSpan }, (_, i) => rowH[c.row + i] ?? 0).reduce((n, x) => n + x, 0)), 20);
+        if (ctrl && ctrl.data.length >= 24) ctrl.data.writeUInt32LE(Math.round(rowH.reduce((n, x) => n + x, 0)), 20);
+      }
+    }
   }
   /** 칸 안의 글을 맨 위부터 (세로 정렬: 위) */
   valignTop(r: number, c: number) {
@@ -195,7 +308,8 @@ const FIT_SLACK = 570;
  * ① 그대로 들어가면 그대로 ② 넘치면 개별화교육지원팀 칸 높이를 목록 글에 맞게 줄이고 ③ 그래도 넘치면 목록 줄 간격을 차례로 줄임
  * ④ 그래도 넘치면 뒤 표부터 다음 쪽으로 넘김 (화면도 같은 곳에서 쪽을 나눔). 더한 문단 모양은 newShape 로 받음
  */
-function fitProfilePage(title: Block, profile: Block, rest: Block[], m: Metrics, body: { width: number; height: number }, newShape: (from: number, ls: number) => number) {
+function fitProfilePage(title: Block, profile: Block, rest: Block[], book: ShapeBook, body: { width: number; height: number }) {
+  const m = book.m;
   const budget = body.height - FIT_SLACK;
   const cells = tableCells(profile.recs, 0, profile.recs.length);
   const list = cells.find((c) => c.row === 1 && c.col === 0);
@@ -239,7 +353,7 @@ function fitProfilePage(title: Block, profile: Block, rest: Block[], m: Metrics,
   if (chosen !== undefined) {
     for (const p of list.paras) {
       const d = profile.recs[p].data;
-      d.writeUInt16LE(newShape(d.readUInt16LE(8), chosen), 8);
+      d.writeUInt16LE(book.lineSpacing(d.readUInt16LE(8), chosen), 8);
     }
   }
   // ④ 뒤 표부터 다음 쪽으로 (넘긴 표 번호들)
@@ -248,22 +362,22 @@ function fitProfilePage(title: Block, profile: Block, rest: Block[], m: Metrics,
   return moved;
 }
 
-/** 문서 칸으로 개별화교육계획을 조립 → 한글 문서와 조각들 (shapes: DocInfo 끝에 더할 문단 모양) */
-function assemble(f: IepFields, file: Uint8Array): { doc: HwpDoc; pieces: Piece[]; shapes: Buffer[] } {
+/** 고를 수 있는 글꼴: 양식에 든 한글 글꼴 */
+const fontsOf = (m: Metrics) => [...new Set(m.faces[0] ?? [])];
+
+/** 문서 칸으로 개별화교육계획을 조립 → 한글 문서와 조각들 (book: DocInfo 에 더할 글자 · 문단 모양) */
+function assemble(f: IepFields, file: Uint8Array): { doc: HwpDoc; pieces: Piece[]; book: ShapeBook } {
   const { doc: src, metrics } = blankDoc(file);
   const body = bodySize(src.recs);
-  // 줄 간격만 바꾼 문단 모양: 같은 (원래 모양, 줄 간격)은 한 번만 더함
-  const shapes: Buffer[] = [];
-  const shapeIds = new Map<string, number>();
-  const newShape = (from: number, ls: number) => {
-    const key = `${from}:${ls}`;
-    let id = shapeIds.get(key);
-    if (id === undefined) {
-      id = metrics.paraShapeRecs.length + shapes.length;
-      shapes.push(withLineSpacing(metrics.paraShapeRecs[from].data, ls));
-      shapeIds.set(key, id);
-    }
-    return id;
+  const book = new ShapeBook(metrics);
+  const fonts = fontsOf(metrics);
+  const fmtOf = (field: string) => parseFormat(f[`fmt.${field}`], fonts);
+  /** 칸을 다 채운 표에 이름을 붙이고, 고른 글자 모양 · 표 크기를 넣음 */
+  const finish = (b: Block, id: string) => {
+    b.tableId = id;
+    b.applyFormats(fmtOf, book);
+    b.applySize(f[`size.${id}`]);
+    return b;
   };
   const tops = topParagraphs(src.recs);
   const take = (from: number, to = from) => new Block(cloneRange(src.recs, tops[from][0], tops[to][1]));
@@ -288,7 +402,7 @@ function assemble(f: IepFields, file: Uint8Array): { doc: HwpDoc; pieces: Piece[
     const cover = take(P.COVER_TABLE);
     cover.set(1, 9, termText(f));
     (["team.principal", "team.vice", "team.sp1", "team.sp2"] as const).forEach((key, i) => cover.set(4 + i, 4, v(key), key));
-    add(cover);
+    add(finish(cover, "doc.cover"));
     add(take(P.COVER_TAIL[0], P.COVER_TAIL[1]));
   }
 
@@ -307,7 +421,7 @@ function assemble(f: IepFields, file: Uint8Array): { doc: HwpDoc; pieces: Piece[
     cover.set(1, 2, sv("author"), k("author"));
     cover.set(1, 9, sv("period"), k("period"));
     ["team.principal", "team.vice", "team.sp1", "team.sp2", "team.inc", "team.parent"].forEach((t, r) => cover.set(4 + r, 4, sv(t), k(t)));
-    add(cover);
+    add(finish(cover, `${sid}.cover`));
     add(take(P.COVER_TAIL[0], P.COVER_TAIL[1]));
 
     // 인적 사항 · 개별화교육지원팀
@@ -329,6 +443,7 @@ function assemble(f: IepFields, file: Uint8Array): { doc: HwpDoc; pieces: Piece[
       { field: k("team.sp2"), value: sv("team.sp2") },
     ]);
     profile.set(5, 3, sv("team.parent"), k("team.parent"));
+    finish(profile, `${sid}.profile`);
     // (인적 사항은 아래에서 한 쪽에 맞춘 뒤 넣음)
 
     const plan = take(P.PLAN);
@@ -339,6 +454,7 @@ function assemble(f: IepFields, file: Uint8Array): { doc: HwpDoc; pieces: Piece[
       plan.set(2 + r, 4, sv(`plan.${g}.teacher`), k(`plan.${g}.teacher`));
     });
     plan.keepTable();
+    finish(plan, `${sid}.plan`);
 
     const act = take(P.ACT);
     (["after", "field"] as const).forEach((g, r) => {
@@ -354,12 +470,14 @@ function assemble(f: IepFields, file: Uint8Array): { doc: HwpDoc; pieces: Piece[
     act.set(6, 3, sv("act.safety.period"), k("act.safety.period"));
     act.set(6, 4, sv("act.safety.note"), k("act.safety.note"));
     act.keepTable();
+    finish(act, `${sid}.act`);
 
     const svc = take(P.SVC);
     ["svc.therapyArea", "svc.therapyMethod", "svc.transport", "svc.staff", "svc.adjust"].forEach((name, c) => svc.set(2, c, sv(name), k(name)));
     svc.keepTable();
+    finish(svc, `${sid}.svc`);
     // 한 쪽에 맞추고 (넘치는 표는 다음 쪽에서 시작) 차례로 넣음
-    const moved = fitProfilePage(title, profile, [plan, act, svc], metrics, body, newShape);
+    const moved = fitProfilePage(title, profile, [plan, act, svc], book, body);
     add(title, true);
     add(profile);
     [plan, act, svc].forEach((b, n) => add(b, n === moved[0]));
@@ -392,7 +510,9 @@ function assemble(f: IepFields, file: Uint8Array): { doc: HwpDoc; pieces: Piece[
       });
       t.set(18 + shift, 1, s("method"), sk(sec, "method"));
       if (!life) t.set(19 + shift, 1, s("evalPlan"), sk(sec, "evalPlan"));
-      add(t, true);
+      // 줄 이름: 단기목표 앞은 그대로, 단기목표 줄은 목표 id, 뒤쪽은 끝에서 몇째 줄
+      t.rowKeyOf = (r, rows) => (r < GOAL_FIRST ? `r${r}` : r < GOAL_FIRST + goals.length ? `g${goals[r - GOAL_FIRST]}` : `e${rows - 1 - r}`);
+      add(finish(t, `${sec}.main`), true);
       if (!life) {
         add(take(P.GAP_SUBJECT));
         const m = take(P.MONTH);
@@ -403,30 +523,36 @@ function assemble(f: IepFields, file: Uint8Array): { doc: HwpDoc; pieces: Piece[
           m.set(2 + j, 2, s(`m${j}.content`), sk(sec, `m${j}.content`));
           m.set(2 + j, 3, s(`m${j}.eval`), sk(sec, `m${j}.eval`));
         });
-        add(m, true);
+        add(finish(m, `${sec}.month`), true);
       } else add(take(P.GAP));
     }
   });
 
   const doc: HwpDoc = { ...src, recs: pieces.flatMap((p) => p.recs) };
-  return { doc, pieces, shapes };
+  return { doc, pieces, book };
 }
 
 /** 개별화교육계획 한글 파일. 한글이 열 수 없는 구조가 되면 만들지 않고 오류 */
 export function buildIepV2Hwp(f: IepFields, file: Uint8Array, title: string): Buffer {
-  const { doc, shapes } = assemble(f, file);
+  const { doc, book } = assemble(f, file);
   const problems = verifyRecords(doc.recs);
   if (problems.length) throw new Error(`한글 파일 구조 문제: ${problems.slice(0, 3).join(" / ")}`);
   // 빈 양식의 파일 묶음은 여러 번 쓰므로, 저장할 때마다 새로 읽어 고침 (더한 문단 모양을 DocInfo 에)
   const cfb = CFB.read(Buffer.from(file), { type: "buffer" });
-  writeParaShapes(cfb, doc.compressed, shapes);
+  book.write(cfb, doc.compressed);
   return saveHwp({ ...doc, cfb }, title);
 }
 
 /** 편집 화면의 모양: 조립한 한글 문서를 그대로 그리되, 칸마다 이어진 저장 칸을 붙임 (학생마다 나눔) */
 export function layoutIepV2(f: IepFields, file: Uint8Array): Layout {
-  const { doc, pieces } = assemble(f, file);
-  const form = readFormDoc(doc);
+  const { doc, pieces, book } = assemble(f, file);
+  // 더한 글자 · 문단 모양까지 읽도록, 그 모양을 쓴 새 파일 묶음으로 읽음 (빈 양식 묶음은 그대로)
+  let cfb = doc.cfb;
+  if (book.added) {
+    cfb = CFB.read(Buffer.from(file), { type: "buffer" });
+    book.write(cfb, doc.compressed);
+  }
+  const form = readFormDoc({ ...doc, cfb });
   // 표 번호(문서 순서) → 그 표를 만든 조각
   const tablePieces = pieces.filter((p) => p.recs.some((r) => r.tag === TAG.TABLE));
   // 새 쪽이 시작되는 맨 위 문단 번호
@@ -452,6 +578,8 @@ export function layoutIepV2(f: IepFields, file: Uint8Array): Layout {
           return {
             ...b,
             goalSec: piece?.goalSec,
+            sizeId: piece?.tableId,
+            rowKeys: piece?.tableId ? piece.rowKeys?.() : undefined,
             cells: b.cells.map((c) => {
               const at = `${c.r}.${c.c}`;
               return { ...c, bind: piece?.binds?.get(at), goal: piece?.goals?.get(at) };
@@ -460,5 +588,7 @@ export function layoutIepV2(f: IepFields, file: Uint8Array): Layout {
         }),
       };
     }),
+    page: (({ width, height, left, right, top, bottom }) => ({ width: width / 75, height: height / 75, left: left / 75, right: right / 75, top: top / 75, bottom: bottom / 75 }))(pageDef(doc.recs)),
+    fonts: fontsOf(book.m),
   };
 }

@@ -10,7 +10,8 @@ import { openHwp, parseRecords, type HwpDoc, readParaText, saveHwp, setParaText,
  */
 
 /** font: CSS 글꼴 목록(한글 글꼴 이름 먼저) · spacing: 자간(%) · color: 글자 색 */
-export type FormStyle = { align: "left" | "center" | "right" | "justify"; bold: boolean; size: number; font?: string; spacing?: number; color?: string };
+/** fontName: 한글 글꼴 이름 (글꼴 고르기에 씀) · ls: 줄 간격(%, 글자 크기에 대한 비율) */
+export type FormStyle = { align: "left" | "center" | "right" | "justify"; bold: boolean; size: number; font?: string; fontName?: string; spacing?: number; color?: string; ls?: number };
 /** 칸 테두리 (왼쪽 · 오른쪽 · 위 · 아래), CSS border 값 */
 export type FormBorder = [string, string, string, string];
 export type FormCell = FormStyle & {
@@ -27,12 +28,14 @@ export type FormCell = FormStyle & {
   text: string;
   /** 칸 안 문단마다의 글 */
   lines: string[];
+  /** 칸 안 문단마다의 모양 (문단마다 글꼴 · 크기 · 줄 간격이 다를 수 있음) */
+  styles: FormStyle[];
   locked: boolean;
 };
 /** pi: 문서의 맨 위 문단 번호 · page: 이 문단에서 새 쪽이 시작됨 (조립할 때 붙임) */
 export type FormBlock = { pi: number; page?: boolean } & (
   | (FormStyle & { type: "p"; key: string; text: string; locked: boolean })
-  | { type: "table"; key: string; w: number; rows: number; cols: number; cells: FormCell[] }
+  | { type: "table"; key: string; w: number; rows: number; cols: number; split: boolean; cells: FormCell[] }
   | { type: "object"; w: number; h: number; align: FormStyle["align"]; image: boolean }
 );
 /** 학생 한 명 분량 (label: 기본 이름 · nameKey: 학생 이름을 적는 칸) */
@@ -43,8 +46,8 @@ export type Form = { sections: FormSection[] };
 const px = (hwp: number) => Math.round(hwp / 75);
 const ALIGN: FormStyle["align"][] = ["justify", "left", "right", "center", "justify", "justify"];
 
-type CharStyle = { bold: boolean; size: number; font?: string; spacing?: number; color?: string };
-type Shapes = { para: FormStyle["align"][]; char: CharStyle[]; fill: (string | null)[]; border: FormBorder[] };
+type CharStyle = { bold: boolean; size: number; font?: string; fontName?: string; spacing?: number; color?: string };
+type Shapes = { para: { align: FormStyle["align"]; ls?: number }[]; char: CharStyle[]; fill: (string | null)[]; border: FormBorder[] };
 
 /** 한글 색 값(0x00BBGGRR) → #rrggbb */
 const hexColor = (c: number) => `#${[c & 0xff, (c >> 8) & 0xff, (c >> 16) & 0xff].map((v) => v.toString(16).padStart(2, "0")).join("")}`;
@@ -79,13 +82,20 @@ function readShapes(cfb: ReturnType<typeof CFB.read>, compressed: boolean): Shap
   const hangul = faces.slice(0, counts[1] ?? 0);
   const latin = faces.slice(counts[1] ?? 0, (counts[1] ?? 0) + (counts[2] ?? 0));
   for (const r of recs) {
-    if (r.tag === 25 && r.data.length >= 4) out.para.push(ALIGN[(r.data.readUInt32LE(0) >> 2) & 7] ?? "justify");
+    if (r.tag === 25 && r.data.length >= 4) {
+      // 줄 간격: 5.0.2.5 이후는 뒤쪽(50, 종류는 attr3 아래 5비트), 그전은 24 (종류 0 = 글자 크기에 대한 %)
+      const late = r.data.length >= 54;
+      const lsType = late ? r.data.readUInt32LE(46) & 0x1f : r.data.readUInt32LE(0) & 3;
+      const ls = r.data.length >= 28 ? (late ? r.data.readInt32LE(50) : r.data.readInt32LE(24)) : 0;
+      out.para.push({ align: ALIGN[(r.data.readUInt32LE(0) >> 2) & 7] ?? "justify", ls: lsType === 0 && ls > 0 ? ls : undefined });
+    }
     if (r.tag === 21 && r.data.length >= 56) {
       const color = r.data.readUInt32LE(52);
       out.char.push({
         size: r.data.readInt32LE(42) / 100,
         bold: (r.data.readUInt32LE(46) & 2) !== 0,
         font: fontCss(hangul[r.data.readUInt16LE(0)], latin[r.data.readUInt16LE(2)]),
+        fontName: hangul[r.data.readUInt16LE(0)],
         spacing: r.data.readInt8(21) || undefined,
         color: color && color !== 0xffffffff ? hexColor(color) : undefined,
       });
@@ -113,7 +123,8 @@ function paraInfo(recs: Rec[], p: number, shapes: Shapes) {
   const obj = kids.find((r) => r.tag === TAG.CTRL_HEADER && Buffer.from(r.data.subarray(0, 4)).reverse().toString("latin1") === "gso ");
   return {
     text: text ? readParaText(text.data) : "",
-    align: shapes.para[recs[p].data.readUInt16LE(8)] ?? "justify",
+    align: shapes.para[recs[p].data.readUInt16LE(8)]?.align ?? "justify",
+    ls: shapes.para[recs[p].data.readUInt16LE(8)]?.ls,
     ...ch,
     object: ctrls.some((c) => c !== "cold" && c !== "secd"),
     /** 그림 개체의 크기, 그 안에 그림(SHAPE_COMPONENT_PICTURE)이 들었는지 */
@@ -158,6 +169,9 @@ export function readFormDoc(doc: HwpDoc): Form {
           valign: (["top", "middle", "bottom"] as const)[(lh.readUInt32LE(2) >> 21) & 3] ?? "middle", // 칸 속성 21~22번째 비트
           text: parts.map((x) => x.text).join("\n"),
           lines: parts.map((x) => x.text),
+          styles: parts.map((x): FormStyle => ({ align: x.align, bold: x.bold, size: x.size, font: x.font, fontName: x.fontName, spacing: x.spacing, color: x.color, ls: x.ls })),
+          ls: first.ls,
+          fontName: first.fontName,
           align: first.align,
           bold: first.bold,
           size: first.size,
@@ -167,7 +181,8 @@ export function readFormDoc(doc: HwpDoc): Form {
           locked: parts.some((x) => x.object), // 칸 안에 표 · 그림이 있으면 글만 바꾸면 깨지므로 잠금
         };
       });
-      blocks.push({ type: "table", pi, key: `t.${no}`, w: ctrl && ctrl.data.length >= 20 ? px(ctrl.data.readUInt32LE(16)) : 680, rows: recs[t].data.readUInt16LE(4), cols: recs[t].data.readUInt16LE(6), cells });
+      // split: 쪽 경계에서 나눌 수 있는 표 (표 속성 아래 2비트, 0 = 나누지 않음)
+      blocks.push({ type: "table", pi, key: `t.${no}`, w: ctrl && ctrl.data.length >= 20 ? px(ctrl.data.readUInt32LE(16)) : 680, rows: recs[t].data.readUInt16LE(4), cols: recs[t].data.readUInt16LE(6), split: (recs[t].data.readUInt32LE(0) & 3) !== 0, cells });
     } else if (info.object) {
       blocks.push({ type: "object", pi, w: info.gso?.w ?? 0, h: info.gso?.h ?? 0, align: info.align, image: !!info.gso?.image });
     } else {
