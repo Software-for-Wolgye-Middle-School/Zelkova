@@ -84,11 +84,28 @@ export function readParaText(data: Buffer): string {
 /** 글자 자리를 차지하지 않는 설정용 개체 (단 정의 · 구역 정의 등): 글을 바꿔도 그대로 문단 앞에 남겨 둠 */
 const KEEP_CTRLS = new Set(["cold", "secd"]);
 
+/** 문단(PARA_HEADER 위치 p)의 글자 모양 목록 [글자 위치, 글자 모양 번호] */
+export function paraCharShapes(recs: Rec[], p: number): [number, number][] {
+  const end = subtreeEnd(recs, p);
+  const r = recs.slice(p + 1, end).find((x) => x.tag === TAG.PARA_CHAR_SHAPE && x.level === recs[p].level + 1);
+  const out: [number, number][] = [];
+  if (r) for (let i = 0; i + 7 < r.data.length; i += 8) out.push([r.data.readUInt32LE(i), r.data.readUInt32LE(i + 4)]);
+  return out;
+}
+
 /**
- * 문단(PARA_HEADER 위치 p)의 글을 바꿈. 단 정의 같은 설정용 개체는 문단 앞에 그대로 남기고,
+ * 문단(PARA_HEADER 위치 p)의 글을 바꿈 (문단의 첫 글자 모양으로). 단 정의 같은 설정용 개체는 문단 앞에 그대로 남기고,
  * 표 · 그림처럼 내용이 있는 개체가 든 문단이면 바꾸지 않고 오류
  */
 export function setParaText(recs: Rec[], p: number, text: string): void {
+  setParaRuns(recs, p, [{ text }]);
+}
+
+/** 글 조각 하나 (shape: 글자 모양 번호. 없으면 문단의 첫 글자 모양) */
+export type Run = { text: string; shape?: number };
+
+/** 문단의 글을 글 조각들로 바꿈. 조각마다 글자 모양을 따로 줄 수 있음 (예: 굵은 "1. 주소 : " + 보통 글씨 값) */
+export function setParaRuns(recs: Rec[], p: number, runs: Run[]): void {
   const head = recs[p];
   if (head.tag !== TAG.PARA_HEADER) throw new Error("문단이 아니에요");
   const end = subtreeEnd(recs, p);
@@ -118,17 +135,29 @@ export function setParaText(recs: Rec[], p: number, text: string): void {
   const shape = children.find((r) => r.tag === TAG.PARA_CHAR_SHAPE);
   const shapeId = shape && shape.data.length >= 8 ? shape.data.readUInt32LE(4) : 0;
 
-  const clean = text.replace(/\r\n?/g, "\n").replace(/\t/g, "    ").replace(/[\u0000-\u0009\u000b-\u001f]/g, "");
-  const units: number[] = [];
-  for (const ch of clean) {
-    const code = ch === "\n" ? 10 : ch.codePointAt(0)!;
-    if (code > 0xffff) {
-      const v = code - 0x10000;
-      units.push(0xd800 + (v >> 10), 0xdc00 + (v & 0x3ff));
-    } else units.push(code);
-  }
-  const next: Rec[] = [];
   const ctrlLen = keptUnits.length * 8; // 개체 하나가 글자 8개 자리
+  const units: number[] = [];
+  /** [글자 위치, 글자 모양] (같은 모양이 이어지면 하나로) */
+  const shapes: [number, number][] = [];
+  for (const run of runs) {
+    const clean = run.text.replace(/\r\n?/g, "\n").replace(/\t/g, "    ").replace(/[\u0000-\u0009\u000b-\u001f]/g, "");
+    const id = run.shape ?? shapeId;
+    const at = shapes.length ? ctrlLen + units.length : 0;
+    if (!shapes.length) shapes.push([0, id]);
+    else if (shapes[shapes.length - 1][1] !== id) {
+      if (shapes[shapes.length - 1][0] === at) shapes[shapes.length - 1][1] = id; // 앞 조각이 비어 있으면 덮어씀
+      else shapes.push([at, id]);
+    }
+    for (const ch of clean) {
+      const code = ch === "\n" ? 10 : ch.codePointAt(0)!;
+      if (code > 0xffff) {
+        const v = code - 0x10000;
+        units.push(0xd800 + (v >> 10), 0xdc00 + (v & 0x3ff));
+      } else units.push(code);
+    }
+  }
+  if (!shapes.length) shapes.push([0, shapeId]);
+  const next: Rec[] = [];
   if (units.length || keptUnits.length) {
     const t = Buffer.alloc((ctrlLen + units.length + 1) * 2);
     keptUnits.forEach((u, i) => u.copy(t, i * 16));
@@ -136,9 +165,11 @@ export function setParaText(recs: Rec[], p: number, text: string): void {
     t.writeUInt16LE(13, (ctrlLen + units.length) * 2);
     next.push({ tag: TAG.PARA_TEXT, level: head.level + 1, data: t });
   }
-  const cs = Buffer.alloc(8);
-  cs.writeUInt32LE(0, 0);
-  cs.writeUInt32LE(shapeId, 4);
+  const cs = Buffer.alloc(8 * shapes.length);
+  shapes.forEach(([at, id], i) => {
+    cs.writeUInt32LE(at, i * 8);
+    cs.writeUInt32LE(id, i * 8 + 4);
+  });
   next.push({ tag: TAG.PARA_CHAR_SHAPE, level: head.level + 1, data: cs });
   next.push(...keptCtrls);
 
@@ -147,7 +178,7 @@ export function setParaText(recs: Rec[], p: number, text: string): void {
   h.writeUInt32LE((lastFlag | (ctrlLen + units.length + 1)) >>> 0, 0);
   // 들어 있는 제어 문자 (남긴 개체 · 줄 바꿈)
   h.writeUInt32LE((keptMask.reduce((m, c) => m | (1 << c), 0) | (units.includes(10) ? 1 << 10 : 0)) >>> 0, 4);
-  h.writeUInt16LE(1, 12); // 글자 모양 1개
+  h.writeUInt16LE(shapes.length, 12); // 글자 모양 수
   h.writeUInt16LE(0, 14); // 영역 태그 없음
   h.writeUInt16LE(0, 16); // 줄 나눔 정보 없음 → 한글이 다시 계산
   recs.splice(p, end - p, { ...head, data: h }, ...next);
@@ -209,6 +240,18 @@ export function tableCells(recs: Rec[], start: number, end: number): Cell[] {
     } else if (r.tag === TAG.PARA_HEADER && r.level === level && cells.length) cells[cells.length - 1].paras.push(i); // 칸 안의 문단은 LIST_HEADER 와 같은 깊이
   }
   return cells;
+}
+
+/**
+ * 칸에 글을 넣음: 한 줄씩 칸의 문단에 차례로 넣어 문단마다의 모양(정렬 · 글자 모양)과 칸 높이를 그대로 둠.
+ * 줄이 문단보다 많으면 남는 줄은 마지막 문단 안에서 줄 바꿈으로 이어 씀. 남는 문단은 비움
+ */
+export function setCellText(recs: Rec[], cell: Cell, text: string) {
+  const lines = text.replace(/\r\n?/g, "\n").split("\n");
+  const n = cell.paras.length;
+  if (!n) return;
+  // 뒤 문단부터 바꿔야 앞 문단 위치가 그대로
+  for (let i = n - 1; i >= 0; i--) setParaText(recs, cell.paras[i], i === n - 1 ? lines.slice(n - 1).join("\n") : (lines[i] ?? ""));
 }
 
 /** 칸의 문단을 앞의 keep 개만 남기고 지움 (칸의 문단 수와 마지막 문단 표시를 맞춤) */
@@ -275,4 +318,158 @@ export function cloneRange(recs: Rec[], start: number, end: number): Rec[] {
     }
     return { ...r, data: d };
   });
+}
+
+// ---------------------------------------------------------------- 표의 줄 더하기 · 빼기
+
+/** 문단 범위 [start, end) 안 첫 표의 TABLE 레코드 위치와 그 표가 끝나는 곳 */
+function tableAt(recs: Rec[], start: number, end: number) {
+  const t = recs.findIndex((r, i) => i >= start && i < end && r.tag === TAG.TABLE);
+  if (t < 0) throw new Error("표가 없어요");
+  const level = recs[t].level;
+  let tEnd = t + 1;
+  while (tEnd < recs.length && recs[tEnd].level >= level) tEnd++;
+  return { t, level, tEnd };
+}
+
+/** 칸(LIST_HEADER 위치 i)이 끝나는 곳 (다음 칸 또는 표의 끝) */
+function cellEnd(recs: Rec[], i: number, level: number, tEnd: number) {
+  let j = i + 1;
+  while (j < tEnd && !(recs[j].tag === TAG.LIST_HEADER && recs[j].level === level)) j++;
+  return j;
+}
+
+const setU16 = (r: Rec, at: number, v: number): Rec => {
+  const d = Buffer.from(r.data);
+  d.writeUInt16LE(v, at);
+  return { ...r, data: d };
+};
+
+/**
+ * 표(문단 범위 [start, end) 의 첫 표)의 row 줄 바로 아래에 같은 모양의 줄을 count 개 더함 (칸 · 글자 모양 · 테두리 그대로, 글은 비움).
+ * row 줄의 칸은 모두 한 줄짜리여야 함. row 를 걸쳐 아래로 이어지는 칸(합친 칸)은 그만큼 길어짐
+ */
+export function insertTableRows(recs: Rec[], start: number, end: number, row: number, count = 1) {
+  if (count < 1) return;
+  const { t, level, tEnd } = tableAt(recs, start, end);
+  const cells = tableCells(recs, start, end);
+  const src = cells.filter((c) => c.row === row);
+  if (!src.length || src.some((c) => c.rowSpan !== 1)) throw new Error(`${row}번째 줄은 한 줄짜리 칸으로만 되어 있어야 해요`);
+  // 새 줄의 칸들 (row 줄 칸을 복사해 글을 비움)
+  const copies: Rec[] = [];
+  for (let k = 1; k <= count; k++) {
+    for (const c of src) {
+      const piece = cloneRange(recs, c.list, cellEnd(recs, c.list, level, tEnd));
+      piece[0] = setU16(piece[0], 10, row + k);
+      // 칸 안 문단은 하나만 남기고 글을 비움
+      const paras = piece.map((r, i) => (r.tag === TAG.PARA_HEADER && r.level === level ? i : -1)).filter((i) => i >= 0);
+      if (paras.length > 1) {
+        piece.splice(paras[1]);
+        piece[0] = setU16(piece[0], 0, 1);
+        setLastFlag(piece, paras[0], true);
+      }
+      setParaText(piece, paras[0], "");
+      copies.push(...piece);
+    }
+  }
+  // 아래쪽 칸은 줄 번호를 밀고, row 를 걸쳐 내려가는 칸은 길게
+  for (const c of cells) {
+    if (c.row > row) recs[c.list] = setU16(recs[c.list], 10, c.row + count);
+    else if (c.row < row && c.row + c.rowSpan - 1 > row) recs[c.list] = setU16(recs[c.list], 14, c.rowSpan + count); // row 와 그 아랫줄 사이를 걸침
+  }
+  // 표 정보: 줄 수와 줄마다의 칸 수
+  const d = recs[t].data;
+  const rows = d.readUInt16LE(4);
+  const sizes = Array.from({ length: rows }, (_, i) => d.readUInt16LE(18 + i * 2));
+  sizes.splice(row + 1, 0, ...Array(count).fill(src.length));
+  const nd = Buffer.alloc(d.length + count * 2);
+  d.copy(nd, 0, 0, 18);
+  nd.writeUInt16LE(rows + count, 4);
+  sizes.forEach((v, i) => nd.writeUInt16LE(v, 18 + i * 2));
+  d.copy(nd, 18 + sizes.length * 2, 18 + rows * 2);
+  recs[t] = { ...recs[t], data: nd };
+  // row 줄의 마지막 칸 뒤에 끼워 넣음
+  const after = cells.filter((c) => c.row > row).map((c) => c.list);
+  const at = after.length ? Math.min(...after) : tEnd;
+  recs.splice(at, 0, ...copies);
+}
+
+/** 표의 row 줄을 뺌 (그 줄의 칸은 모두 한 줄짜리여야 함). 그 줄을 걸치는 합친 칸은 그만큼 짧아짐 */
+export function deleteTableRow(recs: Rec[], start: number, end: number, row: number) {
+  const { t, level, tEnd } = tableAt(recs, start, end);
+  const cells = tableCells(recs, start, end);
+  const mine = cells.filter((c) => c.row === row);
+  if (!mine.length || mine.some((c) => c.rowSpan !== 1)) throw new Error(`${row}번째 줄은 한 줄짜리 칸으로만 되어 있어야 해요`);
+  for (const c of cells) {
+    if (c.row > row) recs[c.list] = setU16(recs[c.list], 10, c.row - 1);
+    else if (c.row < row && c.row + c.rowSpan - 1 >= row) recs[c.list] = setU16(recs[c.list], 14, c.rowSpan - 1);
+  }
+  const d = recs[t].data;
+  const rows = d.readUInt16LE(4);
+  const sizes = Array.from({ length: rows }, (_, i) => d.readUInt16LE(18 + i * 2));
+  sizes.splice(row, 1);
+  const nd = Buffer.alloc(d.length - 2);
+  d.copy(nd, 0, 0, 18);
+  nd.writeUInt16LE(rows - 1, 4);
+  sizes.forEach((v, i) => nd.writeUInt16LE(v, 18 + i * 2));
+  d.copy(nd, 18 + sizes.length * 2, 18 + rows * 2);
+  recs[t] = { ...recs[t], data: nd };
+  // 뒤에서부터 지워야 앞 위치가 그대로
+  for (const c of [...mine].sort((a, b) => b.list - a.list)) recs.splice(c.list, cellEnd(recs, c.list, level, tEnd) - c.list);
+}
+
+// ---------------------------------------------------------------- 구조 검사
+
+/**
+ * 한글이 문서를 열 수 있는 구조인지 검사 (고친 뒤 확인용). 문제가 있으면 그 목록, 없으면 빈 배열.
+ *  - 문단: 글자 수 · 글자 모양 수 · 줄 나눔 정보 수가 실제 레코드와 같은지
+ *  - 칸: 칸의 문단 수가 실제와 같은지
+ *  - 표: 줄 수 · 줄마다 칸 수가 맞는지, 모든 자리를 칸이 정확히 한 번씩 덮는지
+ */
+export function verifyRecords(recs: Rec[]): string[] {
+  const problems: string[] = [];
+  for (let p = 0; p < recs.length; p++) {
+    const r = recs[p];
+    if (r.tag === TAG.PARA_HEADER) {
+      const kids = recs.slice(p + 1, subtreeEnd(recs, p)).filter((x) => x.level === r.level + 1);
+      const text = kids.find((x) => x.tag === TAG.PARA_TEXT);
+      const nchars = r.data.readUInt32LE(0) & 0x7fffffff;
+      const units = text ? text.data.length / 2 : 1;
+      if (nchars !== units) problems.push(`문단 ${p}: 글자 수 ${nchars} ≠ ${units}`);
+      const cs = kids.find((x) => x.tag === TAG.PARA_CHAR_SHAPE);
+      if ((cs ? cs.data.length / 8 : 0) !== r.data.readUInt16LE(12)) problems.push(`문단 ${p}: 글자 모양 수가 맞지 않음`);
+      const ls = kids.find((x) => x.tag === TAG.PARA_LINE_SEG);
+      if ((ls ? ls.data.length / 36 : 0) !== r.data.readUInt16LE(16)) problems.push(`문단 ${p}: 줄 나눔 정보 수가 맞지 않음`);
+    }
+    if (r.tag === TAG.TABLE) {
+      let tEnd = p + 1;
+      while (tEnd < recs.length && recs[tEnd].level >= r.level) tEnd++;
+      const rows = r.data.readUInt16LE(4);
+      const cols = r.data.readUInt16LE(6);
+      const sizes = Array.from({ length: rows }, (_, i) => r.data.readUInt16LE(18 + i * 2));
+      const grid = Array.from({ length: rows }, () => Array(cols).fill(0));
+      const counts = Array(rows).fill(0);
+      for (let i = p + 1; i < tEnd; i++) {
+        const c = recs[i];
+        if (c.tag !== TAG.LIST_HEADER || c.level !== r.level) continue;
+        const col = c.data.readUInt16LE(8);
+        const row = c.data.readUInt16LE(10);
+        const cs = c.data.readUInt16LE(12) || 1;
+        const rs = c.data.readUInt16LE(14) || 1;
+        if (row >= rows || col >= cols || row + rs > rows || col + cs > cols) {
+          problems.push(`표 ${p}: 칸 [${row}, ${col}] 이 표 밖으로 나감`);
+          continue;
+        }
+        counts[row]++;
+        for (let y = row; y < row + rs; y++) for (let x = col; x < col + cs; x++) grid[y][x]++;
+        // 칸의 문단 수
+        let paras = 0;
+        for (let j = i + 1; j < tEnd && !(recs[j].tag === TAG.LIST_HEADER && recs[j].level === r.level); j++) if (recs[j].tag === TAG.PARA_HEADER && recs[j].level === r.level) paras++;
+        if (paras !== c.data.readInt16LE(0)) problems.push(`표 ${p}: 칸 [${row}, ${col}] 문단 수 ${c.data.readInt16LE(0)} ≠ ${paras}`);
+      }
+      if (sizes.join() !== counts.join()) problems.push(`표 ${p}: 줄마다 칸 수 ${sizes.join()} ≠ ${counts.join()}`);
+      grid.forEach((line, y) => line.forEach((n, x) => n !== 1 && problems.push(`표 ${p}: 자리 [${y}, ${x}] 를 칸 ${n}개가 덮음`)));
+    }
+  }
+  return problems;
 }

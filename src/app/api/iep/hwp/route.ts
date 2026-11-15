@@ -4,6 +4,8 @@ import { docTitle, isDocId, metaFromFields, withTerm } from "@/lib/iep";
 import { writeForm } from "@/lib/hwpForm";
 import { buildIepHwp } from "@/lib/iepHwp";
 import { loadIepForm } from "@/lib/iepFormFile";
+import { buildIepV2Hwp } from "@/lib/iepCompose";
+import { FORM_V2 } from "@/lib/iepV2";
 import { readDocFields } from "@/lib/iepStore";
 
 const NO_STORE = { "Cache-Control": "no-store" };
@@ -19,7 +21,12 @@ export async function GET(request: Request) {
     if (!fields) return Response.json({ error: "없는 문서예요." }, { status: 404, headers: NO_STORE });
     const name = `${docTitle(metaFromFields(fields))}.hwp`.replace(/[\\/:*?"<>|]/g, "");
     let file: Buffer;
-    if (fields.form) {
+    if (fields.form === FORM_V2) {
+      // 학교 한글 파일 형식 그대로 조립 (구조를 검사해 한글이 열 수 없으면 만들지 않음)
+      const loaded = await loadIepForm(request);
+      if (!loaded) return Response.json({ error: "한글 빈 양식 파일(templates/iep-form.hwp)을 읽지 못했어요." }, { status: 503, headers: NO_STORE });
+      file = buildIepV2Hwp(fields, loaded.file, name.replace(/\.hwp$/, ""));
+    } else if (fields.form) {
       // 학교 한글 빈 양식에 고친 칸만 넣음. 안 고친 "2026학년도 2학기" 같은 줄은 이 문서의 학년도 · 학기로
       const loaded = await loadIepForm(request);
       if (!loaded) return Response.json({ error: "한글 빈 양식 파일(templates/iep-form.hwp)을 읽지 못했어요." }, { status: 503, headers: NO_STORE });

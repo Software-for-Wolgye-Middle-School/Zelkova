@@ -1,6 +1,6 @@
 import { inflateRawSync } from "node:zlib";
 import { CFB } from "xlsx";
-import { openHwp, parseRecords, readParaText, saveHwp, setParaText, subtreeEnd, tableCells, TAG, topParagraphs, trimCellParas, type Rec } from "@/lib/hwpEdit";
+import { openHwp, parseRecords, type HwpDoc, readParaText, saveHwp, setParaText, subtreeEnd, tableCells, TAG, topParagraphs, trimCellParas, type Rec } from "@/lib/hwpEdit";
 
 /**
  * 한글 양식 파일을 그대로 웹에서 고칠 수 있게 하는 도구 (서버 전용).
@@ -10,7 +10,21 @@ import { openHwp, parseRecords, readParaText, saveHwp, setParaText, subtreeEnd, 
  */
 
 export type FormStyle = { align: "left" | "center" | "right" | "justify"; bold: boolean; size: number };
-export type FormCell = FormStyle & { key: string; r: number; c: number; rs: number; cs: number; w: number; h: number; bg: string | null; valign: "top" | "middle" | "bottom"; text: string; locked: boolean };
+export type FormCell = FormStyle & {
+  key: string;
+  r: number;
+  c: number;
+  rs: number;
+  cs: number;
+  w: number;
+  h: number;
+  bg: string | null;
+  valign: "top" | "middle" | "bottom";
+  text: string;
+  /** 칸 안 문단마다의 글 */
+  lines: string[];
+  locked: boolean;
+};
 export type FormBlock =
   | (FormStyle & { type: "p"; key: string; text: string; locked: boolean })
   | { type: "table"; key: string; w: number; rows: number; cols: number; cells: FormCell[] }
@@ -62,8 +76,11 @@ function paraInfo(recs: Rec[], p: number, shapes: Shapes) {
 }
 
 /** 양식 문서를 화면에 그릴 모양으로. 학생마다(표지의 "○○학년도 ○학기" 줄마다) 나눔 */
-export function readForm(template: Uint8Array): Form {
-  const doc = openHwp(template);
+/** 양식 파일을 화면에 그릴 모양으로 */
+export const readForm = (template: Uint8Array): Form => readFormDoc(openHwp(template));
+
+/** 열어 둔 한글 문서를 화면에 그릴 모양으로. 학생마다(표지의 "○○학년도 ○학기" 줄마다) 나눔 */
+export function readFormDoc(doc: HwpDoc): Form {
   const shapes = readShapes(doc.cfb, doc.compressed);
   const recs = doc.recs;
   const sections: FormSection[] = [];
@@ -93,6 +110,7 @@ export function readForm(template: Uint8Array): Form {
           bg: fillId > 0 ? (shapes.fill[fillId - 1] ?? null) : null,
           valign: (["top", "middle", "bottom"] as const)[(lh.readUInt32LE(2) >> 21) & 3] ?? "middle", // 칸 속성 21~22번째 비트
           text: parts.map((x) => x.text).join("\n"),
+          lines: parts.map((x) => x.text),
           align: first.align,
           bold: first.bold,
           size: first.size,

@@ -1,6 +1,7 @@
 import { connection } from "next/server";
 import { isAuthed } from "@/lib/auth";
 import { formFields, isDocId, newDocId } from "@/lib/iep";
+import { FORM_V2 } from "@/lib/iepV2";
 import { createDoc, deleteDoc, listDocs } from "@/lib/iepStore";
 
 const NO_STORE = { "Cache-Control": "no-store" };
@@ -26,7 +27,8 @@ export async function POST(request: Request) {
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   const year = text(body?.year, 4);
   if (!/^\d{4}$/.test(year)) return Response.json({ error: "학년도를 네 자리 숫자로 적어 주세요." }, { status: 400, headers: NO_STORE });
-  const fields = formFields(year, body?.semester === "1" ? "1" : "2");
+  // 학교 한글 파일 형식 그대로 고치는 개별화교육계획 (처음 들어가면 기간 · 개별화교육지원팀을 묻고, 학생은 「학생 추가」로)
+  const fields = { ...formFields(year, body?.semester === "1" ? "1" : "2"), form: FORM_V2, studentList: "[]" };
   try {
     const meta = await createDoc(newDocId(), fields, text(body?.by, 20));
     return Response.json({ doc: meta }, { headers: NO_STORE });

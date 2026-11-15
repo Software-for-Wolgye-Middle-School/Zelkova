@@ -23,7 +23,8 @@ import {
 } from "@/lib/iep";
 import ConfirmDialog from "./ConfirmDialog";
 import LoginOverlay from "./LoginOverlay";
-import { ArrowLeftIcon, DownloadIcon, PlusIcon, Spinner, TrashIcon } from "./icons";
+import { ArrowLeftIcon, DownloadIcon, PlusIcon, Spinner, TrashIcon, XIcon } from "./icons";
+import { fmtDate, FORM_V2, goalIdsOf, structureKey, studentFieldsV2, SUBJECTS_V2, type StudentInput } from "@/lib/iepV2";
 import { IEP_STATUS_TEXT, useIepSync, type Me } from "./useIepSync";
 
 /**
@@ -566,7 +567,9 @@ function IepEditor({ docId, myName, onBack, onRename, nameDialog }: { docId: str
                   </div>
                 ),
             )}
-            {isForm ? (
+            {values.form === FORM_V2 ? (
+              <DocV2 />
+            ) : isForm ? (
               <FormDoc year={values.year ?? ""} semester={values.semester ?? ""} />
             ) : !legacy && !ids.length ? (
               <p className="mx-auto max-w-md rounded-xl bg-white p-8 text-center text-sm text-slate-500 ring-1 ring-slate-200">
@@ -740,6 +743,474 @@ function FormDoc({ year, semester }: { year: string; semester: string }) {
           })}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- 개별화교육계획 (학교 한글 파일 형식 그대로)
+
+type BindT = { field: string; para?: number } | { parts: { label: string; field: string }[] } | { choice: { field: string; value: string } };
+type V2Cell = FormCellT & { lines?: string[]; bind?: BindT; goal?: { sec: string; gid: string } };
+type V2Block = Exclude<FormBlockT, { type: "table" }> | (Extract<FormBlockT, { type: "table" }> & { cells: V2Cell[]; goalSec?: string });
+type V2Layout = { sections: { sid: string | null; label: string; blocks: V2Block[] }[] };
+
+const wizInput = "h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-[15px] outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100";
+const wizArea = "w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-[15px] outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100";
+
+/** 단계별 입력 창 (화면 전체를 검게 덮음) */
+function Wizard({ title, steps, step, onBack, onNext, onCancel, busy = false, children }: { title: string; steps: string[]; step: number; onBack: () => void; onNext: () => void; onCancel?: () => void; busy?: boolean; children: ReactNode }) {
+  const last = step === steps.length - 1;
+  return createPortal(
+    <div className="fixed inset-0 z-[80] grid place-items-center overflow-y-auto bg-black/70 p-4">
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          onNext();
+        }}
+        className="fade-up w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl"
+      >
+        <p className="text-xs font-semibold text-indigo-600">
+          {step + 1} / {steps.length} 단계
+        </p>
+        <h2 className="mt-1 text-lg font-bold text-slate-900">{title}</h2>
+        <p className="mt-0.5 text-sm text-slate-500">{steps[step]}</p>
+        <div className="mt-2 flex gap-1">
+          {steps.map((_, i) => (
+            <span key={i} className={`h-1 flex-1 rounded-full ${i <= step ? "bg-indigo-500" : "bg-slate-200"}`} />
+          ))}
+        </div>
+        <div className="mt-5 space-y-3">{children}</div>
+        <div className="mt-6 flex gap-2">
+          {step > 0 ? (
+            <button type="button" onClick={onBack} className="flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-600 ring-1 ring-inset ring-slate-200 hover:bg-slate-50">
+              이전
+            </button>
+          ) : (
+            onCancel && (
+              <button type="button" onClick={onCancel} className="flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-600 ring-1 ring-inset ring-slate-200 hover:bg-slate-50">
+                취소
+              </button>
+            )
+          )}
+          <button type="submit" disabled={busy} className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60">
+            {busy && <Spinner className="h-4 w-4" />}
+            {last ? "완료" : "다음"}
+          </button>
+        </div>
+      </form>
+    </div>,
+    document.body,
+  );
+}
+
+const Labeled2 = ({ label, children }: { label: string; children: ReactNode }) => (
+  <label className="block">
+    <span className="mb-1 block text-xs font-semibold text-slate-600">{label}</span>
+    {children}
+  </label>
+);
+
+/** 처음 들어가면: 1단계 개별화 교육의 시작 · 종료 시기, 2단계 개별화교육지원팀(교장 · 교감 · 특수교사 두 분) */
+function SetupWizard() {
+  const { values, set } = useIep();
+  const [step, setStep] = useState(0);
+  const [start, setStart] = useState(values["term.start"] ?? "");
+  const [end, setEnd] = useState(values["term.end"] ?? "");
+  const [names, setNames] = useState({ principal: values["team.principal"] ?? "", vice: values["team.vice"] ?? "", sp1: values["team.sp1"] ?? "", sp2: values["team.sp2"] ?? "" });
+  const [error, setError] = useState<string | null>(null);
+  const next = () => {
+    if (step === 0) {
+      if (!start || !end) return setError("시작일과 종료일을 골라 주세요.");
+      if (end < start) return setError("종료일이 시작일보다 빨라요.");
+      setError(null);
+      return setStep(1);
+    }
+    set("term.start", start);
+    set("term.end", end);
+    (Object.keys(names) as (keyof typeof names)[]).forEach((k) => set(`team.${k}`, names[k].trim()));
+    set("setup", "1");
+  };
+  return (
+    <Wizard title="개별화교육계획 처음 설정" steps={["개별화 교육의 시작 및 종료 시기를 알려 주세요.", "개별화교육지원팀 선생님 이름을 알려 주세요. 학생마다 기본값으로 들어가요."]} step={step} onBack={() => setStep(0)} onNext={next}>
+      {step === 0 ? (
+        <div className="grid grid-cols-2 gap-3">
+          <Labeled2 label="시작일">
+            <input type="date" value={start} onChange={(e) => setStart(e.target.value)} className={wizInput} autoFocus />
+          </Labeled2>
+          <Labeled2 label="종료일">
+            <input type="date" value={end} onChange={(e) => setEnd(e.target.value)} className={wizInput} />
+          </Labeled2>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-3">
+          {(
+            [
+              ["principal", "교장"],
+              ["vice", "교감"],
+              ["sp1", "특수교사 1"],
+              ["sp2", "특수교사 2"],
+            ] as const
+          ).map(([k, label], i) => (
+            <Labeled2 key={k} label={label}>
+              <input value={names[k]} onChange={(e) => setNames((n) => ({ ...n, [k]: e.target.value.slice(0, 20) }))} className={wizInput} autoFocus={i === 0} />
+            </Labeled2>
+          ))}
+        </div>
+      )}
+      {error && <p className="text-sm font-medium text-red-600">{error}</p>}
+    </Wizard>
+  );
+}
+
+const EMPTY_STUDENT: StudentInput = { name: "", grade: "1", cls: "", number: "", subjects: [], address: "", phone: "", birth: "", disability: "", selectedYear: "", health: "", medical: "", behavior: "", parentNeeds: "", career: "" };
+
+/** 학생 추가: 다섯 단계로 인적 사항을 받고, 과목마다의 계획을 만듦 */
+function StudentWizard({ onCancel, onDone }: { onCancel: () => void; onDone: (sid: string) => void }) {
+  const { values, set } = useIep();
+  const [step, setStep] = useState(0);
+  const [s, setS] = useState<StudentInput>(EMPTY_STUDENT);
+  const [birthIso, setBirthIso] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const up = (k: keyof StudentInput) => (e: { target: { value: string } }) => setS((x) => ({ ...x, [k]: e.target.value }));
+  const steps = ["이름 · 학년과 반 · 번호 · 수강 과목", "주소 · 전화번호 · 생년월일", "장애유형 및 등급 · 특수교육대상 선정년도 · 건강상태 · 병력 및 약물복용", "행동 특성", "학부모 요구 · 졸업 후 진로"];
+  const next = () => {
+    if (step === 0 && !s.name.trim()) return setError("이름을 적어 주세요.");
+    setError(null);
+    if (step < steps.length - 1) return setStep(step + 1);
+    const sid = newSectionId();
+    const input = { ...s, name: s.name.trim(), birth: birthIso ? fmtDate(birthIso) : s.birth };
+    for (const [k, v] of Object.entries(studentFieldsV2(values, sid, input))) set(k, v);
+    set("studentList", JSON.stringify([...parseList(values.studentList), sid]));
+    onDone(sid);
+  };
+  return (
+    <Wizard title="학생 추가" steps={steps} step={step} onBack={() => setStep(step - 1)} onNext={next} onCancel={onCancel}>
+      {step === 0 && (
+        <>
+          <Labeled2 label="이름">
+            <input value={s.name} onChange={up("name")} maxLength={20} className={wizInput} autoFocus />
+          </Labeled2>
+          <div className="grid grid-cols-3 gap-3">
+            <Labeled2 label="학년">
+              <select value={s.grade} onChange={up("grade")} className={wizInput}>
+                {["1", "2", "3"].map((g) => (
+                  <option key={g} value={g}>
+                    {g}학년
+                  </option>
+                ))}
+              </select>
+            </Labeled2>
+            <Labeled2 label="반">
+              <input value={s.cls} onChange={(e) => setS((x) => ({ ...x, cls: e.target.value.replace(/\D/g, "").slice(0, 2) }))} inputMode="numeric" className={wizInput} />
+            </Labeled2>
+            <Labeled2 label="번호">
+              <input value={s.number} onChange={(e) => setS((x) => ({ ...x, number: e.target.value.replace(/\D/g, "").slice(0, 2) }))} inputMode="numeric" className={wizInput} />
+            </Labeled2>
+          </div>
+          <fieldset>
+            <legend className="mb-1.5 text-xs font-semibold text-slate-600">수강 과목 (여러 개 고를 수 있어요)</legend>
+            <div className="flex gap-2">
+              {SUBJECTS_V2.map((x) => {
+                const on = s.subjects.includes(x);
+                return (
+                  <button
+                    key={x}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => setS((v) => ({ ...v, subjects: on ? v.subjects.filter((y) => y !== x) : [...v.subjects, x] }))}
+                    className={`rounded-full px-4 py-2 text-sm font-semibold ring-1 ring-inset transition ${on ? "bg-indigo-600 text-white ring-indigo-600" : "text-slate-600 ring-slate-200 hover:bg-slate-50"}`}
+                  >
+                    {x}
+                  </button>
+                );
+              })}
+            </div>
+          </fieldset>
+        </>
+      )}
+      {step === 1 && (
+        <>
+          <Labeled2 label="주소">
+            <input value={s.address} onChange={up("address")} className={wizInput} autoFocus />
+          </Labeled2>
+          <Labeled2 label="전화번호">
+            <input value={s.phone} onChange={up("phone")} className={wizInput} placeholder="예: 010-0000-0000 (모)" />
+          </Labeled2>
+          <Labeled2 label="생년월일">
+            <input type="date" value={birthIso} onChange={(e) => setBirthIso(e.target.value)} className={wizInput} />
+          </Labeled2>
+        </>
+      )}
+      {step === 2 && (
+        <>
+          <Labeled2 label="장애유형 및 등급">
+            <input value={s.disability} onChange={up("disability")} className={wizInput} autoFocus />
+          </Labeled2>
+          <Labeled2 label="특수교육대상 선정년도">
+            <input value={s.selectedYear} onChange={up("selectedYear")} className={wizInput} placeholder="예: 2020년" />
+          </Labeled2>
+          <Labeled2 label="건강상태">
+            <input value={s.health} onChange={up("health")} className={wizInput} />
+          </Labeled2>
+          <Labeled2 label="병력 및 약물복용">
+            <input value={s.medical} onChange={up("medical")} className={wizInput} />
+          </Labeled2>
+        </>
+      )}
+      {step === 3 && (
+        <Labeled2 label="행동 특성">
+          <textarea value={s.behavior} onChange={up("behavior")} rows={6} className={wizArea} autoFocus />
+        </Labeled2>
+      )}
+      {step === 4 && (
+        <>
+          <Labeled2 label="학부모 요구">
+            <textarea value={s.parentNeeds} onChange={up("parentNeeds")} rows={3} className={wizArea} autoFocus />
+          </Labeled2>
+          <Labeled2 label="졸업 후 진로">
+            <input value={s.career} onChange={up("career")} className={wizInput} />
+          </Labeled2>
+          <p className="rounded-lg bg-indigo-50 px-3 py-2 text-xs leading-relaxed text-indigo-800">
+            교육활동계획 · 재량(외부)활동 및 방과후 학교 · 특수교육 관련서비스 및 평가조정은 학교 양식의 기본값으로 들어가고, 수강 과목마다 개별화교육계획이 만들어져요. 모두 나중에 고칠 수 있어요.
+          </p>
+        </>
+      )}
+      {error && <p className="text-sm font-medium text-red-600">{error}</p>}
+    </Wizard>
+  );
+}
+
+/** 한 칸: 이어진 저장 칸을 바로 고치고, 이어지지 않은 칸(양식 글)은 그대로 보여 줌 */
+function CellV2({ cell, canRemoveGoal, onRemoveGoal }: { cell: V2Cell; canRemoveGoal: boolean; onRemoveGoal: () => void }) {
+  const { values, set } = useIep();
+  const style = cellStyle(cell);
+  const b = cell.bind;
+  if (!b) {
+    return (
+      <div className="whitespace-pre-wrap break-words px-1.5 py-1 text-slate-800" style={style}>
+        {cell.text}
+      </div>
+    );
+  }
+  if ("choice" in b) {
+    const on = values[b.choice.field] === b.choice.value;
+    return (
+      <button
+        type="button"
+        onClick={() => set(b.choice.field, on ? "" : b.choice.value)}
+        aria-pressed={on}
+        aria-label={`성취평가 ${b.choice.value}점`}
+        className="grid h-full min-h-7 w-full place-items-center font-bold text-indigo-700 transition hover:bg-indigo-50"
+        style={style}
+      >
+        {on ? "○" : ""}
+      </button>
+    );
+  }
+  if ("parts" in b) {
+    return (
+      <div className="px-0.5 py-0.5">
+        {b.parts.map((p) => (
+          <div key={p.field} className="flex items-start">
+            {p.label && (
+              <span className="shrink-0 py-1 pl-1 text-slate-800" style={style}>
+                {p.label}
+              </span>
+            )}
+            <F k={p.field} className="min-w-0 flex-1" style={{ ...style, textAlign: "left" }} />
+          </div>
+        ))}
+      </div>
+    );
+  }
+  return (
+    <div className="group/cell relative">
+      {b.para !== undefined &&
+        (cell.lines ?? []).slice(0, b.para).map((l, i) => (
+          <div key={i} className="whitespace-pre-wrap px-1.5 pt-1 text-slate-800" style={style}>
+            {l}
+          </div>
+        ))}
+      <F k={b.field} style={style} />
+      {cell.goal && canRemoveGoal && (
+        <button
+          type="button"
+          onClick={onRemoveGoal}
+          aria-label="이 단기목표 줄 지우기"
+          title="이 단기목표 줄 지우기"
+          className="absolute -left-7 top-1/2 hidden h-6 w-6 -translate-y-1/2 place-items-center rounded-full bg-white text-slate-400 shadow ring-1 ring-slate-200 hover:text-red-600 group-hover/cell:grid"
+        >
+          <XIcon className="h-3.5 w-3.5" />
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** 학교 한글 파일 형식 그대로의 개별화교육계획: 처음 설정 → 표지 → 「학생 추가」로 학생마다 인적 사항과 과목별 계획 */
+function DocV2() {
+  const { values, set } = useIep();
+  const [layout, setLayout] = useState<V2Layout | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [sid, setSid] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [removing, setRemoving] = useState<string | null>(null);
+  const latest = useRef(values);
+  useEffect(() => {
+    latest.current = values;
+  });
+  const skey = structureKey(values);
+
+  // 학생 · 영역 · 단기목표 줄이 바뀌면 조립한 한글 문서의 모양을 다시 받음
+  useEffect(() => {
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch("/api/iep/layout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ values: latest.current }) });
+        const data = (await res.json()) as V2Layout & { error?: string };
+        if (!res.ok) throw new Error(data.error ?? "양식을 만들지 못했어요.");
+        if (!cancelled) {
+          setLayout(data);
+          setError(null);
+        }
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : "양식을 만들지 못했어요.");
+      }
+    }, 120);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [skey]);
+
+  if (!values.setup) return <SetupWizard />;
+  if (error && !layout) return <p className="mx-auto max-w-md rounded-xl bg-red-50 p-6 text-center text-sm text-red-700">{error}</p>;
+  if (!layout)
+    return (
+      <div className="grid place-items-center py-20">
+        <Spinner className="h-8 w-8 text-indigo-600" />
+      </div>
+    );
+
+  const students = layout.sections.filter((x) => x.sid);
+  const sec = layout.sections.find((x) => x.sid === sid) ?? layout.sections[0];
+  const nameOf = (id: string | null) => (id ? (values[studentKey(id, "name")] ?? "").trim() || "이름 없음" : "표지");
+
+  return (
+    <div className="space-y-4">
+      {students.length > 0 && (
+        <div className="mx-auto flex max-w-[210mm] flex-wrap items-center gap-1.5">
+          {students.map((x) => (
+            <button
+              key={x.sid}
+              type="button"
+              aria-pressed={x === sec}
+              onClick={() => setSid(x.sid)}
+              className={`rounded-full px-3 py-1.5 text-sm font-semibold ring-1 ring-inset transition ${x === sec ? "bg-indigo-600 text-white ring-indigo-600" : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"}`}
+            >
+              {nameOf(x.sid)}
+            </button>
+          ))}
+          {sec.sid && (
+            <button type="button" onClick={() => setRemoving(sec.sid)} className="ml-auto inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50">
+              <TrashIcon className="h-3.5 w-3.5" />이 학생 지우기
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* A4 한 쪽 너비(794px) 종이처럼. 좁은 화면에서는 옆으로 밀어서 봄 */}
+      <div className="overflow-x-auto">
+        <div className="mx-auto w-[794px] space-y-3 bg-white px-[56px] py-12 shadow-sm ring-1 ring-slate-200">
+          {sec.blocks.map((b, i) => {
+            if (b.type === "object") return null;
+            if (b.type === "p")
+              return b.text ? (
+                <div key={`${b.key}-${i}`} className="whitespace-pre-wrap" style={cellStyle(b)}>
+                  {b.text}
+                </div>
+              ) : (
+                <div key={`${b.key}-${i}`} className="h-3" />
+              );
+            const widths = colWidths(b);
+            const total = widths.reduce((n, x) => n + x, 0);
+            const scale = Math.min(1, 682 / total);
+            const goals = b.goalSec ? goalIdsOf(values, b.goalSec) : [];
+            return (
+              <div key={`${b.key}-${i}`}>
+                <table className="mx-auto table-fixed border-collapse" style={{ width: total * scale }}>
+                  <colgroup>
+                    {widths.map((w, ci) => (
+                      <col key={ci} style={{ width: w * scale }} />
+                    ))}
+                  </colgroup>
+                  <tbody>
+                    {Array.from({ length: b.rows }, (_, r) => (
+                      <tr key={r}>
+                        {(b.cells as V2Cell[])
+                          .filter((c) => c.r === r)
+                          .sort((x, y) => x.c - y.c)
+                          .map((c) => (
+                            <td key={c.key} rowSpan={c.rs} colSpan={c.cs} className="border border-slate-700 p-0" style={{ background: c.bg ?? undefined, verticalAlign: c.valign, height: Math.max(20, c.h * scale) }}>
+                              <CellV2
+                                cell={c}
+                                canRemoveGoal={goals.length > 1}
+                                onRemoveGoal={() => c.goal && set(sk(c.goal.sec, "goalList"), JSON.stringify(goals.filter((g) => g !== c.goal!.gid)))}
+                              />
+                            </td>
+                          ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {b.goalSec && (
+                  <div className="mt-1.5 flex justify-center">
+                    <button
+                      type="button"
+                      onClick={() => set(sk(b.goalSec!, "goalList"), JSON.stringify([...goals, newSectionId()]))}
+                      className="inline-flex items-center gap-1 rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-indigo-600 shadow-sm ring-1 ring-inset ring-indigo-200 transition hover:bg-indigo-50"
+                    >
+                      <PlusIcon className="h-3.5 w-3.5" />
+                      단기목표 추가
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="flex justify-center pb-6">
+        <button type="button" onClick={() => setAdding(true)} className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-700">
+          <PlusIcon className="h-4 w-4" />
+          학생 추가
+        </button>
+      </div>
+
+      {adding && (
+        <StudentWizard
+          onCancel={() => setAdding(false)}
+          onDone={(id) => {
+            setAdding(false);
+            setSid(id);
+          }}
+        />
+      )}
+      {removing && (
+        <ConfirmDialog
+          title={`${nameOf(removing)} 학생을 지울까요?`}
+          confirmLabel="지우기"
+          onCancel={() => setRemoving(null)}
+          onConfirm={() => {
+            set("studentList", JSON.stringify(parseList(values.studentList).filter((x) => x !== removing)));
+            setRemoving(null);
+            setSid(null);
+          }}
+        >
+          이 학생의 개별화교육계획이 함께 편집하는 선생님 화면에서도 사라지고, 한글 파일에도 들어가지 않아요.
+        </ConfirmDialog>
+      )}
     </div>
   );
 }
