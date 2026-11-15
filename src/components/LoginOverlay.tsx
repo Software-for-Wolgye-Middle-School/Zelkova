@@ -16,9 +16,12 @@ export default function LoginOverlay({
   onExit,
   exitLabel = "메인 화면으로",
   title = "학생 정보 관리",
+  verify,
 }: {
   checking?: boolean;
   onSuccess: () => void;
+  /** 로그인한 뒤 더 확인할 것 (예: 관리자인지). 문구를 돌려주면 창을 닫지 않고 그 문구를 오류로 보여 줌 */
+  verify?: () => Promise<string | null>;
   onExit: () => void;
   exitLabel?: string;
   /** 창 맨 위 제목 */
@@ -40,8 +43,13 @@ export default function LoginOverlay({
     setBusy(true);
     setError(null);
     const result = await login(id, password);
+    const problem = result.ok && verify ? await verify() : null;
     setBusy(false);
-    if (result.ok) onSuccess();
+    if (result.ok && problem) {
+      setError(problem);
+      setPassword("");
+      shake();
+    } else if (result.ok) onSuccess();
     else {
       setError(result.error);
       setPassword("");

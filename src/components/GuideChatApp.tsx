@@ -85,9 +85,7 @@ export default function GuideChatApp() {
   const [editing, setEditing] = useState(false);
   /** 업무 안내 편집은 관리자만: 관리자가 아니면 관리자 로그인 창을 띄움 */
   const [adminLogin, setAdminLogin] = useState(false);
-  const [adminMsg, setAdminMsg] = useState<string | null>(null);
   const openEditor = async () => {
-    setAdminMsg(null);
     if (await checkAdmin()) setEditing(true);
     else setAdminLogin(true);
   };
@@ -142,20 +140,16 @@ export default function GuideChatApp() {
         )}
       </div>
 
-      {adminMsg && (
-        <p role="alert" className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-center text-sm font-medium text-amber-800">
-          {adminMsg}
-        </p>
-      )}
       {adminLogin && (
         <LoginOverlay
           title="관리자 로그인"
           exitLabel="닫기"
           onExit={() => setAdminLogin(false)}
-          onSuccess={async () => {
+          // 관리자가 아닌 계정으로 로그인하면 창을 닫지 않고 창 안에 알려 줌
+          verify={async () => ((await checkAdmin()) ? null : "관리자 계정으로 로그인하세요")}
+          onSuccess={() => {
             setAdminLogin(false);
-            if (await checkAdmin()) setEditing(true);
-            else setAdminMsg("업무 안내 편집은 관리자 계정으로만 할 수 있어요.");
+            setEditing(true);
           }}
         />
       )}
@@ -372,7 +366,7 @@ function GuideEditor({ onClose }: { onClose: () => void }) {
           </div>
           {!isText && (
             <p className="text-xs leading-relaxed text-slate-500">
-              「느티나무반 학생들에 대해 알려 주세요」라고 물으면 챗봇이 이 소개로 답해요. 한 줄에 한 학생씩, 학년-반 이름과 성격 · 좋아하는 것 · 취미를 적어 주세요.
+              「느티나무반 학생들에 대해서 알려주세요」라고 물으면 챗봇이 이 소개로 답해요. 한 줄에 한 학생씩, 학년-반 이름과 성격 · 좋아하는 것 · 취미를 적어 주세요.
             </p>
           )}
           <textarea
