@@ -608,17 +608,43 @@ function IepEditor({ docId, myName, onBack, onRename, nameDialog }: { docId: str
 
 // ---------------------------------------------------------------- 학교 한글 양식을 그대로 고치는 화면
 
-type FormStyle = { align: "left" | "center" | "right" | "justify"; bold: boolean; size: number };
-type FormCellT = FormStyle & { key: string; r: number; c: number; rs: number; cs: number; w: number; h: number; bg: string | null; valign: "top" | "middle" | "bottom"; text: string; locked: boolean };
-type FormBlockT =
+type FormStyle = { align: "left" | "center" | "right" | "justify"; bold: boolean; size: number; font?: string; spacing?: number; color?: string };
+type FormCellT = FormStyle & {
+  key: string;
+  r: number;
+  c: number;
+  rs: number;
+  cs: number;
+  w: number;
+  h: number;
+  bg: string | null;
+  border?: [string, string, string, string];
+  valign: "top" | "middle" | "bottom";
+  text: string;
+  locked: boolean;
+};
+type FormBlockT = { pi?: number; page?: boolean } & (
   | (FormStyle & { type: "p"; key: string; text: string; locked: boolean })
   | { type: "table"; key: string; w: number; rows: number; cols: number; cells: FormCellT[] }
-  | { type: "object" };
+  | { type: "object"; w?: number; h?: number; align?: FormStyle["align"]; image?: boolean }
+);
 type FormT = { sections: { label: string; nameKey?: string; blocks: FormBlockT[] }[] };
 
-/** 한글 글자 크기(pt) → 화면 px (너무 큰 제목은 줄임) */
-const fontPx = (pt: number) => `${Math.round(Math.min(Math.max(pt || 10, 7), 32) * 1.333)}px`;
-const cellStyle = (s: FormStyle): CSSProperties => ({ fontSize: fontPx(s.size), fontWeight: s.bold ? 700 : 400, textAlign: s.align === "justify" ? "left" : s.align, lineHeight: 1.45 });
+/** 한글 글자 크기(pt) → 화면 px (한글 파일과 같은 크기) */
+const fontPx = (pt: number) => `${Math.round(Math.max(pt || 10, 5) * 13.33) / 10}px`;
+/** 한글 글자 모양 → 화면 글자 모양 (글꼴 · 크기 · 굵기 · 자간 · 색 · 정렬) */
+const cellStyle = (s: FormStyle): CSSProperties => ({
+  fontSize: fontPx(s.size),
+  fontWeight: s.bold ? 700 : 400,
+  fontFamily: s.font,
+  letterSpacing: s.spacing ? `${s.spacing / 100}em` : undefined,
+  color: s.color && s.color !== "#000000" ? s.color : undefined,
+  textAlign: s.align === "justify" ? "left" : s.align,
+  lineHeight: 1.45,
+});
+/** 칸 테두리 (한글 파일의 칸마다의 선 종류 · 굵기 그대로) */
+const borderStyle = (c: FormCellT): CSSProperties =>
+  c.border ? { borderLeft: c.border[0], borderRight: c.border[1], borderTop: c.border[2], borderBottom: c.border[3] } : { border: "1px solid #334155" };
 
 /** 표의 열 너비: 한 칸짜리 칸의 너비로 정하고, 합친 칸만 있는 열은 남는 너비를 나눔 */
 function colWidths(t: Extract<FormBlockT, { type: "table" }>) {
@@ -723,8 +749,8 @@ function FormDoc({ year, semester }: { year: string; semester: string }) {
                             key={c.key}
                             rowSpan={c.rs}
                             colSpan={c.cs}
-                            className="border border-slate-700 p-0"
-                            style={{ background: c.bg ?? undefined, verticalAlign: c.valign, height: Math.max(20, c.h * scale) }}
+                            className="p-0"
+                            style={{ ...borderStyle(c), background: c.bg ?? undefined, verticalAlign: c.valign, height: Math.max(20, c.h * scale) }}
                           >
                             {c.locked ? (
                               <div className="whitespace-pre-wrap px-1.5 py-1 text-slate-500" style={cellStyle(c)}>
@@ -1047,6 +1073,23 @@ function CellV2({ cell, canRemoveGoal, onRemoveGoal }: { cell: V2Cell; canRemove
   );
 }
 
+/** 문단 묶음을 한글 파일의 쪽마다 나눔 (새 쪽이 시작되는 문단에서 끊음). 쪽 끝의 빈 문단은 뺌 */
+function pagesOf(blocks: V2Block[]): V2Block[][] {
+  const pages: V2Block[][] = [];
+  for (const b of blocks) {
+    if (b.page || !pages.length) pages.push([]);
+    pages[pages.length - 1].push(b);
+  }
+  for (const p of pages) {
+    while (p.length > 1) {
+      const last = p[p.length - 1];
+      if (last.type !== "p" || last.text) break;
+      p.pop();
+    }
+  }
+  return pages;
+}
+
 /** 학교 한글 파일 형식 그대로의 개별화교육계획: 처음 설정 → 표지 → 「학생 추가」로 학생마다 인적 사항과 과목별 계획 */
 function DocV2() {
   const { values, set } = useIep();
@@ -1119,19 +1162,27 @@ function DocV2() {
         </div>
       )}
 
-      {/* A4 한 쪽 너비(794px) 종이처럼. 좁은 화면에서는 옆으로 밀어서 봄 */}
-      <div className="overflow-x-auto">
-        <div className="mx-auto w-[794px] space-y-3 bg-white px-[56px] py-12 shadow-sm ring-1 ring-slate-200">
-          {sec.blocks.map((b, i) => {
-            if (b.type === "object") return null;
-            if (b.type === "p")
-              return b.text ? (
-                <div key={`${b.key}-${i}`} className="whitespace-pre-wrap" style={cellStyle(b)}>
-                  {b.text}
-                </div>
-              ) : (
-                <div key={`${b.key}-${i}`} className="h-3" />
-              );
+      {/* 한글 파일의 쪽마다 A4 종이(794 × 1123px) 한 장씩. 좁은 화면에서는 옆으로 밀어서 봄 */}
+      <div className="space-y-6 overflow-x-auto pb-2">
+        {pagesOf(sec.blocks).map((page, pn) => (
+          <div key={pn} className="mx-auto min-h-[1123px] w-[794px] bg-white px-[56px] py-12 shadow-md ring-1 ring-slate-200" aria-label={`${pn + 1}쪽`}>
+            {page.map((b, i) => {
+              if (b.type === "object")
+                return b.image && b.w ? (
+                  <div key={`o-${i}`} className="flex" style={{ justifyContent: b.align === "right" ? "flex-end" : b.align === "left" ? "flex-start" : "center" }}>
+                    {/* eslint-disable-next-line @next/next/no-img-element -- 한글 양식 안의 그림을 그대로 보여 줌 */}
+                    <img src="/api/iep/logo" alt="월계중학교 로고" width={b.w} height={b.h} style={{ width: b.w, height: b.h }} />
+                  </div>
+                ) : null;
+              if (b.type === "p")
+                return b.text ? (
+                  <div key={`${b.key}-${i}`} className="whitespace-pre-wrap" style={cellStyle(b)}>
+                    {b.text}
+                  </div>
+                ) : (
+                  // 빈 문단도 한글 파일처럼 그 글자 크기만큼 띄움
+                  <div key={`${b.key}-${i}`} style={{ height: `calc(${fontPx(b.size)} * 1.45)` }} />
+                );
             const widths = colWidths(b);
             const total = widths.reduce((n, x) => n + x, 0);
             const scale = Math.min(1, 682 / total);
@@ -1151,7 +1202,7 @@ function DocV2() {
                           .filter((c) => c.r === r)
                           .sort((x, y) => x.c - y.c)
                           .map((c) => (
-                            <td key={c.key} rowSpan={c.rs} colSpan={c.cs} className="border border-slate-700 p-0" style={{ background: c.bg ?? undefined, verticalAlign: c.valign, height: Math.max(20, c.h * scale) }}>
+                            <td key={c.key} rowSpan={c.rs} colSpan={c.cs} className="p-0" style={{ ...borderStyle(c), background: c.bg ?? undefined, verticalAlign: c.valign, height: Math.max(c.text || c.bind ? 20 : 4, c.h * scale) }}>
                               <CellV2
                                 cell={c}
                                 canRemoveGoal={goals.length > 1}
@@ -1177,8 +1228,9 @@ function DocV2() {
                 )}
               </div>
             );
-          })}
-        </div>
+            })}
+          </div>
+        ))}
       </div>
 
       <div className="flex justify-center pb-6">

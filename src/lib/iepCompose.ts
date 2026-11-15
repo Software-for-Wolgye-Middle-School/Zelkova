@@ -43,7 +43,8 @@ export type LayoutCell = FormCell & { bind?: Bind; goal?: { sec: string; gid: st
 export type LayoutBlock = Exclude<FormBlock, { type: "table" }> | (Extract<FormBlock, { type: "table" }> & { cells: LayoutCell[]; goalSec?: string });
 export type Layout = { sections: { sid: string | null; label: string; blocks: LayoutBlock[] }[] };
 
-type Piece = { recs: Rec[]; binds?: Map<string, Bind>; goals?: Map<string, { sec: string; gid: string }>; goalSec?: string };
+/** page: 한글 파일에서 이 묶음이 새 쪽에서 시작함 (화면도 쪽을 나눠 그림) */
+type Piece = { recs: Rec[]; binds?: Map<string, Bind>; goals?: Map<string, { sec: string; gid: string }>; goalSec?: string; page?: boolean };
 
 /** 빈 양식이 예상한 모양인지 확인 (다른 양식으로 바뀌면 칸 위치가 어긋나므로) */
 function checkTemplate(doc: HwpDoc) {
@@ -77,6 +78,7 @@ class Block implements Piece {
   binds = new Map<string, Bind>();
   goals = new Map<string, { sec: string; gid: string }>();
   goalSec?: string;
+  page?: boolean;
   constructor(recs: Rec[]) {
     this.recs = recs;
   }
@@ -168,14 +170,17 @@ function assemble(f: IepFields, file: Uint8Array): { doc: HwpDoc; pieces: Piece[
   const semester = (f.semester ?? "").trim();
   const v = (key: string) => f[key] ?? "";
   const pieces: Piece[] = [];
-  const add = (b: Block) => pieces.push(b);
+  const add = (b: Block, page = false) => {
+    b.page = page;
+    pieces.push(b);
+  };
 
   const students = parseList(f.studentList);
   if (!students.length) {
     // 학생이 없으면 표지 첫 쪽만 (개별화교육지원팀은 처음 설정한 이름)
     const line = take(P.FIRST);
     line.term(year, semester);
-    add(line);
+    add(line, true);
     add(take(P.COVER_HEAD[0], P.COVER_HEAD[1]));
     const cover = take(P.COVER_TABLE);
     cover.set(1, 9, termText(f));
@@ -190,7 +195,7 @@ function assemble(f: IepFields, file: Uint8Array): { doc: HwpDoc; pieces: Piece[
     // 표지
     const line = take(i === 0 ? P.FIRST : P.COVER_LINE);
     line.term(year, semester);
-    add(line);
+    add(line, true);
     add(take(P.COVER_HEAD[0], P.COVER_HEAD[1]));
     const cover = take(P.COVER_TABLE);
     cover.set(0, 1, sv("unit"), k("unit"));
@@ -205,7 +210,7 @@ function assemble(f: IepFields, file: Uint8Array): { doc: HwpDoc; pieces: Piece[
     // 인적 사항 · 개별화교육지원팀
     const title = take(P.PROFILE_TITLE);
     title.term(year, semester);
-    add(title);
+    add(title, true);
     const profile = take(P.PROFILE);
     profile.nameLine(0, 1, sv("nameLine"), k("nameLine"));
     profile.labeled(
@@ -276,7 +281,7 @@ function assemble(f: IepFields, file: Uint8Array): { doc: HwpDoc; pieces: Piece[
       });
       t.set(18 + shift, 1, s("method"), sk(sec, "method"));
       if (!life) t.set(19 + shift, 1, s("evalPlan"), sk(sec, "evalPlan"));
-      add(t);
+      add(t, true);
       if (!life) {
         add(take(P.GAP_SUBJECT));
         const m = take(P.MONTH);
@@ -287,7 +292,7 @@ function assemble(f: IepFields, file: Uint8Array): { doc: HwpDoc; pieces: Piece[
           m.set(2 + j, 2, s(`m${j}.content`), sk(sec, `m${j}.content`));
           m.set(2 + j, 3, s(`m${j}.eval`), sk(sec, `m${j}.eval`));
         });
-        add(m);
+        add(m, true);
       } else add(take(P.GAP));
     }
   });
@@ -310,6 +315,14 @@ export function layoutIepV2(f: IepFields, file: Uint8Array): Layout {
   const form = readFormDoc(doc);
   // 표 번호(문서 순서) → 그 표를 만든 조각
   const tablePieces = pieces.filter((p) => p.recs.some((r) => r.tag === TAG.TABLE));
+  // 새 쪽이 시작되는 맨 위 문단 번호
+  const pageStarts = new Set<number>();
+  let at = 0;
+  for (const p of pieces) {
+    if (p.page) pageStarts.add(at);
+    at += topParagraphs(p.recs).length;
+  }
+  for (const sec of form.sections) for (const b of sec.blocks) b.page = pageStarts.has(b.pi);
   const students = parseList(f.studentList);
   return {
     sections: form.sections.map((sec, i) => {
