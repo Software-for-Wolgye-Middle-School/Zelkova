@@ -115,8 +115,8 @@ class Block implements Piece {
         const next = shapes[k + 1]?.[0] ?? Infinity;
         if (at < label.length) runs.push({ text: label.slice(at, Math.min(next, label.length)), shape: id });
       });
-      // 값의 글자 모양: 이름표 뒤에서 시작하는 모양이 있으면 그것, 없으면 이름표 끝의 모양 (원본과 같음)
-      const valueShape = (shapes.find(([at]) => at >= label.length) ?? shapes.filter(([at]) => at < label.length).pop())?.[1];
+      // 값의 글자 모양: 이름표 끝과 같은 모양 (원본의 '병력 및 약물복용' 값만 굴림이라 다른 줄과 글꼴이 달랐음)
+      const valueShape = (shapes.filter(([at]) => at < label.length).pop() ?? shapes[0])?.[1];
       runs.push({ text: items[i].value, shape: valueShape });
       setParaRuns(this.recs, p, runs);
       parts.unshift({ label: label.trimEnd(), field: items[i].field });
@@ -132,6 +132,23 @@ class Block implements Piece {
     if (m && shapes.length >= 4) setParaRuns(this.recs, cell.paras[0], [{ text: m[1], shape: shapes[0] }, { text: m[2], shape: shapes[1] }, { text: m[3] || " ", shape: shapes[2] }, { text: m[4], shape: shapes[3] }]);
     else setParaText(this.recs, cell.paras[0], text);
     this.binds.set(`${r}.${c}`, { field });
+  }
+  /** 칸 안의 글을 맨 위부터 (세로 정렬: 위) */
+  valignTop(r: number, c: number) {
+    const cell = this.cell(r, c);
+    if (!cell) return;
+    const d = this.recs[cell.list].data;
+    d.writeUInt32LE((d.readUInt32LE(2) & ~(3 << 21)) >>> 0, 2);
+  }
+  /** 표가 쪽 경계에서 나뉘지 않게 (다음 쪽으로 통째로 넘어감) */
+  keepTable() {
+    const t = this.recs.find((r) => r.tag === TAG.TABLE);
+    if (t) t.data.writeUInt32LE((t.data.readUInt32LE(0) & ~3) >>> 0, 0);
+  }
+  /** 이 묶음의 첫 문단 앞에서 쪽을 나눔 */
+  pageBreak() {
+    const p = this.recs.find((r) => r.tag === TAG.PARA_HEADER);
+    if (p && p.data.length > 11) p.data[11] |= 0x04;
   }
   /** 양식 글이 re 와 맞는 칸의 글을 바꿈 (예: "현 재 / 수행수준" → "현재학습 / 수행수준") */
   relabel(r: number, c: number, re: RegExp, text: string) {
@@ -177,6 +194,8 @@ function assemble(f: IepFields, file: Uint8Array): { doc: HwpDoc; pieces: Piece[
   const pieces: Piece[] = [];
   const add = (b: Block, page = false) => {
     b.page = page;
+    // 한글 파일도 화면처럼 이 묶음에서 새 쪽 (문서 맨 앞은 그대로)
+    if (page && pieces.length) b.pageBreak();
     pieces.push(b);
   };
 
@@ -241,6 +260,7 @@ function assemble(f: IepFields, file: Uint8Array): { doc: HwpDoc; pieces: Piece[
       plan.set(2 + r, 3, sv(`plan.${g}.subject`), k(`plan.${g}.subject`));
       plan.set(2 + r, 4, sv(`plan.${g}.teacher`), k(`plan.${g}.teacher`));
     });
+    plan.keepTable();
     add(plan);
 
     const act = take(P.ACT);
@@ -256,10 +276,12 @@ function assemble(f: IepFields, file: Uint8Array): { doc: HwpDoc; pieces: Piece[
     act.set(6, 2, sv("act.safety.who"), k("act.safety.who"));
     act.set(6, 3, sv("act.safety.period"), k("act.safety.period"));
     act.set(6, 4, sv("act.safety.note"), k("act.safety.note"));
+    act.keepTable();
     add(act);
 
     const svc = take(P.SVC);
     ["svc.therapyArea", "svc.therapyMethod", "svc.transport", "svc.staff", "svc.adjust"].forEach((name, c) => svc.set(2, c, sv(name), k(name)));
+    svc.keepTable();
     add(svc);
 
     // 수강 과목마다의 계획과 일상생활적응 영역
@@ -271,6 +293,9 @@ function assemble(f: IepFields, file: Uint8Array): { doc: HwpDoc; pieces: Piece[
       const shift = t.goalRows(goals.length);
       t.goalSec = sec;
       t.relabel(1, 0, /^\s*현\s*재/, "현재학습\n수행수준");
+      // 현재학습 수행수준 · 장기목표는 칸 맨 위부터 적음
+      t.valignTop(1, 1);
+      t.valignTop(2, 1);
       if (!life) t.set(0, 0, s("title"), sk(sec, "title"));
       t.setPara(0, 2, 1, s("term"), sk(sec, "term"));
       t.set(1, 1, s("present"), sk(sec, "present"));

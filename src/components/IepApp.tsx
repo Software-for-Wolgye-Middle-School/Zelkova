@@ -1035,6 +1035,7 @@ function StudentWizard({ onCancel, onDone }: { onCancel: () => void; onDone: (si
   const [addr, setAddr] = useState({ base: "", detail: "" });
   const [phone, setPhone] = useState({ number: "", who: "" });
   const [health, setHealth] = useState<{ kind: "" | "양호" | "기타"; text: string }>({ kind: "", text: "" });
+  const [career, setCareer] = useState<{ kind: "" | "미정" | "기타"; text: string }>({ kind: "", text: "" });
   const [error, setError] = useState<string | null>(null);
   const up = (k: keyof StudentInput) => (e: { target: { value: string } }) => setS((x) => ({ ...x, [k]: e.target.value }));
   const onBase = useCallback((v: string) => setAddr((a) => ({ ...a, base: v })), []);
@@ -1053,6 +1054,7 @@ function StudentWizard({ onCancel, onDone }: { onCancel: () => void; onDone: (si
       phone: phone.number ? `${phone.number}${phone.who ? ` (${phone.who})` : ""}` : "",
       selectedYear: selectedIso ? fmtDate(selectedIso) : "",
       health: health.kind === "기타" ? health.text.trim() || "기타" : health.kind,
+      career: career.kind === "기타" ? career.text.trim() || "기타" : career.kind,
     };
     for (const [k, v] of Object.entries(studentFieldsV2(values, sid, input))) set(k, v);
     set("studentList", JSON.stringify([...parseList(values.studentList), sid]));
@@ -1179,9 +1181,19 @@ function StudentWizard({ onCancel, onDone }: { onCancel: () => void; onDone: (si
           <Labeled2 label="학부모 요구">
             <textarea value={s.parentNeeds} onChange={up("parentNeeds")} rows={3} className={wizArea} autoFocus />
           </Labeled2>
-          <Labeled2 label="졸업 후 진로">
-            <input value={s.career} onChange={up("career")} className={wizInput} />
-          </Labeled2>
+          <fieldset>
+            <legend className="mb-1 text-xs font-semibold text-slate-600">졸업 후 진로</legend>
+            <div className="flex items-center gap-2">
+              {(["미정", "기타"] as const).map((h) => (
+                <button key={h} type="button" aria-pressed={career.kind === h} onClick={() => setCareer((x) => ({ ...x, kind: x.kind === h ? "" : h }))} className={chip(career.kind === h)}>
+                  {h}
+                </button>
+              ))}
+              {career.kind === "기타" && (
+                <input value={career.text} onChange={(e) => setCareer((x) => ({ ...x, text: e.target.value }))} placeholder="졸업 후 진로를 적어 주세요" className={wizInput} aria-label="졸업 후 진로" autoFocus />
+              )}
+            </div>
+          </fieldset>
           <p className="rounded-lg bg-indigo-50 px-3 py-2 text-xs leading-relaxed text-indigo-800">
             교육활동계획 · 재량(외부)활동 및 방과후 학교 · 특수교육 관련서비스 및 평가조정은 학교 양식의 기본값으로 들어가고, 수강 과목마다 개별화교육계획이 만들어져요. 모두 나중에 고칠 수 있어요.
           </p>
@@ -1229,7 +1241,7 @@ function CellV2({ cell, canRemoveGoal, onRemoveGoal }: { cell: V2Cell; canRemove
                 {p.label}
               </span>
             )}
-            <F k={p.field} className="min-w-0 flex-1" style={{ ...style, textAlign: "left" }} />
+            <F k={p.field} className="min-w-0 flex-1" style={p.label ? { ...style, textAlign: "left" } : style} />
           </div>
         ))}
       </div>
@@ -1412,30 +1424,30 @@ function DocV2() {
                           .filter((c) => c.r === r)
                           .sort((x, y) => x.c - y.c)
                           .map((c) => (
-                            <td key={c.key} rowSpan={c.rs} colSpan={c.cs} onMouseDown={c.bind ? focusCell : undefined} className={`p-0 ${c.bind ? "cursor-text" : ""}`} style={{ ...borderStyle(c), background: c.bg ?? undefined, verticalAlign: c.valign, height: Math.max(c.text || c.bind ? 20 : 4, c.h * scale) }}>
+                            <td key={c.key} rowSpan={c.rs} colSpan={c.cs} onMouseDown={c.bind ? focusCell : undefined} className={`p-0 ${c.bind ? "cursor-text" : ""}`} style={{ ...borderStyle(c), position: "relative", background: c.bg ?? undefined, verticalAlign: c.bind && !("choice" in c.bind) && c.align !== "center" ? "top" : c.valign, height: Math.max(c.text || c.bind ? 20 : 4, c.h * scale) }}>
                               <CellV2
                                 cell={c}
                                 canRemoveGoal={goals.length > 1}
                                 onRemoveGoal={() => c.goal && set(sk(c.goal.sec, "goalList"), JSON.stringify(goals.filter((g) => g !== c.goal!.gid)))}
                               />
+                              {/* 마지막 단기목표 줄 아래 선(성취평가 작성준거 바로 위)에 「단기목표 추가」 */}
+                              {c.goal && c.goal.gid === goals[goals.length - 1] && (
+                                <button
+                                  type="button"
+                                  onMouseDown={(e) => e.stopPropagation()}
+                                  onClick={() => set(sk(c.goal!.sec, "goalList"), JSON.stringify([...goals, newSectionId()]))}
+                                  className="absolute -bottom-3 left-1/2 z-10 inline-flex -translate-x-1/2 items-center gap-1 rounded-full bg-white px-2.5 py-1 text-xs font-semibold whitespace-nowrap text-indigo-600 shadow-sm ring-1 ring-indigo-200 transition hover:bg-indigo-50"
+                                >
+                                  <PlusIcon className="h-3.5 w-3.5" />
+                                  단기목표 추가
+                                </button>
+                              )}
                             </td>
                           ))}
                       </tr>
                     ))}
                   </tbody>
                 </table>
-                {b.goalSec && (
-                  <div className="mt-1.5 flex justify-center">
-                    <button
-                      type="button"
-                      onClick={() => set(sk(b.goalSec!, "goalList"), JSON.stringify([...goals, newSectionId()]))}
-                      className="inline-flex items-center gap-1 rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-indigo-600 shadow-sm ring-1 ring-inset ring-indigo-200 transition hover:bg-indigo-50"
-                    >
-                      <PlusIcon className="h-3.5 w-3.5" />
-                      단기목표 추가
-                    </button>
-                  </div>
-                )}
               </div>
             );
             })}

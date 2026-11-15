@@ -53,6 +53,9 @@ export const LIFE_METHOD = "교수·학습방법 : 직접 교수, 지역사회 �
 /** 인적 사항 첫 줄: "1학년 1반 5번  이름 : 홍길동" */
 export const nameLine = (grade: string, cls: string, number: string, name: string) => `${grade}학년 ${cls}반 ${number}번  이름 : ${name}`;
 
+/** 새 영역의 단기목표 줄 수 */
+export const DEFAULT_GOALS = 10;
+
 export type StudentInput = {
   name: string;
   grade: string;
@@ -143,7 +146,7 @@ export function studentFieldsV2(f: IepFields, sid: string, s: StudentInput): Iep
   const addSection = (kind: "subject" | "life", subject = "") => {
     const id = newSectionId();
     list.push(id);
-    const goal = newSectionId();
+    const goals = Array.from({ length: DEFAULT_GOALS }, () => newSectionId());
     Object.assign(out, {
       [sk(id, "kind")]: kind,
       [sk(id, "subject")]: subject,
@@ -151,7 +154,7 @@ export function studentFieldsV2(f: IepFields, sid: string, s: StudentInput): Iep
       [sk(id, "term")]: termText(f),
       [sk(id, "method")]: kind === "subject" ? SUBJECT_DEFAULTS[subject]?.method ?? "교수·학습방법 : \n교수매체 : " : LIFE_METHOD,
       [sk(id, "evalPlan")]: kind === "subject" ? (SUBJECT_DEFAULTS[subject]?.evalPlan ?? "") : "",
-      [sk(id, "goalList")]: JSON.stringify([goal]),
+      [sk(id, "goalList")]: JSON.stringify(goals),
     });
   };
   for (const subject of subjects) addSection("subject", subject);
