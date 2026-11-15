@@ -1063,7 +1063,7 @@ function StudentWizard({ onCancel, onDone }: { onCancel: () => void; onDone: (si
     onDone(sid);
   };
   return (
-    <Wizard title="학생 추가" steps={steps} step={step} onBack={() => goStep(step - 1)} onNext={next} onCancel={onCancel} hints={false} fadeClass={fadeClass}>
+    <Wizard title={s.name.trim() ? `${s.name.trim()} 학생 추가` : "학생 추가"} steps={steps} step={step} onBack={() => goStep(step - 1)} onNext={next} onCancel={onCancel} hints={false} fadeClass={fadeClass}>
       {step === 0 && (
         <>
           <BigLabel label="이름">
