@@ -934,7 +934,7 @@ type PostcodeData = { userSelectedType: "R" | "J"; roadAddress: string; jibunAdd
 type PostcodeApi = {
   Postcode: new (o: { oncomplete: (d: PostcodeData) => void; width?: string; height?: string }) => { open: (o?: { popupTitle?: string; popupKey?: string; left?: number; top?: number }) => void };
 };
-const POSTCODE_SRC = "https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js";
+const POSTCODE_SRC = "https://t1.kakaocdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js";
 let postcodeLoading: Promise<PostcodeApi> | null = null;
 /** 카카오(다음) 우편번호 서비스 스크립트를 한 번만 불러옴 */
 function loadPostcode(): Promise<PostcodeApi> {
