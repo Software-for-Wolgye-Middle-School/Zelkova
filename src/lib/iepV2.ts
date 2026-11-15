@@ -69,6 +69,9 @@ export type StudentInput = {
   behavior: string;
   parentNeeds: string;
   career: string;
+  /** 학부모 · 통합교사 이름 (개별화교육지원팀) */
+  parent?: string;
+  inc?: string;
 };
 
 /** 학생 한 명을 더할 때 쓸 칸들: 적은 인적 사항 + 개별화교육지원팀 · 기간 · 교육활동계획 · 재량활동 · 관련서비스 기본값 + 과목마다의 계획 */
@@ -104,8 +107,8 @@ export function studentFieldsV2(f: IepFields, sid: string, s: StudentInput): Iep
     [k("team.vice")]: f["team.vice"] ?? "",
     [k("team.sp1")]: sp1,
     [k("team.sp2")]: sp2,
-    [k("team.inc")]: "",
-    [k("team.parent")]: "",
+    [k("team.inc")]: (s.inc ?? "").trim(),
+    [k("team.parent")]: (s.parent ?? "").trim(),
     // 교육활동계획
     [k("plan.placement")]: "시간제\n특수학급\n(부분 통합교육)",
     [k("plan.inc.period")]: planPeriod(f),

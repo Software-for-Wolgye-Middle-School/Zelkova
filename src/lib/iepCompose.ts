@@ -133,6 +133,11 @@ class Block implements Piece {
     else setParaText(this.recs, cell.paras[0], text);
     this.binds.set(`${r}.${c}`, { field });
   }
+  /** 양식 글이 re 와 맞는 칸의 글을 바꿈 (예: "현 재 / 수행수준" → "현재학습 / 수행수준") */
+  relabel(r: number, c: number, re: RegExp, text: string) {
+    const cell = this.cell(r, c);
+    if (cell && re.test(cell.paras.map((p) => paraText(this.recs, p)).join("\n"))) setCellText(this.recs, cell, text);
+  }
   /** 글 속 "2026학년도 2학기" 를 이 문서의 학년도 · 학기로 (맨 위 문단) */
   term(year: string, semester: string) {
     topParagraphs(this.recs).forEach(([p]) => {
@@ -265,6 +270,7 @@ function assemble(f: IepFields, file: Uint8Array): { doc: HwpDoc; pieces: Piece[
       const goals = goalIdsOf(f, sec);
       const shift = t.goalRows(goals.length);
       t.goalSec = sec;
+      t.relabel(1, 0, /^\s*현\s*재/, "현재학습\n수행수준");
       if (!life) t.set(0, 0, s("title"), sk(sec, "title"));
       t.setPara(0, 2, 1, s("term"), sk(sec, "term"));
       t.set(1, 1, s("present"), sk(sec, "present"));

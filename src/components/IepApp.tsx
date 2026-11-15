@@ -26,6 +26,7 @@ import LoginOverlay from "./LoginOverlay";
 import { ArrowLeftIcon, DownloadIcon, PlusIcon, Spinner, TrashIcon, XIcon } from "./icons";
 import { fmtDate, FORM_V2, goalIdsOf, structureKey, studentFieldsV2, SUBJECTS_V2, type StudentInput } from "@/lib/iepV2";
 import { IEP_STATUS_TEXT, useIepSync, type Me } from "./useIepSync";
+import { useStepFlow } from "./StepFlow";
 
 /**
  * 특수학급 개별화교육계획 작성. 특수교사 두 분이 한 문서를 동시에 열어 고치면
@@ -783,8 +784,32 @@ type V2Layout = { sections: { sid: string | null; label: string; blocks: V2Block
 const wizInput = "h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-[15px] outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100";
 const wizArea = "w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-[15px] outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100";
 
-/** 단계별 입력 창 (화면 전체를 검게 덮음) */
-function Wizard({ title, steps, step, onBack, onNext, onCancel, busy = false, children }: { title: string; steps: string[]; step: number; onBack: () => void; onNext: () => void; onCancel?: () => void; busy?: boolean; children: ReactNode }) {
+/** 단계별 입력 창 (화면 전체를 검게 덮음). 단계를 바꾸면 칭찬통장처럼 화면이 옆으로 밀려 바뀌고, 진행 막대가 왼쪽에서 오른쪽으로 채워짐 */
+function Wizard({
+  title,
+  steps,
+  step,
+  onBack,
+  onNext,
+  onCancel,
+  busy = false,
+  hints = true,
+  fadeClass = "",
+  children,
+}: {
+  title: string;
+  steps: string[];
+  step: number;
+  onBack: () => void;
+  onNext: () => void;
+  onCancel?: () => void;
+  busy?: boolean;
+  /** 단계마다의 설명 글을 제목 아래에 보여 줌 */
+  hints?: boolean;
+  /** 단계 화면이 밀려 바뀌는 움직임 (useStepFlow) */
+  fadeClass?: string;
+  children: ReactNode;
+}) {
   const last = step === steps.length - 1;
   return createPortal(
     <div className="fixed inset-0 z-[80] grid place-items-center overflow-y-auto bg-black/70 p-4">
@@ -799,13 +824,18 @@ function Wizard({ title, steps, step, onBack, onNext, onCancel, busy = false, ch
           {step + 1} / {steps.length} 단계
         </p>
         <h2 className="mt-1 text-lg font-bold text-slate-900">{title}</h2>
-        <p className="mt-0.5 text-sm text-slate-500">{steps[step]}</p>
-        <div className="mt-2 flex gap-1">
+        {hints && <p className="mt-0.5 text-sm text-slate-500">{steps[step]}</p>}
+        <div className="mt-2 flex gap-1" aria-hidden>
           {steps.map((_, i) => (
-            <span key={i} className={`h-1 flex-1 rounded-full ${i <= step ? "bg-indigo-500" : "bg-slate-200"}`} />
+            <span key={i} className="h-1 flex-1 overflow-hidden rounded-full bg-slate-200">
+              {/* 지난 단계까지 왼쪽에서 오른쪽으로 채워짐 */}
+              <span className="block h-full rounded-full bg-indigo-500 transition-[width] duration-500 ease-out motion-reduce:transition-none" style={{ width: i <= step ? "100%" : "0%" }} />
+            </span>
           ))}
         </div>
-        <div className="mt-5 space-y-3">{children}</div>
+        <div className="overflow-hidden">
+          <div className={`mt-5 space-y-3 ${fadeClass}`}>{children}</div>
+        </div>
         <div className="mt-6 flex gap-2">
           {step > 0 ? (
             <button type="button" onClick={onBack} className="flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-600 ring-1 ring-inset ring-slate-200 hover:bg-slate-50">
@@ -839,7 +869,7 @@ const Labeled2 = ({ label, children }: { label: string; children: ReactNode }) =
 /** 처음 들어가면: 1단계 개별화 교육의 시작 · 종료 시기, 2단계 개별화교육지원팀(교장 · 교감 · 특수교사 두 분) */
 function SetupWizard() {
   const { values, set } = useIep();
-  const [step, setStep] = useState(0);
+  const { step, goStep, fadeClass } = useStepFlow();
   const [start, setStart] = useState(values["term.start"] ?? "");
   const [end, setEnd] = useState(values["term.end"] ?? "");
   const [names, setNames] = useState({ principal: values["team.principal"] ?? "", vice: values["team.vice"] ?? "", sp1: values["team.sp1"] ?? "", sp2: values["team.sp2"] ?? "" });
@@ -849,7 +879,7 @@ function SetupWizard() {
       if (!start || !end) return setError("시작일과 종료일을 골라 주세요.");
       if (end < start) return setError("종료일이 시작일보다 빨라요.");
       setError(null);
-      return setStep(1);
+      return goStep(1);
     }
     set("term.start", start);
     set("term.end", end);
@@ -857,7 +887,7 @@ function SetupWizard() {
     set("setup", "1");
   };
   return (
-    <Wizard title="개별화교육계획 처음 설정" steps={["개별화 교육의 시작 및 종료 시기를 알려 주세요.", "개별화교육지원팀 선생님 이름을 알려 주세요. 학생마다 기본값으로 들어가요."]} step={step} onBack={() => setStep(0)} onNext={next}>
+    <Wizard title="개별화교육계획 처음 설정" steps={["개별화 교육의 시작 및 종료 시기를 알려 주세요.", "개별화교육지원팀 선생님 이름을 알려 주세요. 학생마다 기본값으로 들어가요."]} step={step} onBack={() => goStep(0)} onNext={next} fadeClass={fadeClass}>
       {step === 0 ? (
         <div className="grid grid-cols-2 gap-3">
           <Labeled2 label="시작일">
@@ -888,36 +918,155 @@ function SetupWizard() {
   );
 }
 
-const EMPTY_STUDENT: StudentInput = { name: "", grade: "1", cls: "", number: "", subjects: [], address: "", phone: "", birth: "", disability: "", selectedYear: "", health: "", medical: "", behavior: "", parentNeeds: "", career: "" };
+const EMPTY_STUDENT: StudentInput = { name: "", grade: "1", cls: "", number: "", subjects: [], address: "", phone: "", birth: "", disability: "", selectedYear: "", health: "", medical: "", behavior: "", parentNeeds: "", career: "", parent: "", inc: "" };
+
+/** 숫자만 받아 전화번호 모양으로 (010-1234-5678, 02-123-4567) */
+function fmtPhone(raw: string) {
+  const d = raw.replace(/\D/g, "").slice(0, 11);
+  if (d.startsWith("02")) return d.length > 9 ? `${d.slice(0, 2)}-${d.slice(2, 6)}-${d.slice(6)}` : d.length > 5 ? `${d.slice(0, 2)}-${d.slice(2, 5)}-${d.slice(5)}` : d.length > 2 ? `${d.slice(0, 2)}-${d.slice(2)}` : d;
+  if (d.length > 10) return `${d.slice(0, 3)}-${d.slice(3, 7)}-${d.slice(7)}`;
+  if (d.length > 6) return `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}`;
+  return d.length > 3 ? `${d.slice(0, 3)}-${d.slice(3)}` : d;
+}
+const PHONE_WHO = ["부", "모", "본인"] as const;
+
+type PostcodeData = { userSelectedType: "R" | "J"; roadAddress: string; jibunAddress: string; bname: string; buildingName: string; apartment: "Y" | "N" };
+type PostcodeApi = { Postcode: new (o: { oncomplete: (d: PostcodeData) => void; width?: string; height?: string }) => { embed: (el: HTMLElement) => void } };
+const POSTCODE_SRC = "https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js";
+let postcodeLoading: Promise<PostcodeApi> | null = null;
+/** 카카오(다음) 우편번호 서비스 스크립트를 한 번만 불러옴 */
+function loadPostcode(): Promise<PostcodeApi> {
+  const w = window as unknown as { daum?: PostcodeApi };
+  if (w.daum?.Postcode) return Promise.resolve(w.daum);
+  postcodeLoading ??= new Promise<PostcodeApi>((resolve, reject) => {
+    const el = document.createElement("script");
+    el.src = POSTCODE_SRC;
+    el.async = true;
+    el.onload = () => (w.daum?.Postcode ? resolve(w.daum) : reject(new Error("no postcode")));
+    el.onerror = () => {
+      postcodeLoading = null;
+      el.remove();
+      reject(new Error("load failed"));
+    };
+    document.head.appendChild(el);
+  });
+  return postcodeLoading;
+}
+/** 고른 주소: 도로명(또는 지번) 주소 + (법정동, 아파트 이름) */
+function postcodeAddress(d: PostcodeData) {
+  if (d.userSelectedType !== "R") return d.jibunAddress;
+  const extra = [/[동로가]$/.test(d.bname) ? d.bname : "", d.buildingName && d.apartment === "Y" ? d.buildingName : ""].filter(Boolean).join(", ");
+  return extra ? `${d.roadAddress} (${extra})` : d.roadAddress;
+}
+
+/** 주소 검색 (카카오 우편번호 서비스를 창 안에 펼침) + 세부주소 */
+function AddressInput({ base, detail, onBase, onDetail }: { base: string; detail: string; onBase: (v: string) => void; onDetail: (v: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  const detailRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    loadPostcode()
+      .then((api) => {
+        if (cancelled || !box.current) return;
+        box.current.innerHTML = "";
+        new api.Postcode({
+          width: "100%",
+          height: "100%",
+          oncomplete: (d) => {
+            onBase(postcodeAddress(d));
+            setOpen(false);
+            setTimeout(() => detailRef.current?.focus(), 0);
+          },
+        }).embed(box.current);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setFailed(true);
+        setOpen(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, onBase]);
+  return (
+    <div className="space-y-2">
+      <div className="flex gap-2">
+        <input
+          value={base}
+          onChange={(e) => onBase(e.target.value)}
+          readOnly={!failed}
+          onClick={() => !failed && setOpen(true)}
+          placeholder={failed ? "주소를 직접 적어 주세요" : "주소 검색을 눌러 찾아 주세요"}
+          className={`${wizInput} ${failed ? "" : "cursor-pointer"}`}
+          aria-label="주소"
+        />
+        {!failed && (
+          <button type="button" onClick={() => setOpen((o) => !o)} className="shrink-0 rounded-lg bg-slate-800 px-4 text-sm font-semibold text-white hover:bg-slate-900">
+            {open ? "닫기" : "주소 검색"}
+          </button>
+        )}
+      </div>
+      {open && <div ref={box} className="h-[400px] overflow-hidden rounded-lg ring-1 ring-slate-200" />}
+      {failed && <p className="text-xs text-amber-700">주소 검색을 불러오지 못했어요. 주소를 직접 적어 주세요.</p>}
+      <input ref={detailRef} value={detail} onChange={(e) => onDetail(e.target.value)} placeholder="세부주소 (동 · 호수 등)" className={wizInput} aria-label="세부주소" />
+    </div>
+  );
+}
+
+/** 학생 추가 창의 항목 이름 (크게) */
+const BigLabel = ({ label, children }: { label: string; children: ReactNode }) => (
+  <label className="block">
+    <span className="mb-1.5 block text-2xl font-bold text-slate-700">{label}</span>
+    {children}
+  </label>
+);
+const chip = (on: boolean) => `rounded-full px-4 py-2 text-sm font-semibold ring-1 ring-inset transition ${on ? "bg-indigo-600 text-white ring-indigo-600" : "text-slate-600 ring-slate-200 hover:bg-slate-50"}`;
 
 /** 학생 추가: 다섯 단계로 인적 사항을 받고, 과목마다의 계획을 만듦 */
 function StudentWizard({ onCancel, onDone }: { onCancel: () => void; onDone: (sid: string) => void }) {
   const { values, set } = useIep();
-  const [step, setStep] = useState(0);
+  const { step, goStep, fadeClass } = useStepFlow();
   const [s, setS] = useState<StudentInput>(EMPTY_STUDENT);
   const [birthIso, setBirthIso] = useState("");
+  const [selectedIso, setSelectedIso] = useState("");
+  const [addr, setAddr] = useState({ base: "", detail: "" });
+  const [phone, setPhone] = useState({ number: "", who: "" });
+  const [health, setHealth] = useState<{ kind: "" | "양호" | "기타"; text: string }>({ kind: "", text: "" });
   const [error, setError] = useState<string | null>(null);
   const up = (k: keyof StudentInput) => (e: { target: { value: string } }) => setS((x) => ({ ...x, [k]: e.target.value }));
-  const steps = ["이름 · 학년과 반 · 번호 · 수강 과목", "주소 · 전화번호 · 생년월일", "장애유형 및 등급 · 특수교육대상 선정년도 · 건강상태 · 병력 및 약물복용", "행동 특성", "학부모 요구 · 졸업 후 진로"];
+  const onBase = useCallback((v: string) => setAddr((a) => ({ ...a, base: v })), []);
+  const steps = ["이름 · 학년과 반 · 번호 · 수강 과목", "주소 · 전화번호 · 생년월일 · 학부모 · 통합교사", "장애유형 및 등급 · 특수교육대상 선정년도 · 건강상태 · 병력 및 약물복용", "행동 특성", "학부모 요구 · 졸업 후 진로"];
   const next = () => {
     if (step === 0 && !s.name.trim()) return setError("이름을 적어 주세요.");
+    if (step === 1 && phone.number && !phone.who) return setError("전화번호가 부 · 모 · 본인 중 누구의 번호인지 골라 주세요.");
     setError(null);
-    if (step < steps.length - 1) return setStep(step + 1);
+    if (step < steps.length - 1) return goStep(step + 1);
     const sid = newSectionId();
-    const input = { ...s, name: s.name.trim(), birth: birthIso ? fmtDate(birthIso) : s.birth };
+    const input: StudentInput = {
+      ...s,
+      name: s.name.trim(),
+      birth: birthIso ? fmtDate(birthIso) : s.birth,
+      address: [addr.base.trim(), addr.detail.trim()].filter(Boolean).join(" "),
+      phone: phone.number ? `${phone.number}${phone.who ? ` (${phone.who})` : ""}` : "",
+      selectedYear: selectedIso ? fmtDate(selectedIso) : "",
+      health: health.kind === "기타" ? health.text.trim() || "기타" : health.kind,
+    };
     for (const [k, v] of Object.entries(studentFieldsV2(values, sid, input))) set(k, v);
     set("studentList", JSON.stringify([...parseList(values.studentList), sid]));
     onDone(sid);
   };
   return (
-    <Wizard title="학생 추가" steps={steps} step={step} onBack={() => setStep(step - 1)} onNext={next} onCancel={onCancel}>
+    <Wizard title="학생 추가" steps={steps} step={step} onBack={() => goStep(step - 1)} onNext={next} onCancel={onCancel} hints={false} fadeClass={fadeClass}>
       {step === 0 && (
         <>
-          <Labeled2 label="이름">
+          <BigLabel label="이름">
             <input value={s.name} onChange={up("name")} maxLength={20} className={wizInput} autoFocus />
-          </Labeled2>
+          </BigLabel>
           <div className="grid grid-cols-3 gap-3">
-            <Labeled2 label="학년">
+            <BigLabel label="학년">
               <select value={s.grade} onChange={up("grade")} className={wizInput}>
                 {["1", "2", "3"].map((g) => (
                   <option key={g} value={g}>
@@ -925,16 +1074,16 @@ function StudentWizard({ onCancel, onDone }: { onCancel: () => void; onDone: (si
                   </option>
                 ))}
               </select>
-            </Labeled2>
-            <Labeled2 label="반">
+            </BigLabel>
+            <BigLabel label="반">
               <input value={s.cls} onChange={(e) => setS((x) => ({ ...x, cls: e.target.value.replace(/\D/g, "").slice(0, 2) }))} inputMode="numeric" className={wizInput} />
-            </Labeled2>
-            <Labeled2 label="번호">
+            </BigLabel>
+            <BigLabel label="번호">
               <input value={s.number} onChange={(e) => setS((x) => ({ ...x, number: e.target.value.replace(/\D/g, "").slice(0, 2) }))} inputMode="numeric" className={wizInput} />
-            </Labeled2>
+            </BigLabel>
           </div>
           <fieldset>
-            <legend className="mb-1.5 text-xs font-semibold text-slate-600">수강 과목 (여러 개 고를 수 있어요)</legend>
+            <legend className="mb-1.5 text-2xl font-bold text-slate-700">수강 과목</legend>
             <div className="flex gap-2">
               {SUBJECTS_V2.map((x) => {
                 const on = s.subjects.includes(x);
@@ -944,7 +1093,7 @@ function StudentWizard({ onCancel, onDone }: { onCancel: () => void; onDone: (si
                     type="button"
                     aria-pressed={on}
                     onClick={() => setS((v) => ({ ...v, subjects: on ? v.subjects.filter((y) => y !== x) : [...v.subjects, x] }))}
-                    className={`rounded-full px-4 py-2 text-sm font-semibold ring-1 ring-inset transition ${on ? "bg-indigo-600 text-white ring-indigo-600" : "text-slate-600 ring-slate-200 hover:bg-slate-50"}`}
+                    className={chip(on)}
                   >
                     {x}
                   </button>
@@ -956,15 +1105,42 @@ function StudentWizard({ onCancel, onDone }: { onCancel: () => void; onDone: (si
       )}
       {step === 1 && (
         <>
-          <Labeled2 label="주소">
-            <input value={s.address} onChange={up("address")} className={wizInput} autoFocus />
-          </Labeled2>
-          <Labeled2 label="전화번호">
-            <input value={s.phone} onChange={up("phone")} className={wizInput} placeholder="예: 010-0000-0000 (모)" />
-          </Labeled2>
+          <div>
+            <span className="mb-1 block text-xs font-semibold text-slate-600">주소</span>
+            <AddressInput base={addr.base} detail={addr.detail} onBase={onBase} onDetail={(v) => setAddr((a) => ({ ...a, detail: v }))} />
+          </div>
+          <div>
+            <span className="mb-1 block text-xs font-semibold text-slate-600">전화번호</span>
+            <div className="flex gap-2">
+              <input
+                value={phone.number}
+                onChange={(e) => setPhone((p) => ({ ...p, number: fmtPhone(e.target.value) }))}
+                inputMode="tel"
+                placeholder="010-0000-0000"
+                className={wizInput}
+                aria-label="전화번호"
+              />
+              <div className="flex shrink-0 gap-1" role="group" aria-label="누구의 번호인지">
+                {PHONE_WHO.map((w) => (
+                  <button key={w} type="button" aria-pressed={phone.who === w} onClick={() => setPhone((p) => ({ ...p, who: p.who === w ? "" : w }))} className={chip(phone.who === w)}>
+                    {w}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {phone.number && phone.who && <p className="mt-1 text-xs text-slate-500">{`${phone.number} (${phone.who})`}</p>}
+          </div>
           <Labeled2 label="생년월일">
             <input type="date" value={birthIso} onChange={(e) => setBirthIso(e.target.value)} className={wizInput} />
           </Labeled2>
+          <div className="grid grid-cols-2 gap-3">
+            <Labeled2 label="학부모 이름">
+              <input value={s.parent ?? ""} onChange={(e) => setS((x) => ({ ...x, parent: e.target.value.slice(0, 20) }))} className={wizInput} />
+            </Labeled2>
+            <Labeled2 label="통합교사 이름">
+              <input value={s.inc ?? ""} onChange={(e) => setS((x) => ({ ...x, inc: e.target.value.slice(0, 40) }))} className={wizInput} />
+            </Labeled2>
+          </div>
         </>
       )}
       {step === 2 && (
@@ -973,11 +1149,21 @@ function StudentWizard({ onCancel, onDone }: { onCancel: () => void; onDone: (si
             <input value={s.disability} onChange={up("disability")} className={wizInput} autoFocus />
           </Labeled2>
           <Labeled2 label="특수교육대상 선정년도">
-            <input value={s.selectedYear} onChange={up("selectedYear")} className={wizInput} placeholder="예: 2020년" />
+            <input type="date" value={selectedIso} onChange={(e) => setSelectedIso(e.target.value)} className={wizInput} />
           </Labeled2>
-          <Labeled2 label="건강상태">
-            <input value={s.health} onChange={up("health")} className={wizInput} />
-          </Labeled2>
+          <fieldset>
+            <legend className="mb-1 text-xs font-semibold text-slate-600">건강상태</legend>
+            <div className="flex items-center gap-2">
+              {(["양호", "기타"] as const).map((h) => (
+                <button key={h} type="button" aria-pressed={health.kind === h} onClick={() => setHealth((x) => ({ ...x, kind: x.kind === h ? "" : h }))} className={chip(health.kind === h)}>
+                  {h}
+                </button>
+              ))}
+              {health.kind === "기타" && (
+                <input value={health.text} onChange={(e) => setHealth((x) => ({ ...x, text: e.target.value }))} placeholder="건강상태를 적어 주세요" className={wizInput} aria-label="건강상태" autoFocus />
+              )}
+            </div>
+          </fieldset>
           <Labeled2 label="병력 및 약물복용">
             <input value={s.medical} onChange={up("medical")} className={wizInput} />
           </Labeled2>
@@ -1071,6 +1257,30 @@ function CellV2({ cell, canRemoveGoal, onRemoveGoal }: { cell: V2Cell; canRemove
       )}
     </div>
   );
+}
+
+/** 칸(td)의 빈 곳을 눌러도 그 칸을 고치게: 누른 곳에서 가장 가까운 글 상자로 커서를 옮김 (성취평가 칸은 누른 것처럼) */
+function focusCell(e: ReactMouseEvent<HTMLElement>) {
+  const target = e.target as HTMLElement;
+  if (target.closest("textarea, input, button, select, a")) return;
+  const areas = Array.from(e.currentTarget.querySelectorAll("textarea"));
+  if (!areas.length) {
+    const btn = e.currentTarget.querySelector("button");
+    if (btn) {
+      e.preventDefault();
+      btn.click();
+    }
+    return;
+  }
+  const dist = (el: HTMLElement) => {
+    const r = el.getBoundingClientRect();
+    return e.clientY < r.top ? r.top - e.clientY : e.clientY > r.bottom ? e.clientY - r.bottom : 0;
+  };
+  const el = areas.reduce((best, a) => (dist(a) < dist(best) ? a : best));
+  e.preventDefault();
+  el.focus();
+  const end = el.value.length;
+  el.setSelectionRange(end, end);
 }
 
 /** 문단 묶음을 한글 파일의 쪽마다 나눔 (새 쪽이 시작되는 문단에서 끊음). 쪽 끝의 빈 문단은 뺌 */
@@ -1202,7 +1412,7 @@ function DocV2() {
                           .filter((c) => c.r === r)
                           .sort((x, y) => x.c - y.c)
                           .map((c) => (
-                            <td key={c.key} rowSpan={c.rs} colSpan={c.cs} className="p-0" style={{ ...borderStyle(c), background: c.bg ?? undefined, verticalAlign: c.valign, height: Math.max(c.text || c.bind ? 20 : 4, c.h * scale) }}>
+                            <td key={c.key} rowSpan={c.rs} colSpan={c.cs} onMouseDown={c.bind ? focusCell : undefined} className={`p-0 ${c.bind ? "cursor-text" : ""}`} style={{ ...borderStyle(c), background: c.bg ?? undefined, verticalAlign: c.valign, height: Math.max(c.text || c.bind ? 20 : 4, c.h * scale) }}>
                               <CellV2
                                 cell={c}
                                 canRemoveGoal={goals.length > 1}
