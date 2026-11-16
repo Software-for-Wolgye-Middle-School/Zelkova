@@ -1537,10 +1537,10 @@ function CellV2({ cell, canRemoveGoal, onRemoveGoal }: { cell: V2Cell; canRemove
           const st = cellStyle(withFormat(ps, values[fmtKey(p.field)]));
           const box = paraBox(ps, pad);
           return (
-            <div key={p.field} className="flex items-start" style={p.label ? { paddingLeft: box.paddingLeft, paddingRight: box.paddingRight } : undefined}>
+            <div key={p.field} className="flex items-start" style={p.label ? { paddingLeft: (pad[0] ?? 0) + (ps.ml ?? 0), paddingRight: box.paddingRight } : undefined}>
               {p.label && (
                 <span data-st={stAttr(ps)} className="shrink-0 whitespace-pre text-slate-800" style={{ ...st, fontFamily: cellStyle(ps).fontFamily }}>
-                  {p.label}
+                  {`${p.label} `}
                 </span>
               )}
               <F k={p.field} className="min-w-0 flex-1" style={p.label ? { ...st, textAlign: "left", paddingLeft: 0, paddingRight: 0, paddingTop: 0, paddingBottom: 0 } : { ...st, ...box, paddingTop: 0, paddingBottom: 0 }} />
