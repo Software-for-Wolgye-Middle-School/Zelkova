@@ -1620,7 +1620,9 @@ function DocV2({ sid, onSid, follow }: { sid: string | null; onSid: (sid: string
   const mkey = `${layout?.v ?? 0}:${sec?.sid ?? ""}`;
   const sidNow = sec?.sid ?? "";
   const usable = meas && meas.sid === (sec?.sid ?? "") ? meas.m : null;
-  const plan = useMemo(() => (sec ? paginate(sec.blocks, contentH, usable) : []), [sec, contentH, usable]);
+  // 한글은 글자를 약간 촘촘히 그려 같은 내용이 쪽에 더 들어가므로, 화면은 아래 여백 안쪽까지(여백 8px 남김) 쓰는 것을 넘침으로 보지 않음
+  const slack = Math.max(0, pg.bottom - 8);
+  const plan = useMemo(() => (sec ? paginate(sec.blocks, contentH + slack, usable) : []), [sec, contentH, slack, usable]);
   const planSig = JSON.stringify(plan);
 
   // 그린 높이를 재어 쪽을 나눔. 글을 적어 칸이 커지면 다시 잼
