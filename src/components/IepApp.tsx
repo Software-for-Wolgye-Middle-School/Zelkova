@@ -1455,6 +1455,16 @@ function paginate(blocks: V2Block[], height: number, m: Measure | null): PagePie
     const empty = b.type === "p" && !b.text;
     // 빈 문단은 쪽 끝에서 넘치거나 넘어간 쪽 맨 앞이면 뺌 (한글도 빈 줄 때문에 쪽을 늘리지 않음)
     if (empty && m && (used + h > limit || (used === 0 && !b.page))) return;
+    // 한 쪽의 마지막 글(표지 맨 아래 학교 이름 등)이 안 들어가면, 그 앞의 빈 줄을 줄여서라도 같은 쪽에 둠 (한글 원본은 한 쪽에 보임)
+    if (m && !empty && used + h > limit && (bi === blocks.length - 1 || blocks[bi + 1].page)) {
+      for (;;) {
+        const last = page()[page().length - 1];
+        const lb = last && blocks[last.bi];
+        if (!last || last.from !== undefined || lb.type !== "p" || lb.text) break;
+        page().pop();
+        used -= m.h[last.bi] ?? 0;
+      }
+    }
     if (m && used + h > limit && used > 0) newPage();
     page().push({ bi });
     used += h;
