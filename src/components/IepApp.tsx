@@ -1402,6 +1402,8 @@ type Measure = { h: Record<number, number>; rows: Record<number, number[]>; extr
  * 새 쪽 표시가 있는 문단은 늘 새 쪽에서 · 나누지 않는 표는 통째로 다음 쪽으로 · 나눌 수 있는 표(또는 한 쪽보다 큰 표)는 줄 단위로 나눔.
  */
 function paginate(blocks: V2Block[], height: number, m: Measure | null): PagePiece[][] {
+  // 화면 배율에 따라 글 높이를 재는 값이 1px 안팎으로 달라도 쪽 나누기가 뒤바뀌지 않게 약간의 여유를 둠
+  const limit = height + 1;
   const pages: PagePiece[][] = [[]];
   let used = 0;
   const page = () => pages[pages.length - 1];
@@ -1419,12 +1421,12 @@ function paginate(blocks: V2Block[], height: number, m: Measure | null): PagePie
       }
       const extra = m?.extra[bi] ?? 0;
       const total = rh.reduce((n, x) => n + (x || 0), 0) + extra;
-      if (used + total <= height) {
+      if (used + total <= limit) {
         page().push({ bi });
         used += total;
         return;
       }
-      if (!b.split && total <= height) {
+      if (!b.split && total <= limit) {
         if (page().length) newPage();
         page().push({ bi });
         used += total;
@@ -1434,7 +1436,7 @@ function paginate(blocks: V2Block[], height: number, m: Measure | null): PagePie
       while (r < rh.length) {
         let k = r;
         let sum = extra;
-        while (k < rh.length && used + sum + (rh[k] || 0) <= height) sum += rh[k++] || 0;
+        while (k < rh.length && used + sum + (rh[k] || 0) <= limit) sum += rh[k++] || 0;
         if (k === r) {
           if (used > 0) {
             newPage();
@@ -1452,8 +1454,8 @@ function paginate(blocks: V2Block[], height: number, m: Measure | null): PagePie
     const h = m?.h[bi] ?? 0;
     const empty = b.type === "p" && !b.text;
     // 빈 문단은 쪽 끝에서 넘치거나 넘어간 쪽 맨 앞이면 뺌 (한글도 빈 줄 때문에 쪽을 늘리지 않음)
-    if (empty && m && (used + h > height || (used === 0 && !b.page))) return;
-    if (m && used + h > height && used > 0) newPage();
+    if (empty && m && (used + h > limit || (used === 0 && !b.page))) return;
+    if (m && used + h > limit && used > 0) newPage();
     page().push({ bi });
     used += h;
   });
@@ -1979,7 +1981,8 @@ function DocV2({ sid, onSid, follow }: { sid: string | null; onSid: (sid: string
         {/* 쪽마다 A4 종이 한 장 (크기 고정, 넘치는 내용은 다음 쪽으로). 좁은 화면에서는 옆으로 밀어서 봄 */}
         <div
           ref={box}
-          className="w-full min-w-0 space-y-6 overflow-x-auto pb-2 lg:w-auto"
+          // geometricPrecision: 글자 폭을 배율과 상관없이 같은 비율로 계산해, 화면 배율이 달라도 줄바꿈 · 쪽 나누기가 같게 함
+          className="w-full min-w-0 space-y-6 overflow-x-auto pb-2 [text-rendering:geometricPrecision] lg:w-auto"
           onFocusCapture={(e) => {
             const el = e.target as HTMLElement;
             if (el instanceof HTMLTextAreaElement && el.dataset.field) {
@@ -2105,8 +2108,13 @@ function F({
     const el = ref.current;
     if (!el) return;
     // 글 길이에 맞춰 높이 (field-sizing 을 모르는 브라우저용)
-    el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
+    if (typeof CSS !== "undefined" && CSS.supports("field-sizing", "content")) {
+      // 브라우저가 소수점 높이까지 그대로 맞춰 주므로 따로 정하지 않음 (scrollHeight 는 정수로 반올림돼 화면 배율마다 쪽 나누기가 달라짐)
+      el.style.height = "";
+    } else {
+      el.style.height = "auto";
+      el.style.height = `${el.scrollHeight}px`;
+    }
     const prev = shown.current;
     shown.current = value;
     if (value === typed.current || prev === value || document.activeElement !== el) return;
