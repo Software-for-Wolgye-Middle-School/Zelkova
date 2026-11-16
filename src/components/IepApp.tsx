@@ -1300,7 +1300,7 @@ function CellV2({ cell, canRemoveGoal, onRemoveGoal }: { cell: V2Cell; canRemove
   if (!b) {
     const lines = cell.lines?.length ? cell.lines : [cell.text];
     return (
-      <div className="break-words px-1.5 py-1 text-slate-800">
+      <div className="break-words px-1.5 py-[2px] text-slate-800">
         {lines.map((l, i) => (
           <div key={i} className="whitespace-pre-wrap" style={cellStyle(paraStyle(i))}>
             {l || " "}
@@ -1326,13 +1326,13 @@ function CellV2({ cell, canRemoveGoal, onRemoveGoal }: { cell: V2Cell; canRemove
   }
   if ("parts" in b) {
     return (
-      <div className="px-0.5 py-0.5">
+      <div className="px-0.5">
         {b.parts.map((p, i) => {
           const st = cellStyle(withFormat(paraStyle(i), values[fmtKey(p.field)]));
           return (
             <div key={p.field} className="flex items-start">
               {p.label && (
-                <span className="shrink-0 py-1 pl-1 text-slate-800" style={{ ...st, fontFamily: cellStyle(paraStyle(i)).fontFamily }}>
+                <span className="shrink-0 py-[2px] pl-1 text-slate-800" style={{ ...st, fontFamily: cellStyle(paraStyle(i)).fontFamily }}>
                   {p.label}
                 </span>
               )}
@@ -1348,7 +1348,7 @@ function CellV2({ cell, canRemoveGoal, onRemoveGoal }: { cell: V2Cell; canRemove
     <div className="group/cell relative">
       {b.para !== undefined &&
         (cell.lines ?? []).slice(0, b.para).map((l, i) => (
-          <div key={i} className="whitespace-pre-wrap px-1.5 pt-1 text-slate-800" style={cellStyle(paraStyle(i))}>
+          <div key={i} className="whitespace-pre-wrap px-1.5 pt-[2px] text-slate-800" style={cellStyle(paraStyle(i))}>
             {l}
           </div>
         ))}
@@ -1865,7 +1865,7 @@ function DocV2({ sid, onSid, follow }: { sid: string | null; onSid: (sid: string
                       const span = Math.min(c.r + c.rs, r1) - Math.max(c.r, r0);
                       const clipped = cont || c.r + c.rs > r1;
                       const editable = !!c.bind && !cont;
-                      const h = rowO && rowO.i === r && c.rs === 1 ? rowO.h : clipped ? undefined : Math.max(c.text || c.bind ? 20 : 4, c.h * scale);
+                      const h = rowO && rowO.i === r && c.rs === 1 ? rowO.h : clipped ? undefined : Math.max(4, c.h * scale);
                       return (
                         <td
                           key={c.key}
@@ -2168,7 +2168,7 @@ function F({
         }}
         onCompositionStart={() => compose(k, true)}
         onCompositionEnd={() => compose(k, false)}
-        className={`block w-full resize-none overflow-hidden rounded-[3px] bg-transparent px-1.5 py-1 text-[13px] leading-[1.55] text-slate-900 outline-none transition-[background-color,box-shadow] [field-sizing:content] placeholder:text-slate-300 hover:bg-slate-50 focus:bg-indigo-50/60 print:hidden ${center ? "text-center" : ""}`}
+        className={`block w-full resize-none overflow-hidden rounded-[3px] bg-transparent px-1.5 py-[2px] text-[13px] leading-[1.55] text-slate-900 outline-none transition-[background-color,box-shadow] [field-sizing:content] placeholder:text-slate-300 hover:bg-slate-50 focus:bg-indigo-50/60 print:hidden ${center ? "text-center" : ""}`}
         style={{ ...style, ...(others ? { boxShadow: `inset 0 0 0 2px ${others[0].color}` } : {}) }}
       />
       {others && (
