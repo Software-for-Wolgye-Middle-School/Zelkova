@@ -1214,7 +1214,16 @@ function StudentWizard({ onCancel, onDone }: { onCancel: () => void; onDone: (si
               </select>
             </BigLabel>
             <BigLabel label="반">
-              <input value={s.cls} onChange={(e) => setS((x) => ({ ...x, cls: e.target.value.replace(/\D/g, "").slice(0, 2) }))} inputMode="numeric" className={wizInput} />
+              <select value={s.cls} onChange={up("cls")} className={wizInput}>
+                <option value="" disabled>
+                  선택
+                </option>
+                {["1", "2", "3", "4"].map((c) => (
+                  <option key={c} value={c}>
+                    {c}반
+                  </option>
+                ))}
+              </select>
             </BigLabel>
             <BigLabel label="번호">
               <input value={s.number} onChange={(e) => setS((x) => ({ ...x, number: e.target.value.replace(/\D/g, "").slice(0, 2) }))} inputMode="numeric" className={wizInput} />
