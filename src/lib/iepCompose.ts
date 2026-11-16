@@ -13,6 +13,7 @@ import {
   tableCells,
   TAG,
   topParagraphs,
+  trimCellParas,
   verifyRecords,
   type HwpDoc,
   type Rec,
@@ -21,7 +22,7 @@ import {
 import { CFB } from "xlsx";
 import { readFormDoc, type FormBlock, type FormCell } from "@/lib/hwpForm";
 import { rawChars } from "@/lib/hwpLines";
-import { blockHeight, bodySize, cellContentHeight, pageDef, readMetrics, ShapeBook, type Metrics } from "@/lib/hwpMeasure";
+import { blockHeight, bodySize, cellContentHeight, cellOneLineHeight, pageDef, readMetrics, ShapeBook, type Metrics } from "@/lib/hwpMeasure";
 import { monthsFor, parseList, sk, studentKey, withTerm, type IepFields } from "@/lib/iep";
 import { goalIdsOf, termText } from "@/lib/iepV2";
 
@@ -203,6 +204,11 @@ class Block implements Piece {
     setCellText(this.recs, cell, text);
     if (field) this.binds.set(`${r}.${c}`, { field });
   }
+  /** 칸을 문단 하나로 줄임 (양식의 칸에 든 여러 빈 문단이 높이를 키우지 않게) */
+  onlyParagraph(r: number, c: number) {
+    const cell = this.cell(r, c);
+    if (cell) trimCellParas(this.recs, cell, 1);
+  }
   /** 칸의 para 번째 문단에만 글 */
   setPara(r: number, c: number, para: number, text: string, field?: string) {
     const cell = this.cell(r, c);
@@ -351,6 +357,31 @@ class Block implements Piece {
       const next = withTerm(t, year, semester);
       if (next !== t) setParaText(this.recs, p, next);
     });
+  }
+  /** 단기목표 줄의 높이를 글 한 줄에 맞춤 (글이 길면 한글이 알아서 늘림) */
+  goalRowHeights(first: number, count: number, m: Metrics) {
+    const cells = tableCells(this.recs, 0, this.recs.length);
+    const t = this.recs.findIndex((r) => r.tag === TAG.TABLE);
+    for (let r = first; r < first + count; r++) {
+      const row = cells.filter((c) => c.row === r && c.rowSpan === 1);
+      if (!row.length) continue;
+      const h = Math.ceil(Math.max(...row.map((c) => cellOneLineHeight(this.recs, c.list, c.paras, m))));
+      for (const c of row) this.recs[c.list].data.writeUInt32LE(h, 20);
+    }
+    // 표 전체 높이도 줄 높이 합으로 다시 적음
+    if (t < 0) return;
+    const rows = this.recs[t].data.readUInt16LE(4);
+    const rowH = Array<number>(rows).fill(0);
+    const all = tableCells(this.recs, 0, this.recs.length);
+    for (const c of all) if (c.rowSpan === 1) rowH[c.row] = Math.max(rowH[c.row], this.recs[c.list].data.readUInt32LE(20));
+    // 여러 줄을 합친 칸(예: 세로로 쓴 "단기목표")의 높이도 그 줄들의 합으로 (옛 높이가 남으면 마지막 줄이 늘어남)
+    for (const c of all) {
+      if (c.rowSpan < 2) continue;
+      const span = Array.from({ length: c.rowSpan }, (_, i) => c.row + i).filter((r) => r < rows);
+      if (span.every((r) => rowH[r] > 0)) this.recs[c.list].data.writeUInt32LE(span.reduce((n, r) => n + rowH[r], 0), 20);
+    }
+    const ctrl = this.recs.slice(0, t).reverse().find((r) => r.tag === TAG.CTRL_HEADER);
+    if (ctrl && ctrl.data.length >= 24) ctrl.data.writeUInt32LE(rowH.reduce((n, x) => n + x, 0), 20);
   }
   /** 단기목표 줄 수를 n 으로 맞춤 (양식의 12줄에서 더하거나 뺌) */
   goalRows(n: number) {
@@ -571,11 +602,13 @@ function assemble(f: IepFields, file: Uint8Array): { doc: HwpDoc; pieces: Piece[
       t.valignTop(2, 1);
       if (!life) t.set(0, 0, s("title"), sk(sec, "title"));
       t.setPara(0, 2, 1, s("term"), sk(sec, "term"));
-      t.set(1, 1, s("present"), sk(sec, "present"));
-      t.set(2, 1, s("long"), sk(sec, "long"));
+      // 아직 적지 않은 칸은 기본 글: 현재학습 수행수준은 "- ", 장기목표는 "[ ] " 로 시작
+      t.set(1, 1, f[sk(sec, "present")] === undefined ? "- " : s("present"), sk(sec, "present"));
+      t.set(2, 1, f[sk(sec, "long")] === undefined ? "[ ] " : s("long"), sk(sec, "long"));
       goals.forEach((gid, gi) => {
         const r = GOAL_FIRST + gi;
         const base = sk(sec, `g.${gid}`);
+        t.onlyParagraph(r, 1);
         t.set(r, 1, v(`${base}.t`), `${base}.t`);
         t.goals.set(`${r}.1`, { sec, gid });
         for (let n = 1; n <= 4; n++) {
@@ -583,6 +616,7 @@ function assemble(f: IepFields, file: Uint8Array): { doc: HwpDoc; pieces: Piece[
           t.binds.set(`${r}.${2 + n}`, { choice: { field: `${base}.sc`, value: String(n) } });
         }
       });
+      t.goalRowHeights(GOAL_FIRST, goals.length, book.m);
       t.set(18 + shift, 1, s("method"), sk(sec, "method"));
       if (!life) t.set(19 + shift, 1, s("evalPlan"), sk(sec, "evalPlan"));
       // 줄 이름: 단기목표 앞은 그대로, 단기목표 줄은 목표 id, 뒤쪽은 끝에서 몇째 줄

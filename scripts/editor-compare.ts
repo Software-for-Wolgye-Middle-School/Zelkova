@@ -273,6 +273,17 @@ async function richTest(cdp: Cdp) {
   await key(cdp, "y", "KeyY", 89, 2);
   await sleep(700);
   ok("Ctrl+Y 로 굵게 다시 적용", (await mode()) === "rich", await mode());
+  // 앞 글 고정: 현재학습 수행수준 "- ", 장기목표 "["
+  for (const [sel, lock] of [[".present", "- "], [".long", "["]] as const) {
+    const val = () => cdp.eval<string>(`document.querySelector("textarea[data-field$='${sel}']")?.value ?? "(없음)"`);
+    const first = await val();
+    ok(`${sel} 기본 글이 "${lock}"로 시작`, first.startsWith(lock), first);
+    await cdp.eval(`(() => { const t = document.querySelector("textarea[data-field$='${sel}']"); t.scrollIntoView({ block: "center" }); t.focus(); t.setSelectionRange(0, t.value.length); })()`);
+    await key(cdp, "Backspace", "Backspace", 8);
+    await sleep(500);
+    const after = await val();
+    ok(`${sel} 전부 지워도 "${lock}"가 남음`, after.startsWith(lock), after);
+  }
 }
 
 // ---------------------------------------------------------------- 실행

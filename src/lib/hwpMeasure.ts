@@ -217,6 +217,18 @@ export function paraHeight(recs: Rec[], p: number, width: number, m: Metrics, ls
   return lines * lineH + ps.top + ps.bottom;
 }
 
+/** 칸 안 글이 한 줄일 때의 높이 (문단마다 한 줄 + 칸 안 여백): 줄 높이를 글 한 줄에 맞출 때 씀 */
+export function cellOneLineHeight(recs: Rec[], list: number, paras: number[], m: Metrics) {
+  const lh = recs[list].data;
+  const one = (p: number) => {
+    const ps = m.para[recs[p].data.readUInt16LE(8)] ?? { left: 0, right: 0, indent: 0, top: 0, bottom: 0, lsType: 0, ls: 160 };
+    const size = Math.max(...paraCharShapes(recs, p).map(([, id]) => m.char[id]?.size ?? 1000), 500);
+    const lineH = ps.lsType === 1 ? ps.ls : ps.lsType === 2 ? size + ps.ls : ps.lsType === 3 ? Math.max(size, ps.ls) : (size * ps.ls) / 100;
+    return lineH + ps.top + ps.bottom;
+  };
+  return paras.reduce((n, p) => n + one(p), 0) + lh.readUInt16LE(28) + lh.readUInt16LE(30);
+}
+
 /** 칸 안 글의 높이 (칸 안 여백 포함) */
 export function cellContentHeight(recs: Rec[], list: number, paras: number[], m: Metrics, ls?: (p: number) => number | undefined) {
   const lh = recs[list].data;

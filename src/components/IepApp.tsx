@@ -1354,6 +1354,8 @@ function StudentWizard({ onCancel, onDone }: { onCancel: () => void; onDone: (si
 const fontFamilyOf = (name: string) => `"${name.replace(/"/g, "")}", ${/바탕|명조/.test(name) ? '"Batang", "AppleMyungjo", serif' : '"Malgun Gothic", "Apple SD Gothic Neo", sans-serif'}`;
 /** 칸마다 고른 글자 모양을 저장하는 칸 이름 */
 const fmtKey = (field: string) => `fmt.${field}`;
+/** 현재학습 수행수준은 "- ", 장기목표는 "[" 로 시작하는 글이 맨 앞에 고정 (지우면 되살림) */
+const withLock = (t: string, lock: string) => (lock === "- " ? (t.startsWith("- ") ? t : `- ${t.replace(/^-? ?/, "")}`) : t.startsWith("[") ? t : `[ ] ${t}`);
 /** 구간(글 일부)의 모양 → 화면 글자 모양 */
 const runCss = (f: RunFmt): CSSProperties => ({ ...(f.f ? { fontFamily: fontFamilyOf(f.f) } : {}), ...(f.z ? { fontSize: fontPx(f.z) } : {}), ...(f.b === undefined ? {} : { fontWeight: f.b ? 700 : 400 }) });
 /** 칸(글 상자 · 글 칸)의 글 */
@@ -2279,7 +2281,9 @@ function F({
 }) {
   const { values, set, focus, blur, compose, who, key } = useIep();
   const k = key(name);
-  const value = values[k] ?? fallback;
+  // 학교 양식(개별화교육계획)의 현재학습 수행수준 · 장기목표 칸은 맨 앞 글이 고정
+  const lock = values.form === FORM_V2 ? (/\.present$/.test(k) ? "- " : /\.long$/.test(k) ? "[" : "") : "";
+  const value = values[k] ?? (lock ? (lock === "[" ? "[ ] " : lock) : fallback);
   const ref = useRef<HTMLTextAreaElement>(null);
   /** 내가 마지막으로 입력한 값 (이 값으로 바뀐 것은 내 입력이라 커서를 건드리지 않음) */
   const typed = useRef(value);
@@ -2341,6 +2345,7 @@ function F({
           className={`block w-full rounded-[3px] bg-transparent px-1.5 py-[2px] text-[13px] leading-[1.55] text-slate-900 transition-[background-color,box-shadow] hover:bg-slate-50 focus:bg-indigo-50/60 ${center ? "text-center" : ""}`}
           style={style}
           onEdit={(text, next) => {
+            if (lock && !text.startsWith(lock)) return; // 고정된 앞 글을 지우는 입력은 받지 않음 (화면은 저장된 글로 되돌아감)
             typed.current = text;
             // 구간이 모두 없어지면 다시 글 상자로: 커서를 적어 둠
             const sel2 = getSel(document.activeElement);
@@ -2376,9 +2381,16 @@ function F({
         placeholder={ph}
         spellCheck={false}
         onChange={(e) => {
-          typed.current = e.target.value;
+          const raw = e.target.value;
+          const text = lock ? withLock(raw, lock) : raw;
+          typed.current = text;
           remember();
-          set(k, single ? e.target.value.replace(/\n/g, " ") : e.target.value);
+          set(k, single ? text.replace(/\n/g, " ") : text);
+          if (text !== raw) {
+            // 고정된 앞 글이 지워졌으면 되살리고 커서는 그 뒤로
+            const at = Math.max(e.target.selectionStart + (text.length - raw.length), lock.length);
+            requestAnimationFrame(() => ref.current?.setSelectionRange(at, at));
+          }
           // 조합 끝 알림이 빠지는 브라우저도 있어, 조합이 아닌 입력이 오면 조합이 끝난 것으로 봄 (미뤄 둔 글은 방금 입력한 글 위에 합침)
           if (!(e.nativeEvent as InputEvent).isComposing) compose(k, false);
         }}
