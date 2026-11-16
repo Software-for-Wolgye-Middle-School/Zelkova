@@ -54,7 +54,7 @@ export type Layout = {
 };
 
 /** 칸마다의 글자 모양 바꾸기 (fmt.<저장 칸 이름> 에 JSON 으로) */
-export type CellFormat = { font?: string; size?: number; ls?: number };
+export type CellFormat = { font?: string; size?: number; ls?: number; bold?: boolean };
 export function parseFormat(raw: string | undefined, fonts: string[]): CellFormat | null {
   if (!raw) return null;
   try {
@@ -63,7 +63,8 @@ export function parseFormat(raw: string | undefined, fonts: string[]): CellForma
     if (typeof o.font === "string" && fonts.includes(o.font)) out.font = o.font;
     if (typeof o.size === "number" && o.size >= 5 && o.size <= 72) out.size = Math.round(o.size * 10) / 10;
     if (typeof o.ls === "number" && o.ls >= 50 && o.ls <= 500) out.ls = Math.round(o.ls);
-    return out.font || out.size || out.ls ? out : null;
+    if (typeof o.bold === "boolean") out.bold = o.bold;
+    return out.font || out.size || out.ls || out.bold !== undefined ? out : null;
   } catch {
     return null;
   }
@@ -72,7 +73,7 @@ export function parseFormat(raw: string | undefined, fonts: string[]): CellForma
 /** 문단 하나의 글꼴 · 크기 · 줄 간격을 바꿈 (레코드 수는 그대로, 모양 번호만) */
 function formatPara(recs: Rec[], p: number, fm: CellFormat, book: ShapeBook) {
   const end = subtreeEnd(recs, p);
-  if (fm.font || fm.size) {
+  if (fm.font || fm.size || fm.bold !== undefined) {
     const cs = recs.slice(p + 1, end).find((r) => r.tag === TAG.PARA_CHAR_SHAPE && r.level === recs[p].level + 1);
     if (cs) {
       cs.data = Buffer.from(cs.data);

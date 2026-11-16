@@ -111,7 +111,7 @@ export class ShapeBook {
     return d ? this.add("p", withLineSpacing(d, ls)) : from;
   }
   /** 글꼴(이름) · 크기(pt)를 바꾼 글자 모양 번호. 그 글꼴이 없는 언어는 원래 글꼴 그대로 */
-  charVariant(from: number, o: { font?: string; size?: number }) {
+  charVariant(from: number, o: { font?: string; size?: number; bold?: boolean }) {
     const src = this.charData(from);
     if (!src) return from;
     const d = Buffer.from(src);
@@ -122,6 +122,7 @@ export class ShapeBook {
       }
     }
     if (o.size) d.writeInt32LE(Math.round(o.size * 100), 42);
+    if (o.bold !== undefined && d.length >= 50) d.writeUInt32LE(((d.readUInt32LE(46) & ~2) | (o.bold ? 2 : 0)) >>> 0, 46);
     return d.equals(src) ? from : this.add("c", d);
   }
   get added() {
@@ -154,7 +155,7 @@ export class ShapeBook {
 }
 
 /** 글자 하나의 너비 (글자 크기의 몇 배인지). 한글 · 한자는 1, 영문 · 숫자는 0.58, 빈칸 · 문장부호는 0.4 (조금 넉넉하게) */
-function charEm(ch: string) {
+export function charEm(ch: string) {
   const c = ch.codePointAt(0) ?? 0;
   if (c >= 0x1100 && c <= 0x11ff) return 1;
   if (c >= 0x2e80) return 1;
@@ -164,34 +165,39 @@ function charEm(ch: string) {
   return 0.42;
 }
 
-/** 줄 나누기를 어림함: 한글처럼 어절(빈칸) 단위로 넘기고, 너무 긴 어절은 글자 단위로 */
-function countLines(text: string, firstWidth: number, width: number, em: number) {
-  let lines = 1;
+/** 줄 나누기를 어림함: 한글처럼 어절(빈칸) 단위로 넘기고, 너무 긴 어절은 글자 단위로. 줄마다 시작하는 글자 번호를 돌려줌 */
+export function lineStarts(text: string, firstWidth: number, width: number, em: number) {
+  const starts = [0];
   let room = firstWidth;
+  let at = 0;
   for (const word of text.split(/(?<= )/)) {
-    const w = [...word].reduce((n, ch) => n + charEm(ch) * em, 0);
+    const chars = [...word];
+    const w = chars.reduce((n, ch) => n + charEm(ch) * em, 0);
     const bare = w - (word.endsWith(" ") ? 0.4 * em : 0);
     if (bare <= room) {
       room -= w;
-      continue;
-    }
-    if (bare <= width) {
-      lines++;
+    } else if (bare <= width) {
+      starts.push(at);
       room = width - w;
-      continue;
-    }
-    // 한 줄보다 긴 어절: 글자 단위로
-    for (const ch of word) {
-      const cw = charEm(ch) * em;
-      if (cw > room) {
-        lines++;
-        room = width;
+    } else {
+      // 한 줄보다 긴 어절: 글자 단위로
+      let i = at;
+      for (const ch of chars) {
+        const cw = charEm(ch) * em;
+        if (cw > room) {
+          starts.push(i);
+          room = width;
+        }
+        room -= cw;
+        i += ch.length;
       }
-      room -= cw;
     }
+    at += word.length;
   }
-  return lines;
+  return starts;
 }
+
+const countLines = (text: string, firstWidth: number, width: number, em: number) => lineStarts(text, firstWidth, width, em).length;
 
 /** 문단 높이 (줄 수 × 줄 높이 + 문단 위아래 간격). width: 문단이 놓인 너비 */
 export function paraHeight(recs: Rec[], p: number, width: number, m: Metrics, ls?: number) {

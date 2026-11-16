@@ -404,8 +404,72 @@ function IepEditor({ docId, myName, onBack, onRename, nameDialog }: { docId: str
   const [clientId] = useState(() => `c${Math.random().toString(36).slice(2, 10)}`);
   const me = useMemo<Me>(() => ({ id: clientId, name: myName, color: colorFor(myName) }), [clientId, myName]);
   const sync = useIepSync(docId, me);
-  const { values, presence, status, detail, loaded, set, focus, blur, compose, moveCursor } = sync;
+  const { values, presence, status, detail, loaded, set: rawSet, focus, blur, compose, moveCursor } = sync;
   const docRef = useRef<HTMLDivElement>(null);
+
+  // ---- 되돌리기(Ctrl+Z) · 다시 하기(Ctrl+Y): 내가 고친 칸의 값을 차례로 되돌림 (한글 편집기처럼)
+  type Change = { key: string; before: string; after: string };
+  type Entry = { changes: Change[]; at: number };
+  const hist = useRef<{ undo: Entry[]; redo: Entry[]; shadow: Record<string, string> }>({ undo: [], redo: [], shadow: {} });
+  const valuesRef = useRef(values);
+  useEffect(() => {
+    valuesRef.current = values;
+    hist.current.shadow = {};
+  }, [values]);
+  /** 칸을 고치면서 되돌릴 기록을 남김: 같은 칸을 이어서 적는 글은 한 번에, 한 동작에서 여러 칸을 바꾸면 한 묶음으로 */
+  const set = useCallback(
+    (key: string, value: string) => {
+      const h = hist.current;
+      const before = key in h.shadow ? h.shadow[key] : (valuesRef.current[key] ?? "");
+      if (before === value) return;
+      h.shadow[key] = value;
+      const now = Date.now();
+      const last = h.undo[h.undo.length - 1];
+      if (last && now - last.at < 40) {
+        const same = last.changes.find((c) => c.key === key);
+        if (same) same.after = value;
+        else last.changes.push({ key, before, after: value });
+        last.at = now;
+      } else if (last && last.changes.length === 1 && last.changes[0].key === key && now - last.at < 1200) {
+        last.changes[0].after = value;
+        last.at = now;
+      } else {
+        h.undo.push({ changes: [{ key, before, after: value }], at: now });
+        if (h.undo.length > 300) h.undo.shift();
+      }
+      h.redo = [];
+      rawSet(key, value);
+    },
+    [rawSet],
+  );
+  const undo = useCallback(() => {
+    const e = hist.current.undo.pop();
+    if (!e) return;
+    for (const c of [...e.changes].reverse()) rawSet(c.key, c.before);
+    hist.current.redo.push(e);
+  }, [rawSet]);
+  const redo = useCallback(() => {
+    const e = hist.current.redo.pop();
+    if (!e) return;
+    for (const c of e.changes) rawSet(c.key, c.after);
+    e.at = 0; // 다시 한 뒤 이어 적는 글이 이 묶음에 합쳐지지 않게
+    hist.current.undo.push(e);
+  }, [rawSet]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+      const k = e.key.toLowerCase();
+      if (k !== "z" && k !== "y") return;
+      // 문서 칸이 아닌 입력창(이름 · 주소 등)에서는 그 입력창의 되돌리기를 그대로 둠
+      const t = e.target;
+      if ((t instanceof HTMLInputElement || t instanceof HTMLSelectElement || (t instanceof HTMLTextAreaElement && !t.dataset.field)) && !(t instanceof HTMLInputElement && t.type === "checkbox")) return;
+      e.preventDefault();
+      if (k === "y" || e.shiftKey) redo();
+      else undo();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [undo, redo]);
   /** 마우스 위치를 문서 기준으로 (가로는 문서 너비 비율, 세로는 문서 맨 위에서부터 px) */
   const trackMouse = (e: ReactMouseEvent) => {
     const r = docRef.current?.getBoundingClientRect();
@@ -1277,11 +1341,11 @@ function StudentWizard({ onCancel, onDone }: { onCancel: () => void; onDone: (si
 const fontFamilyOf = (name: string) => `"${name.replace(/"/g, "")}", ${/바탕|명조/.test(name) ? '"Batang", "AppleMyungjo", serif' : '"Malgun Gothic", "Apple SD Gothic Neo", sans-serif'}`;
 /** 칸마다 고른 글자 모양을 저장하는 칸 이름 */
 const fmtKey = (field: string) => `fmt.${field}`;
-type CellFmt = { font?: string; size?: number; ls?: number };
+type CellFmt = { font?: string; size?: number; ls?: number; bold?: boolean };
 const readFmt = (raw: string | undefined): CellFmt => {
   try {
     const o = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
-    return { font: typeof o.font === "string" ? o.font : undefined, size: typeof o.size === "number" ? o.size : undefined, ls: typeof o.ls === "number" ? o.ls : undefined };
+    return { font: typeof o.font === "string" ? o.font : undefined, size: typeof o.size === "number" ? o.size : undefined, ls: typeof o.ls === "number" ? o.ls : undefined, bold: typeof o.bold === "boolean" ? o.bold : undefined };
   } catch {
     return {};
   }
@@ -1289,7 +1353,7 @@ const readFmt = (raw: string | undefined): CellFmt => {
 /** 양식 모양 위에 고른 글자 모양(글꼴 · 크기 · 줄 간격)을 얹음 */
 function withFormat(base: FormStyle, raw: string | undefined): FormStyle {
   const o = readFmt(raw);
-  return { ...base, ...(o.font ? { fontName: o.font, font: fontFamilyOf(o.font) } : {}), ...(o.size ? { size: o.size } : {}), ...(o.ls ? { ls: o.ls } : {}) };
+  return { ...base, ...(o.font ? { fontName: o.font, font: fontFamilyOf(o.font) } : {}), ...(o.size ? { size: o.size } : {}), ...(o.ls ? { ls: o.ls } : {}), ...(o.bold !== undefined ? { bold: o.bold } : {}) };
 }
 
 /** 한 칸: 이어진 저장 칸을 바로 고치고, 이어지지 않은 칸(양식 글)은 그대로 보여 줌. 문단마다 그 문단의 글자 모양으로 */
@@ -1493,6 +1557,7 @@ function FormatBar({ field, base, fonts, onDone }: { field: string | null; base:
   const font = cur.font ?? base?.fontName ?? "";
   const size = cur.size ?? base?.size ?? 10;
   const ls = cur.ls ?? base?.ls ?? 160;
+  const bold = cur.bold ?? base?.bold ?? false;
   const apply = (patch: CellFmt) => {
     if (!field) return;
     const next = { ...cur, ...patch };
@@ -1540,6 +1605,9 @@ function FormatBar({ field, base, fonts, onDone }: { field: string | null; base:
           +
         </button>
       </div>
+      <button type="button" disabled={off} onClick={() => apply({ bold: !bold })} aria-pressed={bold} aria-label="굵게 (Ctrl+B)" title="굵게 (Ctrl+B)" className={`grid h-9 w-9 place-items-center rounded-lg border text-sm font-extrabold disabled:opacity-50 ${bold ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-slate-200 text-slate-600 hover:bg-slate-50"}`}>
+        B
+      </button>
       <label className="flex items-center gap-1 text-xs font-semibold text-slate-500">
         줄 간격
         <select aria-label="줄 간격(%)" value={String(ls)} disabled={off} onChange={(e) => apply({ ls: Number(e.target.value) })} className={`${box} w-20`}>
@@ -1550,7 +1618,7 @@ function FormatBar({ field, base, fonts, onDone }: { field: string | null; base:
           ))}
         </select>
       </label>
-      {field && (cur.font || cur.size || cur.ls) && (
+      {field && (cur.font || cur.size || cur.ls || cur.bold !== undefined) && (
         <button type="button" onClick={() => {
             set(fmtKey(field), "");
             onDone();
@@ -1994,7 +2062,7 @@ function DocV2({ sid, onSid, follow }: { sid: string | null; onSid: (sid: string
         <div
           ref={box}
           // geometricPrecision: 글자 폭을 배율과 상관없이 같은 비율로 계산해, 화면 배율이 달라도 줄바꿈 · 쪽 나누기가 같게 함
-          className="w-full min-w-0 space-y-6 overflow-x-auto pb-2 [text-rendering:geometricPrecision] lg:w-auto"
+          className="w-full min-w-0 space-y-6 overflow-x-auto pb-2 [text-rendering:geometricPrecision] [word-break:keep-all] [overflow-wrap:break-word] lg:w-auto"
           onFocusCapture={(e) => {
             const el = e.target as HTMLElement;
             if (el instanceof HTMLTextAreaElement && el.dataset.field) {
@@ -2162,7 +2230,17 @@ function F({
           if (!(e.nativeEvent as InputEvent).isComposing) compose(k, false);
         }}
         onSelect={remember}
-        onKeyDown={single ? (e) => e.key === "Enter" && e.preventDefault() : undefined}
+        onKeyDown={(e) => {
+          // Ctrl+B: 이 칸의 글을 굵게 / 굵지 않게 (글자 모양 막대의 B 와 같음)
+          if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "b") {
+            e.preventDefault();
+            const cur = readFmt(values[fmtKey(k)]);
+            const isBold = cur.bold ?? Number(style?.fontWeight ?? 400) >= 600;
+            set(fmtKey(k), JSON.stringify({ ...cur, bold: !isBold }));
+            return;
+          }
+          if (single && e.key === "Enter") e.preventDefault();
+        }}
         onFocus={() => focus(k)}
         onBlur={() => {
           compose(k, false);
