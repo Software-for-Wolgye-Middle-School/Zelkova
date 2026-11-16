@@ -8,6 +8,9 @@
 //   table    <파일> <표 번호>                 표의 칸 (행 · 열 · 병합 · 글)
 //   get      <파일> c.<표>.<행>.<열> | p.<문단> 칸 · 문단의 글
 //   verify   <파일>                          한글이 열 수 있는 구조인지 검사 (문단 · 칸 · 표)
+//   dump     <파일> [표 번호|p.<문단>] [행]    모양까지 모두: 칸(크기 · 세로 정렬 · 안쪽 여백 · 테두리) · 문단(정렬 · 왼쪽/오른쪽 여백 ·
+//                                            들여쓰기/내어쓰기 · 문단 위아래 간격 · 줄 간격 · 글머리표/번호 · 한글이 줄 나눈 정보) ·
+//                                            글자 모양 구간(글꼴 · 크기 · 굵게 · 장평 · 자간). 글 안의 ⏎ 는 문단 안 줄 바꿈, ↹ 는 탭
 // 고치기 (결과는 -o <새 파일> 에 씀. 쓰기 전에 구조를 검사해 문제가 있으면 쓰지 않음)
 //   set      <파일> c.<표>.<행>.<열>|p.<문단> <글> -o <새 파일>      글 바꾸기 (\n 으로 줄 바꿈)
 //   add-row  <파일> <표 번호> <행> [개수] -o <새 파일>                행 아래에 같은 모양의 빈 줄 더하기
@@ -80,6 +83,89 @@ switch (cmd) {
     const key = args[0];
     if (key.startsWith("p.")) console.log(paraText(tops()[Number(key.slice(2))][0]));
     else console.log(cellOf(key).paras.map(paraText).join("\n"));
+    break;
+  }
+  case "dump": {
+    // DocInfo: 글꼴 · 글자 모양 · 문단 모양 · 글머리표 · 번호 · 테두리
+    const { inflateRawSync } = await import("node:zlib");
+    const { createRequire } = await import("node:module");
+    const { CFB } = createRequire(import.meta.url)("xlsx");
+    let di = Buffer.from(CFB.find(doc.cfb, "/DocInfo").content);
+    if (doc.compressed) di = inflateRawSync(di);
+    const dir = lib.parseRecords(di);
+    const idm = dir.find((r) => r.tag === 17).data;
+    const counts = Array.from({ length: idm.length / 4 }, (_, i) => idm.readInt32LE(i * 4));
+    const faces = dir.filter((r) => r.tag === 19).map((r) => r.data.toString("utf16le", 3, 3 + r.data.readUInt16LE(1) * 2));
+    const hangulFaces = faces.slice(0, counts[1]);
+    const charShapes = dir.filter((r) => r.tag === 21).map((r) => {
+      const d = r.data;
+      const attr = d.readUInt32LE(46);
+      return `${hangulFaces[d.readUInt16LE(0)]} ${d.readInt32LE(42) / 100}pt${attr & 2 ? " 굵게" : ""}${attr & 1 ? " 기울임" : ""}${d[14] !== 100 ? ` 장평${d[14]}` : ""}${d.readInt8(21) ? ` 자간${d.readInt8(21)}` : ""}`;
+    });
+    const bullets = dir.filter((r) => r.tag === 24).map((r) => (r.data.length >= 14 ? String.fromCharCode(r.data.readUInt16LE(12)) : "?"));
+    const ALIGN = ["양쪽", "왼쪽", "오른쪽", "가운데", "배분", "나눔"];
+    const LS = ["%", "고정", "여백만", "최소"];
+    const HEAD = ["", "개요", "번호", "글머리표"];
+    const paraShapes = dir.filter((r) => r.tag === 25).map((r) => {
+      const d = r.data;
+      const a = d.readUInt32LE(0);
+      const late = d.length >= 54;
+      const lsType = late ? d.readUInt32LE(46) & 0x1f : a & 3;
+      const ls = late ? d.readInt32LE(50) : d.readInt32LE(24);
+      const head = (a >> 23) & 3;
+      const mm = (u) => `${Math.round((u / 7200) * 25.4 * 10) / 10}mm`;
+      const parts = [`정렬 ${ALIGN[(a >> 2) & 7]}`];
+      if (d.readInt32LE(4)) parts.push(`왼쪽 ${mm(d.readInt32LE(4))}`);
+      if (d.readInt32LE(8)) parts.push(`오른쪽 ${mm(d.readInt32LE(8))}`);
+      const ind = d.readInt32LE(12);
+      if (ind) parts.push(ind > 0 ? `들여쓰기 ${mm(ind)}` : `내어쓰기 ${mm(-ind)}`);
+      if (d.readInt32LE(16)) parts.push(`위 ${mm(d.readInt32LE(16))}`);
+      if (d.readInt32LE(20)) parts.push(`아래 ${mm(d.readInt32LE(20))}`);
+      parts.push(`줄간격 ${ls}${LS[lsType] ?? "?"}`);
+      if (head) parts.push(`${HEAD[head]}${head === 3 ? ` '${bullets[d.readUInt16LE(30) - 1] ?? "?"}'` : ` #${d.readUInt16LE(30)}`}`);
+      parts.push((a >> 7) & 1 ? "한글 글자 단위 줄나눔" : "한글 어절 단위 줄나눔");
+      return parts.join(" · ");
+    });
+    const borderFills = dir.filter((r) => r.tag === 20).map((r) => [0, 1, 2, 3].map((k) => `${r.data[2 + k * 6]}/${r.data[3 + k * 6]}`).join(" "));
+    /** 문단 글 그대로 (⏎ 문단 안 줄 바꿈, ↹ 탭, ⟦개체⟧) */
+    const rawText = (p) => {
+      const t = doc.recs.slice(p + 1, subtreeEnd(doc.recs, p)).find((r) => r.tag === TAG.PARA_TEXT && r.level === doc.recs[p].level + 1);
+      if (!t) return "";
+      let s = "";
+      for (let i = 0; i < t.data.length / 2; ) {
+        const c = t.data.readUInt16LE(i * 2);
+        if (c >= 32) (s += String.fromCharCode(c)), i++;
+        else if (c === 10) (s += "⏎"), i++;
+        else if (c === 13 || c === 0 || (c >= 24 && c <= 31)) i++;
+        else (s += c === 9 ? "↹" : `⟦${c}⟧`), (i += 8);
+      }
+      return s;
+    };
+    const kid = (p, tag) => doc.recs.slice(p + 1, subtreeEnd(doc.recs, p)).find((r) => r.tag === tag && r.level === doc.recs[p].level + 1);
+    const showPara = (p, pad) => {
+      const ps = doc.recs[p].data.readUInt16LE(8);
+      const cs = kid(p, TAG.PARA_CHAR_SHAPE);
+      const runs = cs ? Array.from({ length: cs.data.length / 8 }, (_, i) => `${cs.data.readUInt32LE(i * 8)}:${charShapes[cs.data.readUInt32LE(i * 8 + 4)]}`) : [];
+      const seg = kid(p, 69);
+      console.log(`${pad}¶ ${JSON.stringify(rawText(p))}`);
+      console.log(`${pad}   문단#${ps} ${paraShapes[ps]} | 글자 ${runs.join(" , ")}${seg ? ` | 한글 줄나눔 ${seg.data.length / 36}줄` : ""}`);
+    };
+    const showTable = (t, onlyRow) => {
+      const range = tableParas()[t];
+      if (!range) die(`표 ${t} 이 없어요`);
+      console.log(`== 표 ${t}`);
+      for (const c of tableCells(doc.recs, range[0], range[1])) {
+        if (onlyRow !== undefined && c.row !== onlyRow) continue;
+        const lh = doc.recs[c.list].data;
+        const mm = (u) => Math.round((u / 7200) * 25.4 * 10) / 10;
+        console.log(`c.${t}.${c.row}.${c.col} ${c.rowSpan}x${c.colSpan} ${mm(lh.readUInt32LE(16))}x${mm(lh.readUInt32LE(20))}mm 세로${["위", "가운데", "아래"][(lh.readUInt32LE(2) >> 21) & 3]} 안쪽여백 ${[24, 26, 28, 30].map((o) => mm(lh.readUInt16LE(o))).join("/")} 테두리 ${borderFills[lh.readUInt16LE(32) - 1] ?? "-"}`);
+        for (const p of c.paras) showPara(p, "   ");
+      }
+    };
+    const target = args[0];
+    if (!target || target === "all") tableParas().forEach((_, t) => showTable(t));
+    else if (target.startsWith("p.")) showPara(tops()[Number(target.slice(2))][0], "");
+    else showTable(Number(target), args[1] !== undefined ? Number(args[1]) : undefined);
     break;
   }
   case "verify": {

@@ -735,7 +735,22 @@ function IepEditor({ docId, myName, onBack, onRename, nameDialog }: { docId: str
 
 // ---------------------------------------------------------------- 학교 한글 양식을 그대로 고치는 화면
 
-type FormStyle = { align: "left" | "center" | "right" | "justify"; bold: boolean; size: number; font?: string; fontName?: string; spacing?: number; color?: string; ls?: number };
+/** 한글 문단 · 글자 모양 (ml · mr 문단 왼쪽 · 오른쪽 여백 px, ind 들여쓰기 · 내어쓰기 px, brk 한글 줄 나눔 단위, bullet 글머리표) */
+type FormStyle = {
+  align: "left" | "center" | "right" | "justify";
+  bold: boolean;
+  size: number;
+  font?: string;
+  fontName?: string;
+  spacing?: number;
+  color?: string;
+  ls?: number;
+  ml?: number;
+  mr?: number;
+  ind?: number;
+  brk?: "char" | "word";
+  bullet?: string;
+};
 type FormCellT = FormStyle & {
   key: string;
   r: number;
@@ -746,6 +761,8 @@ type FormCellT = FormStyle & {
   h: number;
   bg: string | null;
   border?: [string, string, string, string];
+  /** 칸 안쪽 여백 (왼쪽 · 오른쪽 · 위 · 아래, px) */
+  pad?: [number, number, number, number];
   valign: "top" | "middle" | "bottom";
   text: string;
   locked: boolean;
@@ -769,16 +786,52 @@ const cellStyle = (s: FormStyle): CSSProperties => ({
   fontFamily: s.font,
   letterSpacing: s.spacing ? `${s.spacing / 100}em` : undefined,
   color: s.color && s.color !== "#000000" ? s.color : undefined,
-  textAlign: s.align === "justify" ? "left" : s.align,
+  // 한글처럼 양쪽 정렬 (문단의 마지막 줄은 왼쪽)
+  textAlign: s.align,
   // 한글의 줄 간격(글자 크기에 대한 %)을 그대로
   lineHeight: s.ls ? s.ls / 100 : 1.45,
+  // 한글 줄 나눔 단위: 글자 단위면 글자마다, 어절 단위면 빈칸에서만 (영문은 한글처럼 단어 단위)
+  wordBreak: s.brk === "char" ? "normal" : "keep-all",
+  overflowWrap: "break-word",
 });
+/** 문단이 칸 안에서 놓이는 자리: 칸 안쪽 여백 + 문단 왼쪽 · 오른쪽 여백, 들여쓰기(+) · 내어쓰기(-) — 한글 파일과 같은 너비에서 줄을 나눔 */
+const paraBox = (s: FormStyle, pad?: [number, number, number, number]): CSSProperties => {
+  const ind = s.ind ?? 0;
+  return {
+    paddingLeft: (pad?.[0] ?? 1.9) + (s.ml ?? 0) + Math.max(0, -ind),
+    paddingRight: (pad?.[1] ?? 1.9) + (s.mr ?? 0),
+    textIndent: ind || undefined,
+  };
+};
+/** 칸 안쪽 여백에서 테두리 두께 반을 뺌: 화면 표는 테두리 반이 칸 안을 차지하고, 한글은 칸 가장자리부터 여백을 잼 */
+const innerPad = (c: FormCellT): [number, number, number, number] => {
+  const half = (css?: string) => (css && css !== "none" ? (parseFloat(css) || 0) / 2 : 0);
+  const p = c.pad ?? [1.9, 1.9, 1.9, 1.9];
+  return [Math.max(0, p[0] - half(c.border?.[0])), Math.max(0, p[1] - half(c.border?.[1])), Math.max(0, p[2] - half(c.border?.[2])), Math.max(0, p[3] - half(c.border?.[3]))];
+};
+/** 칸 위아래 안쪽 여백 */
+const padY = (pad?: [number, number, number, number]): CSSProperties => ({ paddingTop: pad?.[2] ?? 1.9, paddingBottom: pad?.[3] ?? 1.9 });
 /** 칸 테두리 (한글 파일의 칸마다의 선 종류 · 굵기 그대로) */
 const borderStyle = (c: FormCellT): CSSProperties =>
   c.border ? { borderLeft: c.border[0], borderRight: c.border[1], borderTop: c.border[2], borderBottom: c.border[3] } : { border: "1px solid #334155" };
 
 /** 표의 열 너비: 한 칸짜리 칸의 너비로 정하고, 합친 칸만 있는 열은 남는 너비를 나눔 */
 function colWidths(t: Extract<FormBlockT, { type: "table" }>) {
+  // 한글 표의 열 경계: 줄마다 왼쪽부터 칸 너비를 더한 자리 (합친 칸도 실제 너비 그대로 맞음)
+  const xs: (number | null)[] = Array(t.cols + 1).fill(null);
+  xs[0] = 0;
+  for (let r = 0; r < t.rows; r++) {
+    let x = 0;
+    for (const c of t.cells.filter((c) => c.r <= r && r < c.r + c.rs).sort((a, b) => a.c - b.c)) {
+      if (c.c > t.cols || c.c + c.cs > t.cols) continue;
+      xs[c.c] ??= x;
+      x = (xs[c.c] ?? x) + c.w;
+      xs[c.c + c.cs] ??= x;
+    }
+  }
+  const ok = xs.every((x, i) => x !== null && (i === 0 || x > (xs[i - 1] ?? 0)));
+  if (ok) return xs.slice(1).map((x, i) => (x as number) - (xs[i] as number));
+  // 경계를 다 알 수 없으면: 한 칸짜리 칸의 너비로 정하고, 합친 칸만 있는 열은 남는 너비를 나눔
   const w: (number | null)[] = Array(t.cols).fill(null);
   for (const c of t.cells) if (c.cs === 1 && c.c < t.cols) w[c.c] = Math.max(w[c.c] ?? 0, c.w);
   for (let pass = 0; pass < 3; pass++) {
@@ -1446,13 +1499,15 @@ function withFormat(base: FormStyle, raw: string | undefined): FormStyle {
 function CellV2({ cell, canRemoveGoal, onRemoveGoal }: { cell: V2Cell; canRemoveGoal: boolean; onRemoveGoal: () => void }) {
   const { values, set } = useIep();
   const paraStyle = (i: number): FormStyle => cell.styles?.[i] ?? cell;
+  const pad = innerPad(cell);
   const b = cell.bind;
   if (!b) {
     const lines = cell.lines?.length ? cell.lines : [cell.text];
     return (
-      <div className="break-words px-1.5 py-[2px] text-slate-800">
+      <div className="break-words text-slate-800" style={padY(pad)}>
         {lines.map((l, i) => (
-          <div key={i} data-st={stAttr(paraStyle(i))} className="whitespace-pre-wrap" style={cellStyle(paraStyle(i))}>
+          <div key={i} data-st={stAttr(paraStyle(i))} className="whitespace-pre-wrap" style={{ ...cellStyle(paraStyle(i)), ...paraBox(paraStyle(i), pad) }}>
+            {paraStyle(i).bullet && l ? `${paraStyle(i).bullet} ` : ""}
             {l || " "}
           </div>
         ))}
@@ -1476,33 +1531,35 @@ function CellV2({ cell, canRemoveGoal, onRemoveGoal }: { cell: V2Cell; canRemove
   }
   if ("parts" in b) {
     return (
-      <div className="px-0.5">
+      <div style={padY(pad)}>
         {b.parts.map((p, i) => {
-          const st = cellStyle(withFormat(paraStyle(i), values[fmtKey(p.field)]));
+          const ps = paraStyle(i);
+          const st = cellStyle(withFormat(ps, values[fmtKey(p.field)]));
+          const box = paraBox(ps, pad);
           return (
-            <div key={p.field} className="flex items-start">
+            <div key={p.field} className="flex items-start" style={p.label ? { paddingLeft: box.paddingLeft, paddingRight: box.paddingRight } : undefined}>
               {p.label && (
-                <span data-st={stAttr(paraStyle(i))} className="shrink-0 py-[2px] pl-1 text-slate-800" style={{ ...st, fontFamily: cellStyle(paraStyle(i)).fontFamily }}>
+                <span data-st={stAttr(ps)} className="shrink-0 whitespace-pre text-slate-800" style={{ ...st, fontFamily: cellStyle(ps).fontFamily }}>
                   {p.label}
                 </span>
               )}
-              <F k={p.field} className="min-w-0 flex-1" style={p.label ? { ...st, textAlign: "left" } : st} />
+              <F k={p.field} className="min-w-0 flex-1" style={p.label ? { ...st, textAlign: "left", paddingLeft: 0, paddingRight: 0, paddingTop: 0, paddingBottom: 0 } : { ...st, ...box, paddingTop: 0, paddingBottom: 0 }} />
             </div>
           );
         })}
       </div>
     );
   }
-  const st = cellStyle(withFormat(paraStyle(b.para ?? 0), values[fmtKey(b.field)]));
+  const st = { ...cellStyle(withFormat(paraStyle(b.para ?? 0), values[fmtKey(b.field)])), ...paraBox(paraStyle(b.para ?? 0), pad), ...padY(pad) };
   return (
     <div className="group/cell relative">
       {b.para !== undefined &&
         (cell.lines ?? []).slice(0, b.para).map((l, i) => (
-          <div key={i} data-st={stAttr(paraStyle(i))} className="whitespace-pre-wrap px-1.5 pt-[2px] text-slate-800" style={cellStyle(paraStyle(i))}>
+          <div key={i} data-st={stAttr(paraStyle(i))} className="whitespace-pre-wrap text-slate-800" style={{ ...cellStyle(paraStyle(i)), ...paraBox(paraStyle(i), pad), paddingTop: pad?.[2] ?? 1.9 }}>
             {l}
           </div>
         ))}
-      <F k={b.field} style={st} />
+      <F k={b.field} style={b.para !== undefined ? { ...st, paddingTop: 0 } : st} />
       {cell.goal && canRemoveGoal && (
         <button
           type="button"
@@ -1991,7 +2048,8 @@ function DocV2({ sid, onSid, follow }: { sid: string | null; onSid: (sid: string
       );
     const cols = colsOf(b, bi);
     const total = cols.reduce((n, x) => n + x, 0);
-    const scale = Math.min(1, contentW / total);
+    // 한글처럼 표를 줄이지 않음 (종이 밖으로 나갈 만큼 넓을 때만 줄임)
+    const scale = Math.min(1, (contentW + pg.right) / total);
     const goals = b.goalSec ? goalIdsOf(values, b.goalSec) : [];
     const r0 = from ?? 0;
     const r1 = to ?? b.rows;

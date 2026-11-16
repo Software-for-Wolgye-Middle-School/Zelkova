@@ -201,7 +201,8 @@ class Block implements Piece {
   set(r: number, c: number, text: string, field?: string) {
     const cell = this.cell(r, c);
     if (!cell) return;
-    setCellText(this.recs, cell, text);
+    // 저장 칸(편집 화면의 글 상자)은 한 줄에 문단 하나 — 화면의 줄과 한글의 문단이 1:1
+    setCellText(this.recs, cell, text, !!field);
     if (field) this.binds.set(`${r}.${c}`, { field });
   }
   /** 칸을 문단 하나로 줄임 (양식의 칸에 든 여러 빈 문단이 높이를 키우지 않게) */
@@ -273,11 +274,25 @@ class Block implements Piece {
       }
       const fm = fmtOf(bind.field);
       const rt = runsOf(bind.field);
-      for (const p of bind.para !== undefined ? [cell.paras[bind.para]] : cell.paras) {
+      if (bind.para !== undefined) {
+        const p = cell.paras[bind.para];
         if (p === undefined) continue;
         if (fm) formatPara(this.recs, p, fm, book);
         if (rt.runs.length) applyRuns(this.recs, p, rt.runs, rt.len, book);
+        continue;
       }
+      // 칸 전체가 글 상자: 모든 줄(문단)을 첫 문단 모양으로, 글머리표 · 내어쓰기는 빼서 화면의 글 상자와 같게
+      const plain = book.plainPara(this.recs[cell.paras[0]].data.readUInt16LE(8));
+      let off = 0;
+      cell.paras.forEach((p) => {
+        this.recs[p].data.writeUInt16LE(plain, 8);
+        if (fm) formatPara(this.recs, p, fm, book);
+        // 구간 글자 모양은 칸 값 전체 기준 → 이 줄 안으로 옮겨서
+        const len = paraText(this.recs, p).length;
+        const mine = rt.runs.filter(([a, b]) => b > off && a < off + len).map(([a, b, s]): TextRun => [Math.max(0, a - off), Math.min(len, b - off), s]);
+        if (mine.length) applyRuns(this.recs, p, mine, len, book);
+        off += len + 1;
+      });
     }
   }
   /** 저장한 표 크기(열 너비 · 줄 높이, 한글 단위)를 칸에 */

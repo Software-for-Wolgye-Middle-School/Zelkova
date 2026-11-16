@@ -105,6 +105,15 @@ export class ShapeBook {
     this.seen.set(key, id);
     return id;
   }
+  /** 글머리표 · 번호와 들여쓰기/내어쓰기를 뺀 문단 모양 번호 (편집 화면의 글 상자처럼 모든 줄이 같은 자리에서 시작) */
+  plainPara(from: number) {
+    const src = this.paraData(from);
+    if (!src) return from;
+    const d = Buffer.from(src);
+    d.writeUInt32LE((d.readUInt32LE(0) & ~(3 << 23)) >>> 0, 0); // 문단 머리 모양 없음
+    d.writeInt32LE(0, 12); // 들여쓰기 · 내어쓰기 없음
+    return d.equals(src) ? from : this.add("p", d);
+  }
   /** 줄 간격(%)만 바꾼 문단 모양 번호 */
   lineSpacing(from: number, ls: number) {
     const d = this.paraData(from);

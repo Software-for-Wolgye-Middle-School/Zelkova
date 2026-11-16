@@ -246,10 +246,35 @@ export function tableCells(recs: Rec[], start: number, end: number): Cell[] {
  * 칸에 글을 넣음: 한 줄씩 칸의 문단에 차례로 넣어 문단마다의 모양(정렬 · 글자 모양)과 칸 높이를 그대로 둠.
  * 줄이 문단보다 많으면 남는 줄은 마지막 문단 안에서 줄 바꿈으로 이어 씀. 남는 문단은 비움
  */
-export function setCellText(recs: Rec[], cell: Cell, text: string) {
+export function setCellText(recs: Rec[], cell: Cell, text: string, exact = false) {
   const lines = text.replace(/\r\n?/g, "\n").split("\n");
   const n = cell.paras.length;
   if (!n) return;
+  if (exact) {
+    // 한 줄에 문단 하나 (한글의 문단 안 줄 바꿈은 내어쓰기가 걸려 화면과 달라 보이므로 쓰지 않음):
+    // 문단이 모자라면 마지막 문단과 같은 모양의 문단을 더하고, 남으면 지움
+    if (lines.length > n) {
+      const last = cell.paras[n - 1];
+      const end = subtreeEnd(recs, last);
+      const extra: Rec[] = [];
+      for (let i = n; i < lines.length; i++) extra.push(...cloneRange(recs, last, end));
+      recs.splice(end, 0, ...extra);
+      setLastFlag(recs, last, false);
+      const lh = Buffer.from(recs[cell.list].data);
+      lh.writeInt16LE(lines.length, 0);
+      recs[cell.list] = { ...recs[cell.list], data: lh };
+      const size = end - last;
+      cell = { ...cell, paras: [...cell.paras, ...Array.from({ length: lines.length - n }, (_, i) => end + i * size)] };
+      // 끝 문단 표시는 새 마지막 문단에만
+      cell.paras.slice(0, -1).forEach((p) => setLastFlag(recs, p, false));
+      setLastFlag(recs, cell.paras[cell.paras.length - 1], true);
+    } else if (lines.length < n) {
+      trimCellParas(recs, cell, lines.length);
+      cell = { ...cell, paras: cell.paras.slice(0, lines.length) };
+    }
+    for (let i = cell.paras.length - 1; i >= 0; i--) setParaText(recs, cell.paras[i], lines[i] ?? "");
+    return;
+  }
   // 뒤 문단부터 바꿔야 앞 문단 위치가 그대로
   for (let i = n - 1; i >= 0; i--) setParaText(recs, cell.paras[i], i === n - 1 ? lines.slice(n - 1).join("\n") : (lines[i] ?? ""));
 }
