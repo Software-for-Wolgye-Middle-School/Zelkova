@@ -2284,6 +2284,10 @@ function F({
   // 학교 양식(개별화교육계획)의 현재학습 수행수준 · 장기목표 칸은 맨 앞 글이 고정
   const lock = values.form === FORM_V2 ? (/\.present$/.test(k) ? "- " : /\.long$/.test(k) ? "[" : "") : "";
   const value = values[k] ?? (lock ? (lock === "[" ? "[ ] " : lock) : fallback);
+  /** 줄을 바꾸면 새 줄 앞에 붙일 글 (현재학습 수행수준 "- ", 장기목표 "[ ] ") */
+  const bullet = lock === "- " ? "- " : lock === "[" ? "[ ] " : "";
+  /** Shift+Enter 는 앞 글 없이 줄만 바꿈 */
+  const plainBreak = useRef(false);
   const ref = useRef<HTMLTextAreaElement>(null);
   /** 내가 마지막으로 입력한 값 (이 값으로 바뀐 것은 내 입력이라 커서를 건드리지 않음) */
   const typed = useRef(value);
@@ -2340,6 +2344,7 @@ function F({
           runs={runs}
           css={runCss}
           max={VALUE_MAX}
+          newline={bullet}
           single={single}
           shadow={others?.[0].color}
           className={`block w-full rounded-[3px] bg-transparent px-1.5 py-[2px] text-[13px] leading-[1.55] text-slate-900 transition-[background-color,box-shadow] hover:bg-slate-50 focus:bg-indigo-50/60 ${center ? "text-center" : ""}`}
@@ -2381,14 +2386,23 @@ function F({
         placeholder={ph}
         spellCheck={false}
         onChange={(e) => {
-          const raw = e.target.value;
+          const typedRaw = e.target.value;
+          let raw = typedRaw;
+          let caret = e.target.selectionStart;
+          // 줄을 바꾸면 새 줄 앞에 "- " / "[ ] " (한글 조합 중에 누른 Enter 도 같은 줄 바꿈 입력으로 옴)
+          if (bullet && !single && (e.nativeEvent as InputEvent).inputType === "insertLineBreak" && !plainBreak.current && raw[caret - 1] === "\n" && raw.length + bullet.length <= VALUE_MAX) {
+            raw = raw.slice(0, caret) + bullet + raw.slice(caret);
+            caret += bullet.length;
+          }
+          plainBreak.current = false;
           const text = lock ? withLock(raw, lock) : raw;
           typed.current = text;
           remember();
           set(k, single ? text.replace(/\n/g, " ") : text);
-          if (text !== raw) {
-            // 고정된 앞 글이 지워졌으면 되살리고 커서는 그 뒤로
-            const at = Math.max(e.target.selectionStart + (text.length - raw.length), lock.length);
+          if (text !== typedRaw) {
+            // 앞 글을 붙였거나, 고정된 앞 글이 지워져 되살렸으면 커서는 그 뒤로
+            const at = Math.max(caret + (text.length - raw.length), lock.length);
+            sel.current = [at, at];
             requestAnimationFrame(() => ref.current?.setSelectionRange(at, at));
           }
           // 조합 끝 알림이 빠지는 브라우저도 있어, 조합이 아닌 입력이 오면 조합이 끝난 것으로 봄 (미뤄 둔 글은 방금 입력한 글 위에 합침)
@@ -2398,6 +2412,7 @@ function F({
         onKeyDown={(e) => {
           if (hotkey(e)) return;
           if (single && e.key === "Enter") e.preventDefault();
+          if (e.key === "Enter") plainBreak.current = e.shiftKey;
         }}
         onFocus={() => focus(k)}
         onBlur={() => {

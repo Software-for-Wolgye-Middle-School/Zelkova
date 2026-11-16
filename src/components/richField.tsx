@@ -249,6 +249,7 @@ export function RichField({
   onCompose,
   onSelect,
   onHotkey,
+  newline = "",
   shadow,
 }: {
   k: string;
@@ -267,6 +268,8 @@ export function RichField({
   onSelect: () => void;
   /** Ctrl+B 같은 단축키: 처리했으면 true */
   onHotkey: (e: React.KeyboardEvent) => boolean;
+  /** 줄을 바꾸면 새 줄 앞에 붙일 글 (Shift+Enter 는 붙이지 않음) */
+  newline?: string;
   shadow?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -338,11 +341,13 @@ export function RichField({
         if (!el || !sel) return;
         const { text, chars } = readRich(el);
         const [a, b] = sel;
-        if (text.length - (b - a) + 1 > max) return;
-        const nextText = `${text.slice(0, a)}\n${text.slice(b)}`;
-        const nextChars = [...chars.slice(0, a), chars[a - 1] ?? {}, ...chars.slice(b)];
+        const ins = `\n${e.shiftKey ? "" : newline}`;
+        if (text.length - (b - a) + ins.length > max) return;
+        const nextText = `${text.slice(0, a)}${ins}${text.slice(b)}`;
+        const st = chars[a - 1] ?? {};
+        const nextChars = [...chars.slice(0, a), ...Array.from(ins, () => st), ...chars.slice(b)];
         paint(el, nextText, fromChars(nextChars), css);
-        setRichSelection(el, a + 1, a + 1);
+        setRichSelection(el, a + ins.length, a + ins.length);
         onEdit(nextText, fromChars(nextChars));
       }}
       className={`whitespace-pre-wrap break-words outline-none ${className}`}
