@@ -20,6 +20,7 @@ import {
 } from "@/lib/hwpEdit";
 import { CFB } from "xlsx";
 import { readFormDoc, type FormBlock, type FormCell } from "@/lib/hwpForm";
+import { rawChars } from "@/lib/hwpLines";
 import { blockHeight, bodySize, cellContentHeight, pageDef, readMetrics, ShapeBook, type Metrics } from "@/lib/hwpMeasure";
 import { monthsFor, parseList, sk, studentKey, withTerm, type IepFields } from "@/lib/iep";
 import { goalIdsOf, termText } from "@/lib/iepV2";
@@ -68,6 +69,72 @@ export function parseFormat(raw: string | undefined, fonts: string[]): CellForma
   } catch {
     return null;
   }
+}
+
+/** 칸 글 일부에만 준 글자 모양 (rt.<칸 이름>: {"r":[[시작,끝,{f,z,b}],…]}) — 글 길이 안으로 맞춤 */
+export type TextRun = [number, number, CellFormat];
+export function parseRuns(raw: string | undefined, len: number, fonts: string[]): TextRun[] {
+  if (!raw || !len) return [];
+  try {
+    const o = JSON.parse(raw) as { r?: unknown };
+    if (!Array.isArray(o.r)) return [];
+    const out: TextRun[] = [];
+    for (const item of o.r) {
+      if (!Array.isArray(item) || typeof item[0] !== "number" || typeof item[1] !== "number") continue;
+      const g = (item[2] ?? {}) as { f?: unknown; z?: unknown; b?: unknown };
+      const fm: CellFormat = {};
+      if (typeof g.f === "string" && fonts.includes(g.f)) fm.font = g.f;
+      if (typeof g.z === "number" && g.z >= 5 && g.z <= 72) fm.size = Math.round(g.z * 10) / 10;
+      if (typeof g.b === "boolean") fm.bold = g.b;
+      const a = Math.max(0, Math.floor(item[0]));
+      const b = Math.min(len, Math.floor(item[1]));
+      if (b > a && (fm.font || fm.size || fm.bold !== undefined)) out.push([a, b, fm]);
+    }
+    return out.sort((x, y) => x[0] - y[0]);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 문단 글 일부(구간)에만 글꼴 · 크기 · 굵게를 줌: 문단의 글자 모양 목록을 구간 경계에서 나눠 구간마다 모양을 바꿈.
+ * valueLen: 칸 값의 길이 (이름표가 앞에 붙은 문단이면 값은 문단 글의 맨 뒤)
+ */
+function applyRuns(recs: Rec[], p: number, runs: TextRun[], valueLen: number, book: ShapeBook) {
+  const end = subtreeEnd(recs, p);
+  const lvl = recs[p].level + 1;
+  const textRec = recs.slice(p + 1, end).find((r) => r.tag === TAG.PARA_TEXT && r.level === lvl);
+  const csAt = recs.findIndex((r, i) => i > p && i < end && r.tag === TAG.PARA_CHAR_SHAPE && r.level === lvl);
+  if (!runs.length || !textRec || csAt < 0) return;
+  const chars = rawChars(textRec.data);
+  const lead = chars.length - valueLen;
+  if (lead < 0) return;
+  const old = recs[csAt].data;
+  const entries: [number, number][] = [];
+  for (let o = 0; o + 8 <= old.length; o += 8) entries.push([old.readUInt32LE(o), old.readUInt32LE(o + 4)]);
+  const baseAt = (pos: number) => entries.reduce((id, [at, sid]) => (at <= pos ? sid : id), entries[0]?.[1] ?? 0);
+  const posOf = (i: number) => (i < valueLen ? chars[lead + i].pos : (chars[chars.length - 1]?.pos ?? 0) + 1);
+  const cuts = new Set<number>(entries.map(([at]) => at));
+  for (const [a, b] of runs) {
+    cuts.add(posOf(a));
+    cuts.add(posOf(b));
+  }
+  const next: [number, number][] = [];
+  for (const at of [...cuts].sort((x, y) => x - y)) {
+    const run = runs.find(([a, b]) => posOf(a) <= at && at < posOf(b));
+    const base = baseAt(at);
+    const id = run ? book.charVariant(base, run[2]) : base;
+    if (!next.length || next[next.length - 1][1] !== id) next.push([at, id]);
+  }
+  const cs = Buffer.alloc(next.length * 8);
+  next.forEach(([at, id], i) => {
+    cs.writeUInt32LE(at, i * 8);
+    cs.writeUInt32LE(id, i * 8 + 4);
+  });
+  recs[csAt] = { ...recs[csAt], data: cs };
+  const h = Buffer.from(recs[p].data);
+  h.writeUInt16LE(next.length, 12);
+  recs[p] = { ...recs[p], data: h };
 }
 
 /** 문단 하나의 글꼴 · 크기 · 줄 간격을 바꿈 (레코드 수는 그대로, 모양 번호만) */
@@ -183,7 +250,7 @@ class Block implements Piece {
     return Array.from({ length: rows }, (_, r) => (this.rowKeyOf ? this.rowKeyOf(r, rows) : `r${r}`));
   }
   /** 저장 칸마다 고른 글꼴 · 크기 · 줄 간격을 그 칸의 문단에 */
-  applyFormats(fmtOf: (field: string) => CellFormat | null, book: ShapeBook) {
+  applyFormats(fmtOf: (field: string) => CellFormat | null, runsOf: (field: string) => { runs: TextRun[]; len: number }, book: ShapeBook) {
     for (const [at, bind] of this.binds) {
       if ("choice" in bind) continue;
       const [r, c] = at.split(".").map(Number);
@@ -193,12 +260,18 @@ class Block implements Piece {
         bind.parts.forEach((part, i) => {
           const fm = fmtOf(part.field);
           if (fm && cell.paras[i] !== undefined) formatPara(this.recs, cell.paras[i], fm, book);
+          const rt = runsOf(part.field);
+          if (rt.runs.length && cell.paras[i] !== undefined) applyRuns(this.recs, cell.paras[i], rt.runs, rt.len, book);
         });
         continue;
       }
       const fm = fmtOf(bind.field);
-      if (!fm) continue;
-      for (const p of bind.para !== undefined ? [cell.paras[bind.para]] : cell.paras) if (p !== undefined) formatPara(this.recs, p, fm, book);
+      const rt = runsOf(bind.field);
+      for (const p of bind.para !== undefined ? [cell.paras[bind.para]] : cell.paras) {
+        if (p === undefined) continue;
+        if (fm) formatPara(this.recs, p, fm, book);
+        if (rt.runs.length) applyRuns(this.recs, p, rt.runs, rt.len, book);
+      }
     }
   }
   /** 저장한 표 크기(열 너비 · 줄 높이, 한글 단위)를 칸에 */
@@ -373,10 +446,11 @@ function assemble(f: IepFields, file: Uint8Array): { doc: HwpDoc; pieces: Piece[
   const book = new ShapeBook(metrics);
   const fonts = fontsOf(metrics);
   const fmtOf = (field: string) => parseFormat(f[`fmt.${field}`], fonts);
+  const runsOf = (field: string) => ({ runs: parseRuns(f[`rt.${field}`], (f[field] ?? "").length, fonts), len: (f[field] ?? "").length });
   /** 칸을 다 채운 표에 이름을 붙이고, 고른 글자 모양 · 표 크기를 넣음 */
   const finish = (b: Block, id: string) => {
     b.tableId = id;
-    b.applyFormats(fmtOf, book);
+    b.applyFormats(fmtOf, runsOf, book);
     b.applySize(f[`size.${id}`]);
     return b;
   };

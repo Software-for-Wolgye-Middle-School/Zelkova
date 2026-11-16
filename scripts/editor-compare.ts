@@ -66,7 +66,7 @@ function seed() {
   f.studentList = JSON.stringify(["s1"]);
   mkdirSync(path.join(tmp, "data"), { recursive: true });
   const meta = metaFromFields(f);
-  writeFileSync(path.join(tmp, "data", "iep.json"), JSON.stringify({ index: { [ID]: { ...meta, id: ID, createdAt: Date.now(), updatedAt: Date.now() } }, docs: { [ID]: { rev: 1, values: f, revs: {} } } }));
+  writeFileSync(path.join(tmp, "data", "iep.json"), JSON.stringify({ index: { [ID]: { ...meta, id: ID, createdAt: Date.now(), updatedAt: Date.now() } }, docs: { [ID]: { rev: 1, values: f, revs: Object.fromEntries(Object.keys(f).map((k) => [k, 1])) } } }));
 }
 
 async function startServer(): Promise<string> {
@@ -200,7 +200,7 @@ const EXTRACT = `(() => [...document.querySelectorAll('[aria-label$="쪽"]')].ma
     rows: el.dataset.table ? [...el.querySelectorAll('tr[data-r]')].map((tr) => ({ r: +tr.dataset.r, h: tr.getBoundingClientRect().height })) : [] })),
 })))()`;
 const CLICK_TEXT = (t: string) =>
-  `(() => { const els = [...document.querySelectorAll('button,a,[role=button],li,div')].filter((e) => (e.textContent||'').includes(${JSON.stringify(t)}) && e.children.length < 8 && !e.closest('[aria-hidden=true],[inert]') && e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden' && !e.closest('.invisible,[style*="visibility: hidden"]')); els.sort((a,b)=>(a.textContent||'').length-(b.textContent||'').length); const e = els[0]; if (!e) return false; e.click(); return true; })()`;
+  `(() => { const els = [...document.querySelectorAll('button,a,[role=button]')].filter((e) => (e.textContent||'').includes(${JSON.stringify(t)}) && e.children.length < 8 && !e.closest('[aria-hidden=true],[inert]') && e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden' && !e.closest('.invisible,[style*="visibility: hidden"]')); els.sort((a,b)=>(a.textContent||'').length-(b.textContent||'').length); const e = els[0]; if (!e) return false; e.click(); return true; })()`;
 
 type Dom = { blocks: { bi: number; table: boolean; h: number; rows: { r: number; h: number }[] }[] }[];
 
@@ -216,6 +216,7 @@ async function measure(cdp: Cdp, base: string, zoom: number): Promise<Dom> {
   for (let i = 0; i < 90; i++) {
     await sleep(700);
     const cur = JSON.stringify(await cdp.eval<Dom>(EXTRACT));
+    if (process.env.DEBUG && i % 5 === 0) console.log(i, "쪽 수", cur === "[]" ? 0 : (JSON.parse(cur) as Dom).length, cur.length);
     if (cur !== "[]") {
       if (cur === last) return JSON.parse(cur);
       last = cur;
@@ -236,11 +237,50 @@ async function measure(cdp: Cdp, base: string, zoom: number): Promise<Dom> {
   throw new Error(`편집기가 그려지지 않았어요 (배율 ${zoom}%). 지금 화면: ${seen}`);
 }
 
+// ---------------------------------------------------------------- 편집 동작 시험 (선택한 글에만 굵게 · 되돌리기 · 이어 쓰기)
+async function key(cdp: Cdp, k: string, code: string, vk: number, modifiers = 0) {
+  await cdp.send("Input.dispatchKeyEvent", { type: "rawKeyDown", key: k, code, windowsVirtualKeyCode: vk, modifiers });
+  await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: k, code, windowsVirtualKeyCode: vk, modifiers });
+}
+async function richTest(cdp: Cdp) {
+  const F = "[data-field$='.behavior']";
+  const spans = () => cdp.eval<unknown>(`(() => { const r = document.querySelector("[data-rich]${F}"); return r ? [...r.querySelectorAll("span")].map((s) => [s.textContent, s.dataset.b ?? "-", s.dataset.z ?? "-"]) : null; })()`);
+  const mode = () => cdp.eval<string>(`(() => document.querySelector("[data-rich]${F}") ? "rich" : document.querySelector("textarea${F}") ? "plain" : "none")()`);
+  const ok = (name: string, cond: boolean, got: unknown) => console.log(`  ${cond ? "✔" : "✘"} ${name}${cond ? "" : " → " + JSON.stringify(got)}`);
+  console.log("편집 동작 시험:");
+  await cdp.eval(`(() => { const t = document.querySelector("textarea${F}"); t.scrollIntoView({ block: "center" }); t.focus(); t.setSelectionRange(3, 6); })()`);
+  await sleep(300);
+  await key(cdp, "b", "KeyB", 66, 2); // Ctrl+B
+  await sleep(700);
+  const a = await spans();
+  ok("글 일부를 고르고 Ctrl+B → 그 글만 바뀜(글 칸으로 바뀜)", (await mode()) === "rich" && JSON.stringify(a).match(/"[01]"/) !== null, a);
+  const only = ((a as string[][] | null) ?? []).filter((x) => x[1] !== "-");
+  ok("모양이 바뀐 글이 고른 3글자뿐", only.length === 1 && only[0][0].length === 3, only);
+  // 이어서 입력
+  await cdp.eval(`(() => { const r = document.querySelector("[data-rich]${F}"); r.focus(); const sp = r.querySelector("span[data-b]"); const t = sp.firstChild; const g = getSelection(); g.collapse(t, t.length); })()`);
+  await cdp.send("Input.insertText", { text: "XY" });
+  await sleep(700);
+  const b = await spans();
+  ok("바뀐 글 끝에 이어 쓰면 같은 모양으로 이어짐", JSON.stringify(b).includes("XY") && ((b as string[][] | null) ?? []).some((x) => x[0].includes("XY") && x[1] !== "-"), b);
+  // Ctrl+Z
+  await key(cdp, "z", "KeyZ", 90, 2);
+  await sleep(700);
+  const c = await spans();
+  ok("Ctrl+Z 로 입력 되돌림", !JSON.stringify(c ?? "").includes("XY"), c);
+  await key(cdp, "z", "KeyZ", 90, 2);
+  await sleep(700);
+  ok("Ctrl+Z 한 번 더 → 굵게 해제(다시 글 상자)", (await mode()) === "plain", await mode());
+  await key(cdp, "y", "KeyY", 89, 2);
+  await sleep(700);
+  ok("Ctrl+Y 로 굵게 다시 적용", (await mode()) === "rich", await mode());
+}
+
 // ---------------------------------------------------------------- 실행
 async function main() {
   const base = opt("url") ?? (await startServer());
   const login = await fetch(`${base}/api/auth`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(LOGIN) });
   const cookie = (login.headers.get("set-cookie") ?? "").split(";")[0];
+  if (process.env.DEBUG) console.log("목록:", (await fetch(`${base}/api/iep`, { headers: { cookie } }).then((r) => r.text())).slice(0, 300));
   const hwp = await fetch(`${base}/api/iep/hwp?id=${ID}`, { headers: { cookie } });
   if (!hwp.ok) throw new Error(`한글 파일을 받지 못했어요: ${hwp.status} ${await hwp.text()}`);
   const model = modelOf(new Uint8Array(await hwp.arrayBuffer()));
@@ -283,6 +323,7 @@ async function main() {
     if (diffs.length) console.log(`    1.5px 넘게 다른 곳(화면−한글): ${diffs.join(" ")}`);
     report.push({ zoom, pages: gotPages, worst });
   }
+  if (args.includes("--rich")) await richTest(cdp);
   if (args.includes("--json")) console.log(JSON.stringify(report));
   console.log(bad ? `\n쪽 나뉨이 다른 배율 ${bad}개` : "\n모든 배율에서 한글 파일과 쪽 나뉨이 같음");
   process.exitCode = bad ? 1 : 0;

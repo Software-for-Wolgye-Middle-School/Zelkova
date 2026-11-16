@@ -20,8 +20,10 @@ import {
   sk,
   type IepMeta,
   type IepPresence,
+  VALUE_MAX,
 } from "@/lib/iep";
 import ConfirmDialog from "./ConfirmDialog";
+import { applyFmt, getSel, parseRuns, readRich, RichField, rememberSel, restorePending, rtKey, setSel, stringifyRuns, type RunFmt } from "./richField";
 import LoginOverlay from "./LoginOverlay";
 import { ArrowLeftIcon, DownloadIcon, PlusIcon, Spinner, TrashIcon, XIcon } from "./icons";
 import { fmtDate, FORM_V2, goalIdsOf, structureKey, studentFieldsV2, SUBJECTS_V2, type StudentInput } from "@/lib/iepV2";
@@ -1352,6 +1354,36 @@ function StudentWizard({ onCancel, onDone }: { onCancel: () => void; onDone: (si
 const fontFamilyOf = (name: string) => `"${name.replace(/"/g, "")}", ${/바탕|명조/.test(name) ? '"Batang", "AppleMyungjo", serif' : '"Malgun Gothic", "Apple SD Gothic Neo", sans-serif'}`;
 /** 칸마다 고른 글자 모양을 저장하는 칸 이름 */
 const fmtKey = (field: string) => `fmt.${field}`;
+/** 구간(글 일부)의 모양 → 화면 글자 모양 */
+const runCss = (f: RunFmt): CSSProperties => ({ ...(f.f ? { fontFamily: fontFamilyOf(f.f) } : {}), ...(f.z ? { fontSize: fontPx(f.z) } : {}), ...(f.b === undefined ? {} : { fontWeight: f.b ? 700 : 400 }) });
+/** 칸(글 상자 · 글 칸)의 글 */
+const textOf = (el: HTMLElement) => (el instanceof HTMLTextAreaElement ? el.value : readRich(el).text);
+/**
+ * 고른 영역에만 글꼴 · 글자 크기 · 굵게를 줌 (한글 편집기처럼). 고른 영역이 없으면 false (칸 전체에 줌).
+ * 모양이 다른 구간은 rt.<칸> 에 저장하고, 그 칸은 글 칸(RichField)으로 바뀌어 그려짐
+ */
+function applySelectionFormat(field: string, el: HTMLElement, patch: RunFmt, values: Record<string, string>, set: (k: string, v: string) => void, given?: [number, number]): boolean {
+  const sel = given ?? getSel(el);
+  if (!sel || sel[0] === sel[1]) return false;
+  const text = textOf(el);
+  const runs = applyFmt(parseRuns(values[rtKey(field)], text.length), text.length, sel[0], sel[1], patch);
+  rememberSel(field, sel[0], sel[1]);
+  if (values[field] === undefined) set(field, text);
+  set(rtKey(field), stringifyRuns(runs));
+  return true;
+}
+/** Ctrl+B: 고른 영역이 있으면 그 영역만, 없으면 칸 전체를 굵게 / 굵지 않게 */
+function toggleBold(field: string, el: HTMLElement, values: Record<string, string>, set: (k: string, v: string) => void, baseBold: boolean) {
+  const cur = readFmt(values[fmtKey(field)]);
+  const sel = getSel(el);
+  const whole = cur.bold ?? baseBold;
+  if (sel && sel[0] !== sel[1]) {
+    const runs = parseRuns(values[rtKey(field)], textOf(el).length);
+    const at = runs.find((r) => r[0] <= sel[0] && sel[0] < r[1])?.[2];
+    if (applySelectionFormat(field, el, { b: !(at?.b ?? whole) }, values, set)) return;
+  }
+  set(fmtKey(field), JSON.stringify({ ...cur, bold: !whole }));
+}
 /** 고칠 수 없는 글(양식의 글)을 눌렀을 때 글자 모양 막대에 보여 줄 모양을 글에 달아 둠 */
 const stAttr = (s: FormStyle) => JSON.stringify({ fontName: s.fontName, size: s.size, ls: s.ls, bold: s.bold, align: s.align });
 type CellFmt = { font?: string; size?: number; ls?: number; bold?: boolean };
@@ -1448,8 +1480,8 @@ function CellV2({ cell, canRemoveGoal, onRemoveGoal }: { cell: V2Cell; canRemove
 /** 칸(td)의 빈 곳을 눌러도 그 칸을 고치게: 누른 곳에서 가장 가까운 글 상자로 커서를 옮김 (성취평가 칸은 누른 것처럼) */
 function focusCell(e: ReactMouseEvent<HTMLElement>) {
   const target = e.target as HTMLElement;
-  if (target.closest("textarea, input, button, select, a, [data-resize]")) return;
-  const areas = Array.from(e.currentTarget.querySelectorAll("textarea"));
+  if (target.closest("textarea, [data-rich], input, button, select, a, [data-resize]")) return;
+  const areas = Array.from(e.currentTarget.querySelectorAll<HTMLElement>("textarea, [data-rich]"));
   if (!areas.length) {
     const btn = e.currentTarget.querySelector("button");
     if (btn) {
@@ -1465,8 +1497,8 @@ function focusCell(e: ReactMouseEvent<HTMLElement>) {
   const el = areas.reduce((best, a) => (dist(a) < dist(best) ? a : best));
   e.preventDefault();
   el.focus();
-  const end = el.value.length;
-  el.setSelectionRange(end, end);
+  const end = el instanceof HTMLTextAreaElement ? el.value.length : readRich(el).text.length;
+  setSel(el, end, end);
 }
 
 /** 쪽에 놓는 조각: 문단 묶음 하나, 또는 표의 from~to 줄 (표가 쪽을 넘으면 줄 단위로 나눔) */
@@ -1564,20 +1596,41 @@ const SIZES = [8, 9, 10, 10.5, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24, 28, 32, 3
 const SPACINGS = [100, 120, 130, 140, 150, 160, 170, 180, 200, 220, 250, 300];
 
 /** 글자 모양 막대: 지금 고치는 칸의 글꼴 · 크기 · 줄 간격 (한글 편집기처럼) */
-function FormatBar({ field, base, info, fonts, onDone }: { field: string | null; base: FormStyle | null; /** 고칠 수 없는 글(양식의 글)을 눌렀을 때 그 글의 모양 (보기만) */ info: FormStyle | null; fonts: string[]; onDone: () => void }) {
+function FormatBar({ field, base, info, fonts, onDone, getTarget }: { field: string | null; base: FormStyle | null; /** 고칠 수 없는 글(양식의 글)을 눌렀을 때 그 글의 모양 (보기만) */ info: FormStyle | null; fonts: string[]; onDone: () => void; /** 지금 고치는 칸과 고른 영역 */ getTarget: () => { el: HTMLElement; s: number; e: number } | null }) {
   const { values, set } = useIep();
   const cur = field ? readFmt(values[fmtKey(field)]) : {};
+  // 고른 영역이 바뀌면 막대의 값을 다시 보여 줌
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const on = () => tick((n) => n + 1);
+    document.addEventListener("selectionchange", on);
+    document.addEventListener("keyup", on);
+    document.addEventListener("mouseup", on);
+    return () => {
+      document.removeEventListener("selectionchange", on);
+      document.removeEventListener("keyup", on);
+      document.removeEventListener("mouseup", on);
+    };
+  }, []);
+  // 고른 영역의 첫 글자(커서만 있으면 바로 앞 글자)의 모양
+  const tgt = field ? getTarget() : null;
+  const at = tgt && tgt.el.dataset.field === field ? (tgt.s === tgt.e ? Math.max(0, tgt.s - 1) : tgt.s) : -1;
+  const run = tgt && at >= 0 && field ? parseRuns(values[rtKey(field)], textOf(tgt.el).length).find((r) => r[0] <= at && at < r[1])?.[2] : undefined;
   const shape = base ?? info;
   /** 아무 글도 누르지 않았으면 값을 보이지 않음 */
   const none = !field && !info;
-  const font = cur.font ?? shape?.fontName ?? "";
-  const size = cur.size ?? shape?.size ?? 10;
+  const font = run?.f ?? cur.font ?? shape?.fontName ?? "";
+  const size = run?.z ?? cur.size ?? shape?.size ?? 10;
   const ls = cur.ls ?? shape?.ls ?? 160;
-  const bold = cur.bold ?? shape?.bold ?? false;
+  const bold = run?.b ?? cur.bold ?? shape?.bold ?? false;
+  /** 글꼴 · 크기 · 굵게는 고른 영역에만, 줄 간격은 문단(이 칸) 전체에 (한글처럼). 고른 영역이 없으면 칸 전체 */
   const apply = (patch: CellFmt) => {
     if (!field) return;
-    const next = { ...cur, ...patch };
-    set(fmtKey(field), JSON.stringify(next));
+    const { ls: lineSpacing, ...charPatch } = patch;
+    let done = false;
+    if (Object.keys(charPatch).length && tgt && tgt.el.dataset.field === field) done = applySelectionFormat(field, tgt.el, { f: charPatch.font, z: charPatch.size, b: charPatch.bold }, values, set, [tgt.s, tgt.e]);
+    if (lineSpacing !== undefined) set(fmtKey(field), JSON.stringify({ ...cur, ls: lineSpacing }));
+    else if (!done) set(fmtKey(field), JSON.stringify({ ...cur, ...patch }));
     onDone();
   };
   const sizeAt = (d: 1 | -1) => {
@@ -1637,9 +1690,10 @@ function FormatBar({ field, base, info, fonts, onDone }: { field: string | null;
           ))}
         </select>
       </label>
-      {field && (cur.font || cur.size || cur.ls || cur.bold !== undefined) && (
+      {field && (cur.font || cur.size || cur.ls || cur.bold !== undefined || values[rtKey(field)]) && (
         <button type="button" onClick={() => {
             set(fmtKey(field), "");
+            set(rtKey(field), "");
             onDone();
           }} className="rounded-lg px-2 py-1.5 text-xs font-semibold text-slate-500 hover:bg-slate-100">
           양식대로
@@ -1672,7 +1726,7 @@ function DocV2({ sid, onSid, follow }: { sid: string | null; onSid: (sid: string
   const latest = useRef(values);
   const box = useRef<HTMLDivElement>(null);
   /** 마지막으로 고치던 글 상자 (쪽이 바뀌어 다시 그려지면 그 자리로 커서를 돌려 놓음) */
-  const lastFocus = useRef<{ el: HTMLTextAreaElement; field: string; s: number; e: number } | null>(null);
+  const lastFocus = useRef<{ el: HTMLElement; field: string; s: number; e: number } | null>(null);
   useEffect(() => {
     latest.current = values;
   });
@@ -1758,10 +1812,10 @@ function DocV2({ sid, onSid, follow }: { sid: string | null; onSid: (sid: string
     // 쪽이 바뀌어 고치던 글 상자가 다시 그려졌으면 같은 칸 · 같은 자리로 커서를 돌려 놓음
     const lf = lastFocus.current;
     if (lf && !lf.el.isConnected && (document.activeElement === document.body || !document.activeElement)) {
-      const next = root.querySelector<HTMLTextAreaElement>(`textarea[data-field="${CSS.escape(lf.field)}"]`);
+      const next = root.querySelector<HTMLElement>(`[data-field="${CSS.escape(lf.field)}"]`);
       if (next) {
         next.focus({ preventScroll: true });
-        next.setSelectionRange(lf.s, lf.e);
+        setSel(next, lf.s, lf.e);
         lastFocus.current = { ...lf, el: next };
       }
     }
@@ -2086,16 +2140,17 @@ function DocV2({ sid, onSid, follow }: { sid: string | null; onSid: (sid: string
           className="w-full min-w-0 space-y-6 overflow-x-auto pb-2 [text-rendering:geometricPrecision] [word-break:keep-all] [overflow-wrap:break-word] lg:w-auto"
           onFocusCapture={(e) => {
             const el = e.target as HTMLElement;
-            if (el instanceof HTMLTextAreaElement && el.dataset.field) {
+            if (el.dataset?.field && (el instanceof HTMLTextAreaElement || el.dataset.rich)) {
               setCur(el.dataset.field);
               setInfo(null);
-              lastFocus.current = { el, field: el.dataset.field, s: el.selectionStart, e: el.selectionEnd };
+              const sel = getSel(el) ?? [0, 0];
+              lastFocus.current = { el, field: el.dataset.field, s: sel[0], e: sel[1] };
             }
           }}
           onClickCapture={(e) => {
             // 고칠 수 없는 글(양식의 글)을 누르면 그 글의 글꼴 · 크기 · 줄 간격을 막대에 보여 줌 (보기만)
             const t = e.target as HTMLElement;
-            if (t instanceof HTMLTextAreaElement) return;
+            if (t instanceof HTMLTextAreaElement || t.closest("[data-rich]")) return;
             const st = t.closest("[data-st]")?.getAttribute("data-st");
             if (!st) return;
             try {
@@ -2107,7 +2162,10 @@ function DocV2({ sid, onSid, follow }: { sid: string | null; onSid: (sid: string
           }}
           onSelectCapture={(e) => {
             const el = e.target as HTMLElement;
-            if (el instanceof HTMLTextAreaElement && el.dataset.field) lastFocus.current = { el, field: el.dataset.field, s: el.selectionStart, e: el.selectionEnd };
+            if (el.dataset?.field && (el instanceof HTMLTextAreaElement || el.dataset.rich)) {
+              const sel = getSel(el);
+              if (sel) lastFocus.current = { el, field: el.dataset.field, s: sel[0], e: sel[1] };
+            }
           }}
           onBlurCapture={(e) => {
             // 다른 곳을 눌러 빠져나간 것이면 돌려 놓지 않음 (쪽이 바뀌어 다시 그려진 경우만 돌려 놓음)
@@ -2144,14 +2202,23 @@ function DocV2({ sid, onSid, follow }: { sid: string | null; onSid: (sid: string
         field={cur}
         base={curBase}
         info={info}
+        getTarget={() => {
+          const ae = document.activeElement;
+          if (ae instanceof HTMLElement && ae.dataset?.field && (ae instanceof HTMLTextAreaElement || ae.dataset.rich)) {
+            const sel = getSel(ae);
+            if (sel) return { el: ae, s: sel[0], e: sel[1] };
+          }
+          const lf = lastFocus.current;
+          return lf && lf.el.isConnected ? { el: lf.el, s: lf.s, e: lf.e } : null;
+        }}
         fonts={data.fonts ?? []}
         onDone={() => {
           // 고른 뒤에는 고치던 칸으로 커서를 돌려 놓음
           const lf = lastFocus.current;
-          const el = lf && box.current?.querySelector<HTMLTextAreaElement>(`textarea[data-field="${CSS.escape(lf.field)}"]`);
+          const el = lf && box.current?.querySelector<HTMLElement>(`[data-field="${CSS.escape(lf.field)}"]`);
           if (el && lf) {
             el.focus({ preventScroll: true });
-            el.setSelectionRange(lf.s, lf.e);
+            setSel(el, lf.s, lf.e);
           }
         }}
       />
@@ -2219,10 +2286,14 @@ function F({
   const shown = useRef(value);
   const sel = useRef<[number, number]>([0, 0]);
   const others = who[k];
+  /** 글 일부에만 다른 글자 모양이 있는 칸은 글 칸(RichField)으로 */
+  const rtRaw = values[rtKey(k)];
+  const runs = useMemo(() => parseRuns(rtRaw, value.length), [rtRaw, value]);
 
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
+    restorePending(el, k);
     // 글 길이에 맞춰 높이 (field-sizing 을 모르는 브라우저용)
     if (typeof CSS !== "undefined" && CSS.supports("field-sizing", "content")) {
       // 브라우저가 소수점 높이까지 그대로 맞춰 주므로 따로 정하지 않음 (scrollHeight 는 정수로 반올림돼 화면 배율마다 쪽 나누기가 달라짐)
@@ -2242,12 +2313,58 @@ function F({
     el.setSelectionRange(move(a), move(b));
     sel.current = [move(a), move(b)];
     typed.current = value;
-  }, [value]);
+  }, [value]); // eslint-disable-line react-hooks/exhaustive-deps -- k 는 칸 이름이라 바뀌지 않음
 
   const remember = () => {
     const el = ref.current;
     if (el) sel.current = [el.selectionStart, el.selectionEnd];
   };
+  /** Ctrl+B: 고른 영역이 있으면 그 영역만, 없으면 이 칸 전체를 굵게 / 굵지 않게 (글자 모양 막대의 B 와 같음) */
+  const hotkey = (e: React.KeyboardEvent): boolean => {
+    if (!((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "b")) return false;
+    e.preventDefault();
+    toggleBold(k, e.currentTarget as HTMLElement, values, set, Number(style?.fontWeight ?? 400) >= 600);
+    return true;
+  };
+
+  if (runs.length) {
+    return (
+      <div className={`relative ${className}`}>
+        <RichField
+          k={k}
+          value={value}
+          runs={runs}
+          css={runCss}
+          max={VALUE_MAX}
+          single={single}
+          shadow={others?.[0].color}
+          className={`block w-full rounded-[3px] bg-transparent px-1.5 py-[2px] text-[13px] leading-[1.55] text-slate-900 transition-[background-color,box-shadow] hover:bg-slate-50 focus:bg-indigo-50/60 ${center ? "text-center" : ""}`}
+          style={style}
+          onEdit={(text, next) => {
+            typed.current = text;
+            // 구간이 모두 없어지면 다시 글 상자로: 커서를 적어 둠
+            const sel2 = getSel(document.activeElement);
+            if (!next.length && sel2) rememberSel(k, sel2[0], sel2[1]);
+            set(k, single ? text.replace(/\n/g, " ") : text);
+            set(rtKey(k), stringifyRuns(next));
+          }}
+          onFocus={() => focus(k)}
+          onBlur={() => {
+            compose(k, false);
+            blur(k);
+          }}
+          onCompose={(on) => compose(k, on)}
+          onSelect={() => {}}
+          onHotkey={hotkey}
+        />
+        {others && (
+          <span className="pointer-events-none absolute -top-2 right-1 z-10 rounded px-1.5 py-px text-[10px] font-semibold leading-tight text-white shadow-sm print:hidden" style={{ background: others[0].color }}>
+            {others.map((o) => o.name).join(", ")} 입력 중
+          </span>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className={`relative ${className}`}>
@@ -2267,14 +2384,7 @@ function F({
         }}
         onSelect={remember}
         onKeyDown={(e) => {
-          // Ctrl+B: 이 칸의 글을 굵게 / 굵지 않게 (글자 모양 막대의 B 와 같음)
-          if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "b") {
-            e.preventDefault();
-            const cur = readFmt(values[fmtKey(k)]);
-            const isBold = cur.bold ?? Number(style?.fontWeight ?? 400) >= 600;
-            set(fmtKey(k), JSON.stringify({ ...cur, bold: !isBold }));
-            return;
-          }
+          if (hotkey(e)) return;
           if (single && e.key === "Enter") e.preventDefault();
         }}
         onFocus={() => focus(k)}
