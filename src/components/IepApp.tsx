@@ -1622,11 +1622,15 @@ function paginate(blocks: V2Block[], height: number, m: Measure | null): PagePie
   blocks.forEach((b, bi) => {
     if (b.page && page().length) newPage();
     if (b.type === "table") {
-      const rh = m?.rows[bi];
-      if (!rh) {
+      const measured = m?.rows[bi];
+      if (!measured) {
         page().push({ bi });
         return;
       }
+      // 줄 수는 표의 실제 줄 수로 (단기목표를 더해 줄이 늘면, 아직 재지 않은 줄은 양식의 칸 높이로 어림 → 그려진 뒤 다시 잼).
+      // 앞서 잰 줄 수만큼만 나누면 새 줄과 그 아래(작성준거 · 교육방법 · 평가계획)가 어느 쪽에도 놓이지 않아 사라졌음
+      const guess = (r: number) => Math.max(20, ...b.cells.filter((c) => c.r === r && c.rs === 1).map((c) => c.h));
+      const rh = Array.from({ length: b.rows }, (_, r) => measured[r] || guess(r));
       const extra = m?.extra[bi] ?? 0;
       const total = rh.reduce((n, x) => n + (x || 0), 0) + extra;
       if (used + total <= limit) {
