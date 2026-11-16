@@ -1355,8 +1355,8 @@ const fontFamilyOf = (name: string) => `"${name.replace(/"/g, "")}", ${/바탕|�
 /** 칸마다 고른 글자 모양을 저장하는 칸 이름 */
 const fmtKey = (field: string) => `fmt.${field}`;
 /** 현재학습 수행수준은 "- ", 장기목표는 "[" 로 시작하는 글이 맨 앞에 고정 (지우면 되살림) */
-/** 줄마다 고정된 앞 글: 현재학습 수행수준 "- ", 장기목표 "[ ] " (장기목표는 [v] 처럼 괄호 안 글은 바꿀 수 있음) */
-const LINE_HEAD: Record<string, { text: string; re: RegExp }> = { "- ": { text: "- ", re: /^- / }, "[": { text: "[ ] ", re: /^\[[^\]\n]{0,3}\] / } };
+/** 줄마다 고정된 앞 글: 현재학습 수행수준 "- ", 장기목표 "[" */
+const LINE_HEAD: Record<string, { text: string; re: RegExp }> = { "- ": { text: "- ", re: /^- / }, "[": { text: "[", re: /^\[/ } };
 /** 줄 맨 앞의 고정된 앞 글 길이 (없으면 0) */
 const headLen = (line: string, lock: string) => LINE_HEAD[lock]?.re.exec(line)?.[0].length ?? 0;
 /**
@@ -2322,8 +2322,8 @@ function F({
   const k = key(name);
   // 학교 양식(개별화교육계획)의 현재학습 수행수준 · 장기목표 칸은 맨 앞 글이 고정
   const lock = values.form === FORM_V2 ? (/\.present$/.test(k) ? "- " : /\.long$/.test(k) ? "[" : "") : "";
-  const value = values[k] ?? (lock ? (lock === "[" ? "[ ] " : lock) : fallback);
-  /** 줄을 바꾸면 새 줄 앞에 붙일 글 (현재학습 수행수준 "- ", 장기목표 "[ ] ") */
+  const value = values[k] ?? (lock || fallback);
+  /** 줄을 바꾸면 새 줄 앞에 붙일 글 (현재학습 수행수준 "- ", 장기목표 "[") */
   const bullet = LINE_HEAD[lock]?.text ?? "";
   const ref = useRef<HTMLTextAreaElement>(null);
   /** 내가 마지막으로 입력한 값 (이 값으로 바뀐 것은 내 입력이라 커서를 건드리지 않음) */
@@ -2424,7 +2424,7 @@ function F({
         spellCheck={false}
         onChange={(e) => {
           const raw = e.target.value;
-          // 줄마다 앞 글 "- " / "[ ] ": 새 줄에는 붙이고(한글 조합 중에 누른 Enter 도), 지워졌으면 되살림
+          // 줄마다 앞 글 "- " / "[": 새 줄에는 붙이고(한글 조합 중에 누른 Enter 도), 지워졌으면 되살림
           const [text, at] = lock ? fixHeads(raw, lock, e.target.selectionStart) : [raw, e.target.selectionStart];
           typed.current = text;
           remember();
