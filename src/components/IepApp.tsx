@@ -1355,7 +1355,46 @@ const fontFamilyOf = (name: string) => `"${name.replace(/"/g, "")}", ${/바탕|�
 /** 칸마다 고른 글자 모양을 저장하는 칸 이름 */
 const fmtKey = (field: string) => `fmt.${field}`;
 /** 현재학습 수행수준은 "- ", 장기목표는 "[" 로 시작하는 글이 맨 앞에 고정 (지우면 되살림) */
-const withLock = (t: string, lock: string) => (lock === "- " ? (t.startsWith("- ") ? t : `- ${t.replace(/^-? ?/, "")}`) : t.startsWith("[") ? t : `[ ] ${t}`);
+/** 줄마다 고정된 앞 글: 현재학습 수행수준 "- ", 장기목표 "[ ] " (장기목표는 [v] 처럼 괄호 안 글은 바꿀 수 있음) */
+const LINE_HEAD: Record<string, { text: string; re: RegExp }> = { "- ": { text: "- ", re: /^- / }, "[": { text: "[ ] ", re: /^\[[^\]\n]{0,3}\] / } };
+/** 줄 맨 앞의 고정된 앞 글 길이 (없으면 0) */
+const headLen = (line: string, lock: string) => LINE_HEAD[lock]?.re.exec(line)?.[0].length ?? 0;
+/**
+ * 모든 줄이 고정된 앞 글로 시작하게 함: 지워졌거나 반쯤 지워진 앞 글은 되살리고, 새 줄에는 붙임.
+ * caret 은 바뀐 글에서의 자리로 옮겨 돌려줌 (앞 글 안에 있던 커서는 앞 글 바로 뒤로)
+ */
+function fixHeads(t: string, lock: string, caret: number): [string, number] {
+  const h = LINE_HEAD[lock];
+  if (!h) return [t, caret];
+  const lines = t.split("\n");
+  let start = 0;
+  let shift = 0;
+  let at = caret;
+  const out = lines.map((line, i) => {
+    if (i) start += 1;
+    const end = start + line.length;
+    let fixed = line;
+    let keep = h.text.length;
+    let add = 0;
+    if (!h.re.test(line)) {
+      // 앞 글이 일부만 남았으면(앞 · 가운데 · 뒤 어디가 지워졌든) 남은 조각은 앞 글로 보고 다시 채움
+      keep = 0;
+      const n = h.text.length;
+      for (let p = 0; p <= n; p++)
+        for (let q = p; q <= n; q++) {
+          const frag = h.text.slice(0, p) + h.text.slice(q);
+          if (frag.length > keep && frag.length < n && line.startsWith(frag)) keep = frag.length;
+        }
+      fixed = h.text + line.slice(keep);
+      add = h.text.length - keep;
+    }
+    if (caret >= start && caret <= end) at = add && caret - start < keep ? start + shift + h.text.length : caret + shift + add;
+    shift += add;
+    start = end;
+    return fixed;
+  });
+  return [out.join("\n"), at];
+}
 /** 구간(글 일부)의 모양 → 화면 글자 모양 */
 const runCss = (f: RunFmt): CSSProperties => ({ ...(f.f ? { fontFamily: fontFamilyOf(f.f) } : {}), ...(f.z ? { fontSize: fontPx(f.z) } : {}), ...(f.b === undefined ? {} : { fontWeight: f.b ? 700 : 400 }) });
 /** 칸(글 상자 · 글 칸)의 글 */
@@ -2285,9 +2324,7 @@ function F({
   const lock = values.form === FORM_V2 ? (/\.present$/.test(k) ? "- " : /\.long$/.test(k) ? "[" : "") : "";
   const value = values[k] ?? (lock ? (lock === "[" ? "[ ] " : lock) : fallback);
   /** 줄을 바꾸면 새 줄 앞에 붙일 글 (현재학습 수행수준 "- ", 장기목표 "[ ] ") */
-  const bullet = lock === "- " ? "- " : lock === "[" ? "[ ] " : "";
-  /** Shift+Enter 는 앞 글 없이 줄만 바꿈 */
-  const plainBreak = useRef(false);
+  const bullet = LINE_HEAD[lock]?.text ?? "";
   const ref = useRef<HTMLTextAreaElement>(null);
   /** 내가 마지막으로 입력한 값 (이 값으로 바뀐 것은 내 입력이라 커서를 건드리지 않음) */
   const typed = useRef(value);
@@ -2350,7 +2387,7 @@ function F({
           className={`block w-full rounded-[3px] bg-transparent px-1.5 py-[2px] text-[13px] leading-[1.55] text-slate-900 transition-[background-color,box-shadow] hover:bg-slate-50 focus:bg-indigo-50/60 ${center ? "text-center" : ""}`}
           style={style}
           onEdit={(text, next) => {
-            if (lock && !text.startsWith(lock)) return; // 고정된 앞 글을 지우는 입력은 받지 않음 (화면은 저장된 글로 되돌아감)
+            if (lock && fixHeads(text, lock, 0)[0] !== text) return; // 줄마다 고정된 앞 글을 지우는 입력은 받지 않음 (화면은 저장된 글로 되돌아감)
             typed.current = text;
             // 구간이 모두 없어지면 다시 글 상자로: 커서를 적어 둠
             const sel2 = getSel(document.activeElement);
@@ -2386,22 +2423,13 @@ function F({
         placeholder={ph}
         spellCheck={false}
         onChange={(e) => {
-          const typedRaw = e.target.value;
-          let raw = typedRaw;
-          let caret = e.target.selectionStart;
-          // 줄을 바꾸면 새 줄 앞에 "- " / "[ ] " (한글 조합 중에 누른 Enter 도 같은 줄 바꿈 입력으로 옴)
-          if (bullet && !single && (e.nativeEvent as InputEvent).inputType === "insertLineBreak" && !plainBreak.current && raw[caret - 1] === "\n" && raw.length + bullet.length <= VALUE_MAX) {
-            raw = raw.slice(0, caret) + bullet + raw.slice(caret);
-            caret += bullet.length;
-          }
-          plainBreak.current = false;
-          const text = lock ? withLock(raw, lock) : raw;
+          const raw = e.target.value;
+          // 줄마다 앞 글 "- " / "[ ] ": 새 줄에는 붙이고(한글 조합 중에 누른 Enter 도), 지워졌으면 되살림
+          const [text, at] = lock ? fixHeads(raw, lock, e.target.selectionStart) : [raw, e.target.selectionStart];
           typed.current = text;
           remember();
           set(k, single ? text.replace(/\n/g, " ") : text);
-          if (text !== typedRaw) {
-            // 앞 글을 붙였거나, 고정된 앞 글이 지워져 되살렸으면 커서는 그 뒤로
-            const at = Math.max(caret + (text.length - raw.length), lock.length);
+          if (text !== raw) {
             sel.current = [at, at];
             requestAnimationFrame(() => ref.current?.setSelectionRange(at, at));
           }
@@ -2412,7 +2440,29 @@ function F({
         onKeyDown={(e) => {
           if (hotkey(e)) return;
           if (single && e.key === "Enter") e.preventDefault();
-          if (e.key === "Enter") plainBreak.current = e.shiftKey;
+          // 앞 글 바로 뒤에서 Backspace (또는 줄 끝에서 Delete): 앞 글은 지우지 않고 윗줄(아랫줄)과 합침
+          if (lock && (e.key === "Backspace" || e.key === "Delete") && !e.nativeEvent.isComposing && !e.ctrlKey && !e.metaKey && !e.altKey) {
+            const el = e.currentTarget;
+            const a = el.selectionStart;
+            if (a !== el.selectionEnd) return;
+            const v = el.value;
+            const ls = v.lastIndexOf("\n", a - 1) + 1;
+            const head = headLen(v.slice(ls), lock);
+            const apply = (next: string, pos: number) => {
+              e.preventDefault();
+              typed.current = next;
+              set(k, next);
+              sel.current = [pos, pos];
+              requestAnimationFrame(() => ref.current?.setSelectionRange(pos, pos));
+            };
+            if (e.key === "Backspace" && a <= ls + head) {
+              if (ls === 0) return e.preventDefault(); // 첫 줄의 앞 글은 그대로
+              apply(v.slice(0, ls - 1) + v.slice(ls + head), ls - 1);
+            } else if (e.key === "Delete") {
+              if (a < ls + head) return e.preventDefault();
+              if (v[a] === "\n") apply(v.slice(0, a) + v.slice(a + 1 + headLen(v.slice(a + 1), lock)), a);
+            }
+          }
         }}
         onFocus={() => focus(k)}
         onBlur={() => {
