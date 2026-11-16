@@ -1830,6 +1830,8 @@ function DocV2({ sid, onSid, follow }: { sid: string | null; onSid: (sid: string
   });
   const skey = structureKey(values);
 
+  /** 모양을 받지 못했을 때 다시 받기 */
+  const [retry, setRetry] = useState(0);
   // 학생 · 영역 · 단기목표 줄 · 표 크기 · 글자 모양이 바뀌면 조립한 한글 문서의 모양을 다시 받음
   useEffect(() => {
     let cancelled = false;
@@ -1843,14 +1845,19 @@ function DocV2({ sid, onSid, follow }: { sid: string | null; onSid: (sid: string
           setError(null);
         }
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : "양식을 만들지 못했어요.");
+        if (cancelled) return;
+        setError(e instanceof Error ? e.message : "양식을 만들지 못했어요.");
+        // 잠깐의 연결 문제일 수 있으니 조금 뒤 다시 받아 봄
+        retryTimer = setTimeout(() => !cancelled && setRetry((n) => n + 1), 3000);
       }
     }, 120);
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
     return () => {
       cancelled = true;
       clearTimeout(t);
+      clearTimeout(retryTimer);
     };
-  }, [skey]);
+  }, [skey, retry]);
 
   const data = layout?.data ?? null;
   const followSid = follow ? sidOfField(values, follow.field) : null;
@@ -2055,6 +2062,8 @@ function DocV2({ sid, onSid, follow }: { sid: string | null; onSid: (sid: string
     const r1 = to ?? b.rows;
     const rowO = rowOverride(bi);
     const cells = b.cells as V2Cell[];
+    /** 이 표에서 그린 마지막 단기목표 줄 (그 아래 선에 「단기목표 추가」) */
+    const lastGoalRow = Math.max(-1, ...cells.filter((c) => c.goal).map((c) => c.r));
     const measured = usable?.rows[bi];
     // 줄 · 열 경계 위치: 줄은 재어 둔 높이로, 열은 너비로
     const rowTop: number[] = [];
@@ -2133,7 +2142,7 @@ function DocV2({ sid, onSid, follow }: { sid: string | null; onSid: (sid: string
                             />
                           )}
                           {/* 마지막 단기목표 줄 아래 선(성취평가 작성준거 바로 위)에 「단기목표 추가」 */}
-                          {!cont && c.goal && c.goal.gid === goals[goals.length - 1] && (
+                          {!cont && c.goal && c.r === lastGoalRow && (
                             <button
                               type="button"
                               onMouseDown={(e) => e.stopPropagation()}
@@ -2190,6 +2199,15 @@ function DocV2({ sid, onSid, follow }: { sid: string | null; onSid: (sid: string
 
   return (
     <div className="space-y-4 pb-20">
+      {/* 바뀐 모양을 받지 못하면 숨기지 않고 알림 (예전 모양 그대로라 더한 줄이 안 보일 수 있음) */}
+      {error && (
+        <div role="alert" className="mx-auto flex max-w-[794px] items-center gap-3 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800 ring-1 ring-amber-200">
+          <span className="min-w-0 flex-1">편집 화면을 새로 그리지 못했어요 ({error}). 잠시 뒤 다시 시도해요.</span>
+          <button type="button" onClick={() => setRetry((n) => n + 1)} className="shrink-0 rounded-lg bg-white px-3 py-1.5 text-xs font-semibold ring-1 ring-amber-300 hover:bg-amber-100">
+            지금 다시
+          </button>
+        </div>
+      )}
       <div className="flex flex-col items-center gap-6 lg:flex-row lg:items-start lg:justify-center">
         {/* 왼쪽 학생 목록 (학년마다) */}
         {students.length > 0 && (
@@ -2379,7 +2397,8 @@ function F({
   const { values, set, focus, blur, compose, who, key } = useIep();
   const k = key(name);
   // 학교 양식(개별화교육계획)의 현재학습 수행수준 · 장기목표 칸은 맨 앞 글이 고정
-  const lock = values.form === FORM_V2 ? (/\.present$/.test(k) ? "- " : /\.long$/.test(k) ? "[" : "") : "";
+  // 현재학습 수행수준만 줄마다 "- " 로 시작 (장기목표는 빈칸에서 자유롭게)
+  const lock = values.form === FORM_V2 && /\.present$/.test(k) ? "- " : "";
   const value = values[k] ?? (lock || fallback);
   /** 줄을 바꾸면 새 줄 앞에 붙일 글 (현재학습 수행수준 "- ", 장기목표 "[") */
   const bullet = LINE_HEAD[lock]?.text ?? "";

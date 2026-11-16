@@ -152,7 +152,7 @@ export function studentFieldsV2(f: IepFields, sid: string, s: StudentInput): Iep
       [sk(id, "subject")]: subject,
       [sk(id, "title")]: kind === "subject" ? `${subject} - ${s.name}` : "",
       [sk(id, "present")]: "- ",
-      [sk(id, "long")]: "[",
+      [sk(id, "long")]: "",
       [sk(id, "term")]: termText(f),
       [sk(id, "method")]: kind === "subject" ? SUBJECT_DEFAULTS[subject]?.method ?? "교수·학습방법 : \n교수매체 : " : LIFE_METHOD,
       [sk(id, "evalPlan")]: kind === "subject" ? (SUBJECT_DEFAULTS[subject]?.evalPlan ?? "") : "",

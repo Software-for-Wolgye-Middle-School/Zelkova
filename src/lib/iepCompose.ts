@@ -617,9 +617,9 @@ function assemble(f: IepFields, file: Uint8Array): { doc: HwpDoc; pieces: Piece[
       t.valignTop(2, 1);
       if (!life) t.set(0, 0, s("title"), sk(sec, "title"));
       t.setPara(0, 2, 1, s("term"), sk(sec, "term"));
-      // 아직 적지 않은 칸은 기본 글: 현재학습 수행수준은 "- ", 장기목표는 "[" 로 시작
+      // 아직 적지 않은 칸은 기본 글: 현재학습 수행수준은 "- " 로 시작, 장기목표는 빈칸
       t.set(1, 1, f[sk(sec, "present")] === undefined ? "- " : s("present"), sk(sec, "present"));
-      t.set(2, 1, f[sk(sec, "long")] === undefined ? "[" : s("long"), sk(sec, "long"));
+      t.set(2, 1, s("long"), sk(sec, "long"));
       goals.forEach((gid, gi) => {
         const r = GOAL_FIRST + gi;
         const base = sk(sec, `g.${gid}`);
