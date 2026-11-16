@@ -1175,7 +1175,7 @@ function StudentWizard({ onCancel, onDone }: { onCancel: () => void; onDone: (si
   const [error, setError] = useState<string | null>(null);
   const up = (k: keyof StudentInput) => (e: { target: { value: string } }) => setS((x) => ({ ...x, [k]: e.target.value }));
   const onBase = useCallback((v: string) => setAddr((a) => ({ ...a, base: v })), []);
-  const steps = ["이름 · 학년과 반 · 번호 · 수강 과목", "주소 · 전화번호 · 생년월일 · 학부모 · 통합교사", "장애유형 및 등급 · 특수교육대상 선정년도 · 건강상태 · 병력 및 약물복용", "행동 특성", "학부모 요구 · 졸업 후 진로"];
+  const steps = ["이름 · 학년과 반 · 번호 · 수강 과목", "주소 · 전화번호 · 생년월일", "학부모 · 통합교사 이름", "장애유형 및 등급 · 특수교육대상 선정년도 · 건강상태 · 병력 및 약물복용", "행동 특성", "학부모 요구 · 졸업 후 진로"];
   const next = () => {
     if (step === 0 && !s.name.trim()) return setError("이름을 적어 주세요.");
     if (step === 1 && phone.number && !phone.who) return setError("전화번호가 부 · 모 · 본인 중 누구의 번호인지 골라 주세요.");
@@ -1280,17 +1280,19 @@ function StudentWizard({ onCancel, onDone }: { onCancel: () => void; onDone: (si
           <Labeled2 label="생년월일">
             <input type="date" value={birthIso} onChange={(e) => setBirthIso(e.target.value)} className={wizInput} />
           </Labeled2>
-          <div className="grid grid-cols-2 gap-3">
-            <Labeled2 label="학부모 이름">
-              <input value={s.parent ?? ""} onChange={(e) => setS((x) => ({ ...x, parent: e.target.value.slice(0, 20) }))} className={wizInput} />
-            </Labeled2>
-            <Labeled2 label="통합교사 이름">
-              <input value={s.inc ?? ""} onChange={(e) => setS((x) => ({ ...x, inc: e.target.value.slice(0, 40) }))} className={wizInput} />
-            </Labeled2>
-          </div>
         </>
       )}
       {step === 2 && (
+        <>
+          <Labeled2 label="학부모 이름">
+            <input value={s.parent ?? ""} onChange={(e) => setS((x) => ({ ...x, parent: e.target.value.slice(0, 20) }))} className={wizInput} autoFocus />
+          </Labeled2>
+          <Labeled2 label="통합교사 이름">
+            <input value={s.inc ?? ""} onChange={(e) => setS((x) => ({ ...x, inc: e.target.value.slice(0, 40) }))} className={wizInput} />
+          </Labeled2>
+        </>
+      )}
+      {step === 3 && (
         <>
           <Labeled2 label="장애유형 및 등급">
             <input value={s.disability} onChange={up("disability")} className={wizInput} autoFocus />
@@ -1316,12 +1318,12 @@ function StudentWizard({ onCancel, onDone }: { onCancel: () => void; onDone: (si
           </Labeled2>
         </>
       )}
-      {step === 3 && (
+      {step === 4 && (
         <Labeled2 label="행동 특성">
           <textarea value={s.behavior} onChange={up("behavior")} rows={6} className={wizArea} autoFocus />
         </Labeled2>
       )}
-      {step === 4 && (
+      {step === 5 && (
         <>
           <Labeled2 label="학부모 요구">
             <textarea value={s.parentNeeds} onChange={up("parentNeeds")} rows={3} className={wizArea} autoFocus />
