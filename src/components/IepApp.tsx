@@ -1559,7 +1559,8 @@ function CellV2({ cell, canRemoveGoal, onRemoveGoal }: { cell: V2Cell; canRemove
             {l}
           </div>
         ))}
-      <F k={b.field} style={b.para !== undefined ? { ...st, paddingTop: 0 } : st} />
+      {/* 아직 적지 않은 칸은 한글 파일에 들어가는 글(예: 표지는 인적 사항 값)을 보여 줌 */}
+      <F k={b.field} fallback={b.para === undefined ? cell.text : ""} style={b.para !== undefined ? { ...st, paddingTop: 0 } : st} />
       {cell.goal && canRemoveGoal && (
         <button
           type="button"

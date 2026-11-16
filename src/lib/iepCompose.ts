@@ -361,6 +361,13 @@ class Block implements Piece {
     if (p && p.data.length > 11) p.data[11] |= 0x04;
   }
   /** 양식 글이 re 와 맞는 칸의 글을 바꿈 (예: "현 재 / 수행수준" → "현재학습 / 수행수준") */
+  /** 칸의 i 번째 문단 글 앞뒤 빈칸을 없앰 (글자 모양은 그대로) */
+  trimPara(r: number, c: number, i: number) {
+    const p = this.cell(r, c)?.paras[i];
+    if (p === undefined) return;
+    const t = paraText(this.recs, p);
+    if (t !== t.trim()) setParaText(this.recs, p, t.trim());
+  }
   relabel(r: number, c: number, re: RegExp, text: string) {
     const cell = this.cell(r, c);
     if (cell && re.test(cell.paras.map((p) => paraText(this.recs, p)).join("\n"))) setCellText(this.recs, cell, text);
@@ -537,11 +544,13 @@ function assemble(f: IepFields, file: Uint8Array): { doc: HwpDoc; pieces: Piece[
     add(take(P.COVER_HEAD[0], P.COVER_HEAD[1]));
     const cover = take(P.COVER_TABLE);
     cover.set(0, 1, sv("unit"), k("unit"));
-    cover.set(0, 5, sv("name"), k("name"));
-    cover.set(0, 10, sv("birth"), k("birth"));
+    // 표지의 학생명 · 생년월일 · 지원팀 이름은 표지 칸(cover.*)에 따로 적음. 아직 표지에서 고치지 않았으면 인적 사항 값을 그대로 보여 줌
+    const cv = (name: string) => f[k(`cover.${name}`)] ?? sv(name);
+    cover.set(0, 5, cv("name"), k("cover.name"));
+    cover.set(0, 10, cv("birth"), k("cover.birth"));
     cover.set(1, 2, sv("author"), k("author"));
     cover.set(1, 9, sv("period"), k("period"));
-    ["team.principal", "team.vice", "team.sp1", "team.sp2", "team.inc", "team.parent"].forEach((t, r) => cover.set(4 + r, 4, sv(t), k(t)));
+    ["team.principal", "team.vice", "team.sp1", "team.sp2", "team.inc", "team.parent"].forEach((t, r) => cover.set(4 + r, 4, cv(t), k(`cover.${t}`)));
     add(finish(cover, `${sid}.cover`));
     add(take(P.COVER_TAIL[0], P.COVER_TAIL[1]));
 
@@ -611,7 +620,10 @@ function assemble(f: IepFields, file: Uint8Array): { doc: HwpDoc; pieces: Piece[
       const goals = goalIdsOf(f, sec);
       const shift = t.goalRows(goals.length);
       t.goalSec = sec;
-      t.relabel(1, 0, /^\s*현\s*재/, "현재학습\n수행수준");
+      // 교과 표의 「현 재 / 수행수준」만 「현재학습 / 수행수준」으로 (일상생활적응 표의 「현재수준」은 양식 그대로)
+      t.relabel(1, 0, /^\s*현\s*재\s*\n?\s*수행수준/, "현재학습\n수행수준");
+      // 「▪교육의 시작 및 종료시기」 앞 빈칸은 학교 파일처럼 없앰 (빈 양식의 영어 표에만 빈칸이 있음)
+      t.trimPara(0, 2, 0);
       // 현재학습 수행수준 · 장기목표는 칸 맨 위부터 적음
       t.valignTop(1, 1);
       t.valignTop(2, 1);
@@ -640,7 +652,7 @@ function assemble(f: IepFields, file: Uint8Array): { doc: HwpDoc; pieces: Piece[
       if (!life) {
         add(take(P.GAP_SUBJECT));
         const m = take(P.MONTH);
-        m.set(0, 0, `${semester || "2"}학기 월별 학습 내용 및 평가`);
+        m.set(0, 0, `${semester || "2"}학기 월별 학습 내용 및 평가 `); // 양식 글 그대로 (끝 빈칸 포함)
         monthsFor(semester).forEach((label, j) => {
           m.set(2 + j, 0, label);
           m.set(2 + j, 1, s(`m${j}.area`), sk(sec, `m${j}.area`));
