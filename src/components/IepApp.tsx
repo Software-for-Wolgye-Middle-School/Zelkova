@@ -1352,6 +1352,8 @@ function StudentWizard({ onCancel, onDone }: { onCancel: () => void; onDone: (si
 const fontFamilyOf = (name: string) => `"${name.replace(/"/g, "")}", ${/바탕|명조/.test(name) ? '"Batang", "AppleMyungjo", serif' : '"Malgun Gothic", "Apple SD Gothic Neo", sans-serif'}`;
 /** 칸마다 고른 글자 모양을 저장하는 칸 이름 */
 const fmtKey = (field: string) => `fmt.${field}`;
+/** 고칠 수 없는 글(양식의 글)을 눌렀을 때 글자 모양 막대에 보여 줄 모양을 글에 달아 둠 */
+const stAttr = (s: FormStyle) => JSON.stringify({ fontName: s.fontName, size: s.size, ls: s.ls, bold: s.bold, align: s.align });
 type CellFmt = { font?: string; size?: number; ls?: number; bold?: boolean };
 const readFmt = (raw: string | undefined): CellFmt => {
   try {
@@ -1377,7 +1379,7 @@ function CellV2({ cell, canRemoveGoal, onRemoveGoal }: { cell: V2Cell; canRemove
     return (
       <div className="break-words px-1.5 py-[2px] text-slate-800">
         {lines.map((l, i) => (
-          <div key={i} className="whitespace-pre-wrap" style={cellStyle(paraStyle(i))}>
+          <div key={i} data-st={stAttr(paraStyle(i))} className="whitespace-pre-wrap" style={cellStyle(paraStyle(i))}>
             {l || " "}
           </div>
         ))}
@@ -1407,7 +1409,7 @@ function CellV2({ cell, canRemoveGoal, onRemoveGoal }: { cell: V2Cell; canRemove
           return (
             <div key={p.field} className="flex items-start">
               {p.label && (
-                <span className="shrink-0 py-[2px] pl-1 text-slate-800" style={{ ...st, fontFamily: cellStyle(paraStyle(i)).fontFamily }}>
+                <span data-st={stAttr(paraStyle(i))} className="shrink-0 py-[2px] pl-1 text-slate-800" style={{ ...st, fontFamily: cellStyle(paraStyle(i)).fontFamily }}>
                   {p.label}
                 </span>
               )}
@@ -1423,7 +1425,7 @@ function CellV2({ cell, canRemoveGoal, onRemoveGoal }: { cell: V2Cell; canRemove
     <div className="group/cell relative">
       {b.para !== undefined &&
         (cell.lines ?? []).slice(0, b.para).map((l, i) => (
-          <div key={i} className="whitespace-pre-wrap px-1.5 pt-[2px] text-slate-800" style={cellStyle(paraStyle(i))}>
+          <div key={i} data-st={stAttr(paraStyle(i))} className="whitespace-pre-wrap px-1.5 pt-[2px] text-slate-800" style={cellStyle(paraStyle(i))}>
             {l}
           </div>
         ))}
@@ -1562,13 +1564,16 @@ const SIZES = [8, 9, 10, 10.5, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24, 28, 32, 3
 const SPACINGS = [100, 120, 130, 140, 150, 160, 170, 180, 200, 220, 250, 300];
 
 /** 글자 모양 막대: 지금 고치는 칸의 글꼴 · 크기 · 줄 간격 (한글 편집기처럼) */
-function FormatBar({ field, base, fonts, onDone }: { field: string | null; base: FormStyle | null; fonts: string[]; onDone: () => void }) {
+function FormatBar({ field, base, info, fonts, onDone }: { field: string | null; base: FormStyle | null; /** 고칠 수 없는 글(양식의 글)을 눌렀을 때 그 글의 모양 (보기만) */ info: FormStyle | null; fonts: string[]; onDone: () => void }) {
   const { values, set } = useIep();
   const cur = field ? readFmt(values[fmtKey(field)]) : {};
-  const font = cur.font ?? base?.fontName ?? "";
-  const size = cur.size ?? base?.size ?? 10;
-  const ls = cur.ls ?? base?.ls ?? 160;
-  const bold = cur.bold ?? base?.bold ?? false;
+  const shape = base ?? info;
+  /** 아무 글도 누르지 않았으면 값을 보이지 않음 */
+  const none = !field && !info;
+  const font = cur.font ?? shape?.fontName ?? "";
+  const size = cur.size ?? shape?.size ?? 10;
+  const ls = cur.ls ?? shape?.ls ?? 160;
+  const bold = cur.bold ?? shape?.bold ?? false;
   const apply = (patch: CellFmt) => {
     if (!field) return;
     const next = { ...cur, ...patch };
@@ -1593,8 +1598,9 @@ function FormatBar({ field, base, fonts, onDone }: { field: string | null; base:
       role="toolbar"
       aria-label="글자 모양"
     >
-      <select aria-label="글꼴" value={fonts.includes(font) ? font : ""} disabled={off} onChange={(e) => apply({ font: e.target.value || undefined })} className={`${box} w-36`} style={{ fontFamily: font ? fontFamilyOf(font) : undefined }}>
-        {!fonts.includes(font) && <option value="">글꼴</option>}
+      <select aria-label="글꼴" value={none ? "" : font} disabled={off} onChange={(e) => apply({ font: e.target.value || undefined })} className={`${box} w-36`} style={{ fontFamily: font ? fontFamilyOf(font) : undefined }}>
+        {(none || !font) && <option value="">{none ? "글꼴" : "(알 수 없음)"}</option>}
+        {!none && font && !fonts.includes(font) && <option value={font}>{font}</option>}
         {fonts.map((f) => (
           <option key={f} value={f} style={{ fontFamily: fontFamilyOf(f) }}>
             {f}
@@ -1605,7 +1611,8 @@ function FormatBar({ field, base, fonts, onDone }: { field: string | null; base:
         <button type="button" disabled={off} onClick={() => apply({ size: sizeAt(-1) })} aria-label="글자 작게" className="grid h-9 w-8 place-items-center rounded-l-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50">
           −
         </button>
-        <select aria-label="글자 크기(pt)" value={String(size)} disabled={off} onChange={(e) => apply({ size: Number(e.target.value) })} className={`${box} -ml-px w-[4.5rem] rounded-none`}>
+        <select aria-label="글자 크기(pt)" value={none ? "" : String(size)} disabled={off} onChange={(e) => apply({ size: Number(e.target.value) })} className={`${box} -ml-px w-[4.5rem] rounded-none`}>
+          {none && <option value="">크기</option>}
           {[...new Set([...SIZES, size])].sort((a, b) => a - b).map((s) => (
             <option key={s} value={String(s)}>
               {s}pt
@@ -1621,7 +1628,8 @@ function FormatBar({ field, base, fonts, onDone }: { field: string | null; base:
       </button>
       <label className="flex items-center gap-1 text-xs font-semibold text-slate-500">
         줄 간격
-        <select aria-label="줄 간격(%)" value={String(ls)} disabled={off} onChange={(e) => apply({ ls: Number(e.target.value) })} className={`${box} w-20`}>
+        <select aria-label="줄 간격(%)" value={none ? "" : String(ls)} disabled={off} onChange={(e) => apply({ ls: Number(e.target.value) })} className={`${box} w-20`}>
+          {none && <option value="">간격</option>}
           {[...new Set([...SPACINGS, ls])].sort((a, b) => a - b).map((s) => (
             <option key={s} value={String(s)}>
               {s}%
@@ -1656,6 +1664,8 @@ function DocV2({ sid, onSid, follow }: { sid: string | null; onSid: (sid: string
   /** 재어 둔 높이 (학생마다). 모양을 새로 받아도 다시 잴 때까지 앞서 잰 높이로 쪽을 나눠 화면이 흔들리지 않게 함 */
   const [meas, setMeas] = useState<{ key: string; sid: string; m: Measure } | null>(null);
   const [cur, setCur] = useState<string | null>(null);
+  /** 고칠 수 없는 글을 눌렀을 때 그 글의 모양 */
+  const [info, setInfo] = useState<FormStyle | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
   /** 끌어서 바꾼 크기: 새 모양을 받을 때까지 화면에 그대로 둠 */
   const [held, setHeld] = useState<{ v: number; bi: number; cols?: number[]; row?: { i: number; h: number } } | null>(null);
@@ -1877,7 +1887,7 @@ function DocV2({ sid, onSid, follow }: { sid: string | null; onSid: (sid: string
       );
     if (b.type === "p")
       return b.text ? (
-        <div key={`p-${bi}`} data-bi={bi} className="whitespace-pre-wrap" style={cellStyle(b)}>
+        <div key={`p-${bi}`} data-bi={bi} data-st={stAttr(b)} className="whitespace-pre-wrap" style={cellStyle(b)}>
           {b.text}
         </div>
       ) : (
@@ -2078,7 +2088,21 @@ function DocV2({ sid, onSid, follow }: { sid: string | null; onSid: (sid: string
             const el = e.target as HTMLElement;
             if (el instanceof HTMLTextAreaElement && el.dataset.field) {
               setCur(el.dataset.field);
+              setInfo(null);
               lastFocus.current = { el, field: el.dataset.field, s: el.selectionStart, e: el.selectionEnd };
+            }
+          }}
+          onClickCapture={(e) => {
+            // 고칠 수 없는 글(양식의 글)을 누르면 그 글의 글꼴 · 크기 · 줄 간격을 막대에 보여 줌 (보기만)
+            const t = e.target as HTMLElement;
+            if (t instanceof HTMLTextAreaElement) return;
+            const st = t.closest("[data-st]")?.getAttribute("data-st");
+            if (!st) return;
+            try {
+              setInfo(JSON.parse(st) as FormStyle);
+              setCur(null);
+            } catch {
+              // 읽을 수 없으면 그대로 둠
             }
           }}
           onSelectCapture={(e) => {
@@ -2119,6 +2143,7 @@ function DocV2({ sid, onSid, follow }: { sid: string | null; onSid: (sid: string
       <FormatBar
         field={cur}
         base={curBase}
+        info={info}
         fonts={data.fonts ?? []}
         onDone={() => {
           // 고른 뒤에는 고치던 칸으로 커서를 돌려 놓음
