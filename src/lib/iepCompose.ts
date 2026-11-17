@@ -355,6 +355,13 @@ class Block implements Piece {
     const t = this.recs.find((r) => r.tag === TAG.TABLE);
     if (t) t.data.writeUInt32LE((t.data.readUInt32LE(0) & ~3) >>> 0, 0);
   }
+  /**
+   * 쪽 경계에서 나뉘는 표는 「셀 단위로 나눔」(1) 으로: 학교 양식의 「나눔」(2) 은 한글이 한 줄(행)을 두 쪽에 잘라 놓지만,
+   * 편집 화면은 줄 사이에서만 쪽을 나누므로 한글 파일도 같은 곳에서 나뉘게 함
+   */
+  splitByRow() {
+    for (const t of this.recs) if (t.tag === TAG.TABLE && (t.data.readUInt32LE(0) & 3) === 2) t.data.writeUInt32LE(((t.data.readUInt32LE(0) & ~3) | 1) >>> 0, 0);
+  }
   /** 이 묶음의 첫 문단 앞에서 쪽을 나눔 */
   pageBreak() {
     const p = this.recs.find((r) => r.tag === TAG.PARA_HEADER);
@@ -517,6 +524,7 @@ function assemble(f: IepFields, file: Uint8Array): { doc: HwpDoc; pieces: Piece[
     b.page = page;
     // 한글 파일도 화면처럼 이 묶음에서 새 쪽 (문서 맨 앞은 그대로)
     if (page && pieces.length) b.pageBreak();
+    b.splitByRow();
     pieces.push(b);
   };
 
