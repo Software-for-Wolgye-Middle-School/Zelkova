@@ -56,7 +56,7 @@ export type FormCell = FormStyle & {
 export type FormBlock = { pi: number; page?: boolean } & (
   | (FormStyle & { type: "p"; key: string; text: string; locked: boolean })
   | { type: "table"; key: string; w: number; rows: number; cols: number; split: boolean; cells: FormCell[] }
-  | { type: "object"; w: number; h: number; align: FormStyle["align"]; image: boolean }
+  | { type: "object"; w: number; h: number; vo: number; align: FormStyle["align"]; image: boolean }
 );
 /** 학생 한 명 분량 (label: 기본 이름 · nameKey: 학생 이름을 적는 칸) */
 export type FormSection = { label: string; nameKey?: string; blocks: FormBlock[] };
@@ -162,7 +162,7 @@ function paraInfo(recs: Rec[], p: number, shapes: Shapes) {
     ...ch,
     object: ctrls.some((c) => c !== "cold" && c !== "secd"),
     /** 그림 개체의 크기, 그 안에 그림(SHAPE_COMPONENT_PICTURE)이 들었는지 */
-    gso: obj && obj.data.length >= 24 ? { w: px(obj.data.readUInt32LE(16)), h: px(obj.data.readUInt32LE(20)), image: recs.slice(p + 1, end).some((r) => r.tag === 85) } : undefined,
+    gso: obj && obj.data.length >= 24 ? { w: px(obj.data.readUInt32LE(16)), h: px(obj.data.readUInt32LE(20)), vo: px(Math.max(0, obj.data.readInt32LE(8))), image: recs.slice(p + 1, end).some((r) => r.tag === 85) } : undefined,
   };
 }
 
@@ -223,9 +223,9 @@ export function readFormDoc(doc: HwpDoc): Form {
       // split: 쪽 경계에서 나눌 수 있는 표 (표 속성 아래 2비트, 0 = 나누지 않음)
       blocks.push({ type: "table", pi, key: `t.${no}`, w: ctrl && ctrl.data.length >= 20 ? px(ctrl.data.readUInt32LE(16)) : 680, rows: recs[t].data.readUInt16LE(4), cols: recs[t].data.readUInt16LE(6), split: (recs[t].data.readUInt32LE(0) & 3) !== 0, cells });
     } else if (info.object) {
-      blocks.push({ type: "object", pi, w: info.gso?.w ?? 0, h: info.gso?.h ?? 0, align: info.align, image: !!info.gso?.image });
+      blocks.push({ type: "object", pi, w: info.gso?.w ?? 0, h: info.gso?.h ?? 0, vo: info.gso?.vo ?? 0, align: info.align, image: !!info.gso?.image });
     } else {
-      blocks.push({ type: "p", pi, key: `p.${pi}`, text: info.text, align: info.align, bold: info.bold, size: info.size, font: info.font, spacing: info.spacing, color: info.color, locked: false });
+      blocks.push({ type: "p", pi, key: `p.${pi}`, text: info.text, align: info.align, bold: info.bold, size: info.size, font: info.font, fontName: info.fontName, spacing: info.spacing, color: info.color, ls: info.ls, ml: info.ml, mr: info.mr, ind: info.ind, brk: info.brk, bullet: info.bullet, locked: false });
     }
   });
   // 학생 이름 칸: 표지 표의 '학생명' 칸 바로 오른쪽 칸 (화면의 학생 단추에 그 칸에 적은 이름을 보여 줌)

@@ -773,7 +773,7 @@ type FormCellT = FormStyle & {
 type FormBlockT = { pi?: number; page?: boolean } & (
   | (FormStyle & { type: "p"; key: string; text: string; locked: boolean })
   | { type: "table"; key: string; w: number; rows: number; cols: number; split?: boolean; cells: FormCellT[] }
-  | { type: "object"; w?: number; h?: number; align?: FormStyle["align"]; image?: boolean }
+  | { type: "object"; w?: number; h?: number; /** 문단 위에서 그림까지 떨어진 거리(px) */ vo?: number; align?: FormStyle["align"]; image?: boolean }
 );
 type FormT = { sections: { label: string; nameKey?: string; blocks: FormBlockT[] }[] };
 
@@ -791,6 +791,8 @@ const cellStyle = (s: FormStyle): CSSProperties => ({
   // 한글의 줄 간격(글자 크기에 대한 %)을 그대로
   lineHeight: s.ls ? s.ls / 100 : 1.45,
   // 한글 줄 나눔 단위: 글자 단위면 글자마다, 어절 단위면 빈칸에서만 (영문은 한글처럼 단어 단위)
+  // 한글은 빈칸을 글자 크기의 0.4배로 셈 (맑은 고딕의 빈칸은 0.28배라 그만큼 더 벌려 줄 나눔이 한글 파일과 같게)
+  wordSpacing: "0.12em",
   wordBreak: s.brk === "char" ? "normal" : "keep-all",
   overflowWrap: "break-word",
 });
@@ -1495,6 +1497,29 @@ function withFormat(base: FormStyle, raw: string | undefined): FormStyle {
   return { ...base, ...(o.font ? { fontName: o.font, font: fontFamilyOf(o.font) } : {}), ...(o.size ? { size: o.size } : {}), ...(o.ls ? { ls: o.ls } : {}), ...(o.bold !== undefined ? { bold: o.bold } : {}) };
 }
 
+/**
+ * "이름표 : 값" 문단 한 줄: 한글처럼 이름표와 값이 한 문단으로 이어져 흐름. 이름표는 첫 줄 맨 앞에 두고 (내어쓰기면 왼쪽 여백보다 왼쪽에서 시작),
+ * 값은 칸 너비 전체에서 줄을 나누되 첫 줄만 이름표 너비만큼 들여 씀 — 둘째 줄부터는 왼쪽 여백에서 시작해 한글과 줄 수가 같음
+ */
+function LabeledPart({ label, field, ps, st, pad, right }: { label: string; field: string; ps: FormStyle; st: CSSProperties; pad: [number, number, number, number]; right: CSSProperties["paddingRight"] }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [w, setW] = useState(0);
+  useLayoutEffect(() => {
+    const nw = ref.current?.getBoundingClientRect().width ?? 0;
+    setW((old) => (Math.abs(old - nw) < 0.05 ? old : nw));
+  });
+  const left = (pad[0] ?? 0) + (ps.ml ?? 0);
+  const ind = ps.ind ?? 0;
+  return (
+    <div className="relative" style={{ paddingLeft: left, paddingRight: right }}>
+      <span ref={ref} data-st={stAttr(ps)} className="absolute top-0 whitespace-pre text-slate-800" style={{ ...st, left: left + Math.min(0, ind) + Math.max(0, ind), textAlign: "left", fontFamily: cellStyle(ps).fontFamily }}>
+        {`${label} `}
+      </span>
+      <F k={field} className="w-full" style={{ ...st, textAlign: "left", paddingLeft: 0, paddingRight: 0, paddingTop: 0, paddingBottom: 0, textIndent: ind + w }} />
+    </div>
+  );
+}
+
 /** 한 칸: 이어진 저장 칸을 바로 고치고, 이어지지 않은 칸(양식 글)은 그대로 보여 줌. 문단마다 그 문단의 글자 모양으로 */
 function CellV2({ cell, canRemoveGoal, onRemoveGoal }: { cell: V2Cell; canRemoveGoal: boolean; onRemoveGoal: () => void }) {
   const { values, set } = useIep();
@@ -1522,7 +1547,7 @@ function CellV2({ cell, canRemoveGoal, onRemoveGoal }: { cell: V2Cell; canRemove
         onClick={() => set(b.choice.field, on ? "" : b.choice.value)}
         aria-pressed={on}
         aria-label={`성취평가 ${b.choice.value}점`}
-        className="grid h-full min-h-7 w-full place-items-center font-bold text-indigo-700 transition hover:bg-indigo-50"
+        className="grid h-full w-full place-items-center font-bold text-indigo-700 transition hover:bg-indigo-50"
         style={cellStyle(paraStyle(0))}
       >
         {on ? "○" : ""}
@@ -1536,14 +1561,11 @@ function CellV2({ cell, canRemoveGoal, onRemoveGoal }: { cell: V2Cell; canRemove
           const ps = paraStyle(i);
           const st = cellStyle(withFormat(ps, values[fmtKey(p.field)]));
           const box = paraBox(ps, pad);
-          return (
-            <div key={p.field} className="flex items-start" style={p.label ? { paddingLeft: (pad[0] ?? 0) + (ps.ml ?? 0), paddingRight: box.paddingRight } : undefined}>
-              {p.label && (
-                <span data-st={stAttr(ps)} className="shrink-0 whitespace-pre text-slate-800" style={{ ...st, fontFamily: cellStyle(ps).fontFamily }}>
-                  {`${p.label} `}
-                </span>
-              )}
-              <F k={p.field} className="min-w-0 flex-1" style={p.label ? { ...st, textAlign: "left", paddingLeft: 0, paddingRight: 0, paddingTop: 0, paddingBottom: 0 } : { ...st, ...box, paddingTop: 0, paddingBottom: 0 }} />
+          return p.label ? (
+            <LabeledPart key={p.field} label={p.label} field={p.field} ps={ps} st={st} pad={pad} right={box.paddingRight} />
+          ) : (
+            <div key={p.field}>
+              <F k={p.field} className="min-w-0 flex-1" style={{ ...st, ...box, paddingTop: 0, paddingBottom: 0 }} />
             </div>
           );
         })}
@@ -1873,9 +1895,7 @@ function DocV2({ sid, onSid, follow }: { sid: string | null; onSid: (sid: string
   const mkey = `${layout?.v ?? 0}:${sec?.sid ?? ""}`;
   const sidNow = sec?.sid ?? "";
   const usable = meas && meas.sid === (sec?.sid ?? "") ? meas.m : null;
-  // 한글은 글자를 약간 촘촘히 그려 같은 내용이 쪽에 더 들어가므로, 화면은 아래 여백 안쪽까지(여백 8px 남김) 쓰는 것을 넘침으로 보지 않음
-  const slack = Math.max(0, pg.bottom - 8);
-  const plan = useMemo(() => (sec ? paginate(sec.blocks, contentH + slack, usable) : []), [sec, contentH, slack, usable]);
+  const plan = useMemo(() => (sec ? paginate(sec.blocks, contentH, usable) : []), [sec, contentH, usable]);
   const planSig = JSON.stringify(plan);
 
   // 그린 높이를 재어 쪽을 나눔. 글을 적어 칸이 커지면 다시 잼
@@ -2042,7 +2062,7 @@ function DocV2({ sid, onSid, follow }: { sid: string | null; onSid: (sid: string
     const b = sec.blocks[bi];
     if (b.type === "object")
       return b.image && b.w ? (
-        <div key={`o-${bi}`} data-bi={bi} className="flex" style={{ justifyContent: b.align === "right" ? "flex-end" : b.align === "left" ? "flex-start" : "center" }}>
+        <div key={`o-${bi}`} data-bi={bi} className="flex" style={{ paddingTop: b.vo ?? 0, justifyContent: b.align === "right" ? "flex-end" : b.align === "left" ? "flex-start" : "center" }}>
           {/* eslint-disable-next-line @next/next/no-img-element -- 한글 양식 안의 그림을 그대로 보여 줌 */}
           <img src="/api/iep/logo" alt="월계중학교 로고" width={b.w} height={b.h} style={{ width: b.w, height: b.h }} />
         </div>

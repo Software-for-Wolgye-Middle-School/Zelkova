@@ -5,12 +5,12 @@
 //   --url 이 없으면 임시 데이터 폴더와 임시 로그인으로 next dev 를 직접 띄움 (실제 데이터는 건드리지 않음). 크롬이 설치돼 있어야 함.
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes, scryptSync } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { openHwp, topParagraphs, TAG } from "../src/lib/hwpEdit";
 import { paraInfo } from "../src/lib/hwpLines";
-import { bodySize, paraHeight, readMetrics, tableHeight } from "../src/lib/hwpMeasure";
+import { blockHeight, bodySize, readMetrics, tableHeight } from "../src/lib/hwpMeasure";
 import { formFields, metaFromFields } from "../src/lib/iep";
 import { FORM_V2, studentFieldsV2 } from "../src/lib/iepV2";
 
@@ -64,6 +64,19 @@ function seed() {
     }),
   );
   f.studentList = JSON.stringify(["s1"]);
+  // 교과 영역: 현재 수행수준 · 장기목표 · 단기목표 · 월별 계획에 긴 글을 넣어 줄 나눔 · 쪽 나눔을 시험
+  const secs = JSON.parse(f["st.s1.sectionList"] ?? "[]") as string[];
+  const long = ["[9수02-04] 방정식과 그 해의 의미를 알고, 등식의 성질을 설명할 수 있다.", "[9수02-05] 일차방정식을 풀 수 있고, 이를 활용하여 문제를 해결할 수 있다.", "[9수03-01] 점, 선, 면, 각을 이해하고, 실생활 상황과 연결하여 점, 직선, 평면의 위치 관계를 설명할 수 있다."].join("\n");
+  secs.forEach((id, n) => {
+    f[`s.${id}.present`] = ["- 한 자리 수의 덧셈과 뺄셈을 할 수 있으나 받아올림이 있는 계산에서 어려움을 보임.", "- 일상생활 속 돈 계산에 관심이 많음."].join("\n");
+    f[`s.${id}.long`] = long;
+    const goals = JSON.parse(f[`s.${id}.goalList`] ?? "[]") as string[];
+    goals.slice(0, 6).forEach((g, i) => {
+      f[`s.${id}.g.${g}.t`] = i % 3 === 0 ? "<방정식과 그 해>" : i % 3 === 1 ? "- 등식과 방정식을 보고 서로 구별할 수 있다." : "- 주어진 수를 방정식에 대입하여 해인지 판별할 수 있으며 이를 일상생활 문제 상황에 적용할 수 있다.";
+      f[`s.${id}.g.${g}.sc`] = String((i % 4) + 1);
+    });
+    if (n === 0) for (let j = 0; j < 4; j++) f[`s.${id}.m${j}.content`] = "방정식의 의미를 알고 등식의 성질을 활용하여 일차방정식의 해를 구하는 방법을 학습한다. 실생활 문제를 방정식으로 나타내어 해결한다.";
+  });
   mkdirSync(path.join(tmp, "data"), { recursive: true });
   const meta = metaFromFields(f);
   writeFileSync(path.join(tmp, "data", "iep.json"), JSON.stringify({ index: { [ID]: { ...meta, id: ID, createdAt: Date.now(), updatedAt: Date.now() } }, docs: { [ID]: { rev: 1, values: f, revs: Object.fromEntries(Object.keys(f).map((k) => [k, 1])) } } }));
@@ -74,7 +87,7 @@ async function startServer(): Promise<string> {
   const p = spawn("npx", ["next", "dev", "-p", String(PORT)], {
     cwd: process.cwd(),
     shell: true,
-    stdio: "ignore",
+    stdio: ["ignore", openSync(path.join(tmp, "server.log"), "w"), openSync(path.join(tmp, "server.log"), "a")],
     env: { ...process.env, STUDENTS_DATA_DIR: path.join(tmp, "data"), ADMIN_ID: LOGIN.id, ADMIN_PASSWORD_SALT: salt, ADMIN_PASSWORD_HASH: hash, AUTH_SECRET: "compare-secret", KV_REST_API_URL: "", KV_REST_API_TOKEN: "", UPSTASH_REDIS_REST_URL: "", UPSTASH_REDIS_REST_TOKEN: "" },
   });
   procs.push(p);
@@ -83,29 +96,33 @@ async function startServer(): Promise<string> {
     await sleep(1000);
     if (await fetch(url).then((r) => r.ok, () => false)) return url;
   }
-  throw new Error("서버가 뜨지 않았어요.");
+  throw new Error(`서버가 뜨지 않았어요. ${readFileSync(path.join(tmp, "server.log"), "utf8").slice(0, 900)}`);
 }
 
 // ---------------------------------------------------------------- 한글 파일에서 계산한 모양
-type Model = { h: Record<number, number>; rows: Record<number, number[]>; page: Set<number>; bodyH: number };
+type Model = { h: Record<number, number>; rows: Record<number, number[]>; page: Set<number>; empty: Set<number>; bodyH: number };
 function modelOf(file: Uint8Array): Model {
   const doc = openHwp(file);
   const m = readMetrics(doc.cfb, doc.compressed);
   const body = bodySize(doc.recs);
-  const out: Model = { h: {}, rows: {}, page: new Set(), bodyH: px(body.height) };
+  const out: Model = { h: {}, rows: {}, page: new Set(), empty: new Set(), bodyH: px(body.height) };
   topParagraphs(doc.recs).forEach(([s, e], bi) => {
     if (paraInfo(doc.recs, s).pageBreak) out.page.add(bi);
     if (doc.recs.slice(s, e).some((r) => r.tag === TAG.TABLE)) {
       const t = tableHeight(doc.recs, s, e, m);
       out.rows[bi] = t.rows.map(px);
       out.h[bi] = px(t.height);
-    } else out.h[bi] = px(paraHeight(doc.recs, s, body.width, m));
+    } else {
+      out.h[bi] = px(blockHeight(doc.recs.slice(s, e), m, body.width));
+      // 글도 개체도 없는 빈 문단 (편집기는 쪽 끝에서 넘치는 빈 문단을 빼므로 같은 규칙으로 견줌)
+      if (!doc.recs.slice(s, e).some((r) => r.tag === TAG.PARA_TEXT && r.data.length > 2) && !doc.recs.slice(s, e).some((r) => r.tag === TAG.CTRL_HEADER && Buffer.from(r.data.subarray(0, 4)).reverse().toString("latin1") === "gso ")) out.empty.add(bi);
+    }
   });
   return out;
 }
 
 /** 쪽 나누기 (편집기와 같은 규칙: 새 쪽 표시 · 안 들어가면 다음 쪽 · 표는 줄 단위로) → 쪽마다 문단 번호 */
-function pagesOf(n: number, h: (bi: number) => number, rows: (bi: number) => number[] | undefined, page: (bi: number) => boolean, limit: number) {
+function pagesOf(n: number, h: (bi: number) => number, rows: (bi: number) => number[] | undefined, page: (bi: number) => boolean, limit: number, empty: (bi: number) => boolean = () => false) {
   const pages: string[][] = [[]];
   let used = 0;
   const cur = () => pages[pages.length - 1];
@@ -139,6 +156,7 @@ function pagesOf(n: number, h: (bi: number) => number, rows: (bi: number) => num
       }
       continue;
     }
+    if (empty(bi) && (used + h(bi) > limit || (used === 0 && !page(bi)))) continue;
     if (used + h(bi) > limit && used > 0) {
       pages.push([]);
       used = 0;
@@ -296,7 +314,7 @@ async function main() {
   if (!hwp.ok) throw new Error(`한글 파일을 받지 못했어요: ${hwp.status} ${await hwp.text()}`);
   const model = modelOf(new Uint8Array(await hwp.arrayBuffer()));
   const n = Object.keys(model.h).length;
-  const wantPages = pagesOf(n, (b) => model.h[b], (b) => model.rows[b], (b) => model.page.has(b), model.bodyH + 0.5);
+  const wantPages = pagesOf(n, (b) => model.h[b], (b) => model.rows[b], (b) => model.page.has(b), model.bodyH + 0.5, (b) => model.empty.has(b));
   console.log(`한글 파일(계산): ${wantPages.length}쪽 · 본문 높이 ${model.bodyH.toFixed(1)}px`);
   wantPages.forEach((p, i) => console.log(`  ${i + 1}쪽: ${p.join(" ")}`));
 
@@ -333,6 +351,10 @@ async function main() {
     if (!same) gotPages.forEach((p, i) => console.log(`    ${i + 1}쪽: ${p.join(" ")}`));
     if (diffs.length) console.log(`    1.5px 넘게 다른 곳(화면−한글): ${diffs.join(" ")}`);
     report.push({ zoom, pages: gotPages, worst });
+  }
+  if (process.env.PROBE) {
+    const dom = await cdp.eval<unknown>(`(() => [...document.querySelectorAll('[data-bi="${process.env.PROBE}"] td')].map((td) => ({ r: td.parentElement.dataset.r, w: Math.round(td.getBoundingClientRect().width * 10) / 10, h: Math.round(td.getBoundingClientRect().height * 10) / 10, items: [...td.querySelectorAll('textarea,[data-rich],[data-st]')].map((el) => { const cs = getComputedStyle(el); const lh = parseFloat(cs.lineHeight) || 1; const inner = el.getBoundingClientRect().height - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom); return [el.tagName[0] + (el.dataset.field ?? ''), Math.round(el.getBoundingClientRect().width * 10) / 10, Math.round(inner / lh * 10) / 10, (el.value ?? el.textContent ?? '').slice(0, 14)]; }) })))()`);
+    console.log("PROBE", JSON.stringify(dom));
   }
   if (args.includes("--rich")) await richTest(cdp);
   if (args.includes("--json")) console.log(JSON.stringify(report));

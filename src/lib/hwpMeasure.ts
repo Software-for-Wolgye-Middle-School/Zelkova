@@ -164,14 +164,16 @@ export class ShapeBook {
 }
 
 /** 글자 하나의 너비 (글자 크기의 몇 배인지). 한글 · 한자는 1, 영문 · 숫자는 0.58, 빈칸 · 문장부호는 0.4 (조금 넉넉하게) */
+/** 글자 너비 (글자 크기의 몇 배): 한글이 저장한 줄 나눔과 견줘 맞춘 값 */
+export const CHAR_W = { space: 0.4, alnum: 0.58, punct: 0.42 };
 export function charEm(ch: string) {
   const c = ch.codePointAt(0) ?? 0;
   if (c >= 0x1100 && c <= 0x11ff) return 1;
   if (c >= 0x2e80) return 1;
-  if (ch === " ") return 0.4;
-  if (/[A-Za-z0-9]/.test(ch)) return 0.58;
+  if (ch === " ") return CHAR_W.space;
+  if (/[A-Za-z0-9]/.test(ch)) return CHAR_W.alnum;
   if (/[～~·•▪]/.test(ch)) return 1;
-  return 0.42;
+  return CHAR_W.punct;
 }
 
 /** 줄 나누기를 어림함: 한글처럼 어절(빈칸) 단위로 넘기고, 너무 긴 어절은 글자 단위로. 줄마다 시작하는 글자 번호를 돌려줌 */
@@ -182,7 +184,7 @@ export function lineStarts(text: string, firstWidth: number, width: number, em: 
   for (const word of text.split(/(?<= )/)) {
     const chars = [...word];
     const w = chars.reduce((n, ch) => n + charEm(ch) * em, 0);
-    const bare = w - (word.endsWith(" ") ? 0.4 * em : 0);
+    const bare = w - (word.endsWith(" ") ? CHAR_W.space * em : 0);
     if (bare <= room) {
       room -= w;
     } else if (bare <= width) {
@@ -218,7 +220,9 @@ export function paraHeight(recs: Rec[], p: number, width: number, m: Metrics, ls
   const size = Math.max(...shapes.map(([, id]) => m.char[id]?.size ?? 1000), 1000 * 0.5);
   const cs = m.char[shapes[0]?.[1] ?? 0];
   const em = size * ((cs?.ratio ?? 100) / 100) * (1 + (cs?.spacing ?? 0) / 100);
-  const inner = width - ps.left - ps.right;
+  // 문단 여백이 칸보다 크면 한글은 여백을 무시하고 칸 너비로 줄을 나눔 (성취평가 칸 '1 · 2 · 3 · 4' 가 한 줄로 저장돼 있음)
+  let inner = width - ps.left - ps.right;
+  if (inner < em) inner = width;
   // 들여쓰기(+)는 첫 줄만 좁게, 내어쓰기(-)는 첫 줄만 왼쪽으로 넓게
   const lines = text ? countLines(text, inner - ps.indent, inner, em) : 1;
   const spacing = ls ?? ps.ls;
@@ -263,6 +267,18 @@ export function tableHeight(recs: Rec[], start: number, end: number, m: Metrics,
   return { height: rows.reduce((n, x) => n + x, 0) + outer, rows };
 }
 
+/** 글 위아래로 비켜 가는(본문과의 배치: 위아래) 떠 있는 그림이 든 문단이면 그림이 차지하는 높이 (문단 위에서 떨어진 거리 + 그림 높이). 아니면 0 */
+function floatingObjectHeight(recs: Rec[], s: number, e: number) {
+  for (let i = s; i < e; i++) {
+    const r = recs[i];
+    if (r.tag !== TAG.CTRL_HEADER || r.data.length < 24 || Buffer.from(r.data.subarray(0, 4)).reverse().toString("latin1") !== "gso ") continue;
+    const attr = r.data.readUInt32LE(4);
+    if (attr & 1) continue; // 글자처럼 취급하는 그림은 줄 높이에 이미 들어 있음
+    if (((attr >> 21) & 7) === 1) return Math.max(0, r.data.readInt32LE(8)) + r.data.readUInt32LE(20);
+  }
+  return 0;
+}
+
 /** 맨 위 문단들의 높이 합 (표가 든 문단은 표 높이 + 문단 위아래 간격) */
 export function blockHeight(recs: Rec[], m: Metrics, width: number, ls?: (p: number) => number | undefined) {
   return topParagraphs(recs).reduce((n, [s, e]) => {
@@ -271,7 +287,7 @@ export function blockHeight(recs: Rec[], m: Metrics, width: number, ls?: (p: num
       const th = tableHeight(recs, s, e, m, ls);
       return n + th.height + (ps ? ps.top + ps.bottom : 0);
     }
-    return n + paraHeight(recs, s, width, m);
+    return n + Math.max(paraHeight(recs, s, width, m), floatingObjectHeight(recs, s, e));
   }, 0);
 }
 
