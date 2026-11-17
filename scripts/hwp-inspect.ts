@@ -10,7 +10,7 @@
 import { readFileSync } from "node:fs";
 import { openHwp, subtreeEnd, tableCells, TAG, topParagraphs, type Rec } from "../src/lib/hwpEdit";
 import { paraInfo } from "../src/lib/hwpLines";
-import { charEm, lineStarts, pageDef, readMetrics, tableHeight, blockHeight, bodySize } from "../src/lib/hwpMeasure";
+import { charEm, textSize, lineStarts, pageDef, readMetrics, tableHeight, blockHeight, bodySize } from "../src/lib/hwpMeasure";
 
 const args = process.argv.slice(2);
 const file = args.find((a) => !a.startsWith("--"));
@@ -35,8 +35,8 @@ function para(p: number, width?: number) {
   const ps = m.para[info.paraShape];
   const cs = m.char[info.shapes[0]?.[1] ?? 0];
   const size = Math.max(...info.shapes.map(([, id]) => m.char[id]?.size ?? 1000), 500);
-  const em = (size * (cs?.ratio ?? 100)) / 100 * (1 + (cs?.spacing ?? 0) / 100);
   const text = info.chars.map((c) => c.ch).join("");
+  const em = (textSize(info.shapes, info.chars.length ? info.chars[info.chars.length - 1].pos + 1 : 0, m) * (cs?.ratio ?? 100)) / 100 * (1 + (cs?.spacing ?? 0) / 100);
   // 한글이 저장한 줄 시작(글자 번호)과 그 줄의 너비로 같은 규칙을 적용
   const hancom = info.segs.map((s) => info.chars.findIndex((c) => c.pos >= s.start)).map((i) => (i < 0 ? text.length : i));
   const w0 = info.segs[0]?.width ?? width ?? 0;

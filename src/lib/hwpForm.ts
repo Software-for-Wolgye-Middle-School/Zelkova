@@ -1,5 +1,6 @@
 import { inflateRawSync } from "node:zlib";
 import { CFB } from "xlsx";
+import { readMetrics, tableParaGap } from "@/lib/hwpMeasure";
 import { openHwp, parseRecords, type HwpDoc, readParaText, saveHwp, setParaText, subtreeEnd, tableCells, TAG, topParagraphs, trimCellParas, type Rec } from "@/lib/hwpEdit";
 
 /**
@@ -55,7 +56,11 @@ export type FormCell = FormStyle & {
 /** pi: 문서의 맨 위 문단 번호 · page: 이 문단에서 새 쪽이 시작됨 (조립할 때 붙임) */
 export type FormBlock = { pi: number; page?: boolean } & (
   | (FormStyle & { type: "p"; key: string; text: string; locked: boolean })
-  | { type: "table"; key: string; w: number; rows: number; cols: number; split: boolean; cells: FormCell[] }
+  /**
+   * split: 쪽 경계에서 나눌 수 있음 · byCell: 「셀 단위로 나눔」(합친 칸이 걸친 줄들은 함께 다음 쪽으로)
+   * gap: 글자처럼 취급하는 표 아래에 한글이 두는 간격(px) · outer: 표 바깥 여백 위 · 아래(px)
+   */
+  | { type: "table"; key: string; w: number; rows: number; cols: number; split: boolean; byCell?: boolean; gap?: number; outer?: [number, number]; cells: FormCell[] }
   | { type: "object"; w: number; h: number; vo: number; align: FormStyle["align"]; image: boolean }
 );
 /** 학생 한 명 분량 (label: 기본 이름 · nameKey: 학생 이름을 적는 칸) */
@@ -174,6 +179,7 @@ export const readForm = (template: Uint8Array): Form => readFormDoc(openHwp(temp
 /** 열어 둔 한글 문서를 화면에 그릴 모양으로. 학생마다(표지의 "○○학년도 ○학기" 줄마다) 나눔 */
 export function readFormDoc(doc: HwpDoc): Form {
   const shapes = readShapes(doc.cfb, doc.compressed);
+  const metrics = readMetrics(doc.cfb, doc.compressed);
   const recs = doc.recs;
   const sections: FormSection[] = [];
   let tableNo = 0;
@@ -221,8 +227,10 @@ export function readFormDoc(doc: HwpDoc): Form {
           locked: parts.some((x) => x.object), // 칸 안에 표 · 그림이 있으면 글만 바꾸면 깨지므로 잠금
         };
       });
-      // split: 쪽 경계에서 나눌 수 있는 표 (표 속성 아래 2비트, 0 = 나누지 않음)
-      blocks.push({ type: "table", pi, key: `t.${no}`, w: ctrl && ctrl.data.length >= 20 ? px(ctrl.data.readUInt32LE(16)) : 680, rows: recs[t].data.readUInt16LE(4), cols: recs[t].data.readUInt16LE(6), split: (recs[t].data.readUInt32LE(0) & 3) !== 0, cells });
+      // split: 쪽 경계에서 나눌 수 있는 표 (표 속성 아래 2비트: 0 나누지 않음 · 1 셀 단위로 나눔 · 2 나눔)
+      const brk = recs[t].data.readUInt32LE(0) & 3;
+      const gap = px(tableParaGap(recs, s, e, metrics));
+      blocks.push({ type: "table", pi, key: `t.${no}`, w: ctrl && ctrl.data.length >= 20 ? px(ctrl.data.readUInt32LE(16)) : 680, rows: recs[t].data.readUInt16LE(4), cols: recs[t].data.readUInt16LE(6), split: brk !== 0, ...(brk === 1 ? { byCell: true } : {}), ...(gap ? { gap } : {}), ...(ctrl && ctrl.data.length >= 36 ? { outer: [px(ctrl.data.readInt16LE(32)), px(ctrl.data.readInt16LE(34))] as [number, number] } : {}), cells });
     } else if (info.object) {
       blocks.push({ type: "object", pi, w: info.gso?.w ?? 0, h: info.gso?.h ?? 0, vo: info.gso?.vo ?? 0, align: info.align, image: !!info.gso?.image });
     } else {

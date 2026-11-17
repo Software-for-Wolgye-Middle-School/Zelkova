@@ -54,6 +54,12 @@ How parity is achieved — one composition feeds both outputs:
 - `src/components/IepApp.tsx` (`DocV2`, `CellV2`, `paginate`) renders that layout in HWP units → px
   (1 px = 75 HWP units at 96 dpi; HWP unit = 1/7200 in) and paginates like 한글 (forced page starts, unsplittable
   tables move whole, splittable tables break by row, trailing empty paragraphs dropped).
+  - The assembler sets splittable tables to 「셀 단위로 나눔」, so 한글 never cuts a row in half — but it also never breaks
+    between rows joined by a merged cell (e.g. the whole 단기목표 block moves to the next page); the editor does the same.
+  - In table cells 한글 puts no line spacing under the last line (cell height = last line top + text height + padding).
+  - An in-line (글자처럼 취급) table is followed by its paragraph's line-spacing gap, and its outer margins count toward
+    the page height.
+  - Line wrapping is measured at the text's font size, not the paragraph-end mark's (forms often have 9pt text + 10pt end).
 - HWP internals: `hwpEdit.ts` (record parse/serialize, clone, set text, insert/delete rows — clears
   `PARA_LINE_SEG` on edited paragraphs so 한글 re-flows them), `hwpForm.ts` (read form → renderable styles),
   `hwpMeasure.ts` (heights/line counts; note paragraph margins/indent are stored ×2 in the file),
@@ -64,9 +70,9 @@ How parity is achieved — one composition feeds both outputs:
 
 Verifying parity (do this after any IEP layout/format change):
 
-- `npx tsx scripts/editor-compare.ts` — builds the HWP and opens the editor in real Chrome at zoom 50–200%,
-  comparing page/paragraph/row heights; it spins up its own `next dev` with temp data. Differences should be
-  within 1px.
+- `npx tsx scripts/editor-compare.ts [--heavy]` — builds the HWP and opens the editor in real Chrome at zoom 50–200%,
+  comparing page/paragraph/row heights; it spins up its own `next dev` with temp data (`--heavy` uses a long document
+  whose tables cross pages). Differences should be within 1px.
 - `npx tsx scripts/hwp-inspect.ts <file.hwp> [--blocks|--lines]` — compare computed vs 한글-saved line breaks.
 - `node --experimental-strip-types scripts/hwp.mjs <info|paras|table|get|verify|dump|…> <file.hwp>` — inspect/edit
   HWP files without breaking the format.

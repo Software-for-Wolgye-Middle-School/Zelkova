@@ -1,16 +1,16 @@
 // 편집기(웹)와 한글 파일이 같은 모양인지 견주는 도구: 같은 값으로 ① 서버가 만든 한글(HWP) 파일을 읽어 한글의 쪽 · 높이를 계산하고
 // ② 실제 크롬에서 편집기를 열어 화면 배율(50~200%)마다 그려진 쪽 · 문단 · 표 줄 높이를 재어, 다른 곳을 알려 줌.
 //
-// 사용: npx tsx scripts/editor-compare.ts [--zooms 50,75,100,125,150,200] [--url http://localhost:3111] [--json]
+// 사용: npx tsx scripts/editor-compare.ts [--zooms 50,75,100,125,150,200] [--url http://localhost:3111] [--json] [--heavy]
 //   --url 이 없으면 임시 데이터 폴더와 임시 로그인으로 next dev 를 직접 띄움 (실제 데이터는 건드리지 않음). 크롬이 설치돼 있어야 함.
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes, scryptSync } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { openHwp, topParagraphs, TAG } from "../src/lib/hwpEdit";
+import { openHwp, tableCells, topParagraphs, TAG } from "../src/lib/hwpEdit";
 import { paraInfo } from "../src/lib/hwpLines";
-import { blockHeight, bodySize, readMetrics, tableHeight } from "../src/lib/hwpMeasure";
+import { blockHeight, bodySize, readMetrics, tableHeight, tableParaGap } from "../src/lib/hwpMeasure";
 import { formFields, metaFromFields } from "../src/lib/iep";
 import { FORM_V2, studentFieldsV2 } from "../src/lib/iepV2";
 
@@ -77,6 +77,21 @@ function seed() {
     });
     if (n === 0) for (let j = 0; j < 4; j++) f[`s.${id}.m${j}.content`] = "방정식의 의미를 알고 등식의 성질을 활용하여 일차방정식의 해를 구하는 방법을 학습한다. 실생활 문제를 방정식으로 나타내어 해결한다.";
   });
+  // --heavy: 실제 문서처럼 길게 (단기목표 27줄 · 긴 현재수준 · 장기목표 · 일상생활적응 단기목표 12줄) → 표가 쪽을 넘고, 합친 칸 묶음이 다음 쪽으로 넘어가는지 시험
+  if (args.includes("--heavy")) {
+    const goalText = (i: number) => (i % 4 === 0 ? `<단원 ${i / 4 + 1}>` : i % 7 === 3 ? "- 주어진 조건을 이용하여 두 도형의 관계를 판별하고, 그 까닭을 자신의 말로 설명할 수 있다." : "- 그림에서 점, 선, 면, 각을 찾아 구별할 수 있다.");
+    const present = Array.from({ length: 9 }, (_, i) => (i % 3 === 2 ? "- 정수와 유리수의 사칙계산의 원리를 이해하고 계산에 활용함." : "- 수직선을 이용하여 수를 나타내고, 대소 관계를 비교함.")).join("\n");
+    const longGoals = Array.from({ length: 8 }, (_, i) => (i % 3 === 1 ? "[9수03-04] 삼각형의 합동 조건을 이해하고, 이를 이용하여 두 삼각형이 합동인지 판별할 수 있다." : "[9수02-04] 방정식과 그 해의 의미를 알고, 등식의 성질을 설명할 수 있다.")).join("\n");
+    secs.forEach((id, n) => {
+      const life = f[`s.${id}.kind`] === "life";
+      const count = life ? 12 : n === 1 ? 27 : 14;
+      const ids = Array.from({ length: count }, (_, i) => `h${n}x${i}`);
+      f[`s.${id}.goalList`] = JSON.stringify(ids);
+      ids.forEach((g, i) => (f[`s.${id}.g.${g}.t`] = life ? (i % 5 === 4 ? "- 대인 간 거리가 주는 느낌과 감정을 알고, 상대에 따라 대인 간 거리를 조절하기" : "- 의복을 옷장에 정리 정돈하기") : goalText(i)));
+      f[`s.${id}.present`] = present;
+      f[`s.${id}.long`] = life ? longGoals.split("\n").slice(0, 6).join("\n") : longGoals;
+    });
+  }
   mkdirSync(path.join(tmp, "data"), { recursive: true });
   const meta = metaFromFields(f);
   writeFileSync(path.join(tmp, "data", "iep.json"), JSON.stringify({ index: { [ID]: { ...meta, id: ID, createdAt: Date.now(), updatedAt: Date.now() } }, docs: { [ID]: { rev: 1, values: f, revs: Object.fromEntries(Object.keys(f).map((k) => [k, 1])) } } }));
@@ -100,18 +115,23 @@ async function startServer(): Promise<string> {
 }
 
 // ---------------------------------------------------------------- 한글 파일에서 계산한 모양
-type Model = { h: Record<number, number>; rows: Record<number, number[]>; page: Set<number>; empty: Set<number>; bodyH: number };
+/** tbl: 표마다 한글의 쪽 나눔 방식 (mode 0 나누지 않음 · 1 셀 단위 · 2 나눔) · 합친 칸이 걸쳐 나눌 수 없는 줄 경계 · 표 아래 간격 */
+type Model = { h: Record<number, number>; rows: Record<number, number[]>; page: Set<number>; empty: Set<number>; bodyH: number; tbl: Record<number, { mode: number; noBreak: Set<number>; gap: number }> };
 function modelOf(file: Uint8Array): Model {
   const doc = openHwp(file);
   const m = readMetrics(doc.cfb, doc.compressed);
   const body = bodySize(doc.recs);
-  const out: Model = { h: {}, rows: {}, page: new Set(), empty: new Set(), bodyH: px(body.height) };
+  const out: Model = { h: {}, rows: {}, page: new Set(), empty: new Set(), bodyH: px(body.height), tbl: {} };
   topParagraphs(doc.recs).forEach(([s, e], bi) => {
     if (paraInfo(doc.recs, s).pageBreak) out.page.add(bi);
     if (doc.recs.slice(s, e).some((r) => r.tag === TAG.TABLE)) {
       const t = tableHeight(doc.recs, s, e, m);
       out.rows[bi] = t.rows.map(px);
       out.h[bi] = px(t.height);
+      const rec = doc.recs.slice(s, e).find((r) => r.tag === TAG.TABLE)!;
+      const noBreak = new Set<number>();
+      for (const c of tableCells(doc.recs, s, e)) for (let k = c.row + 1; k < c.row + c.rowSpan; k++) noBreak.add(k);
+      out.tbl[bi] = { mode: rec.data.readUInt32LE(0) & 3, noBreak, gap: px(tableParaGap(doc.recs, s, e, m)) };
     } else {
       out.h[bi] = px(blockHeight(doc.recs.slice(s, e), m, body.width));
       // 글도 개체도 없는 빈 문단 (편집기는 쪽 끝에서 넘치는 빈 문단을 빼므로 같은 규칙으로 견줌)
@@ -121,46 +141,61 @@ function modelOf(file: Uint8Array): Model {
   return out;
 }
 
-/** 쪽 나누기 (편집기와 같은 규칙: 새 쪽 표시 · 안 들어가면 다음 쪽 · 표는 줄 단위로) → 쪽마다 문단 번호 */
-function pagesOf(n: number, h: (bi: number) => number, rows: (bi: number) => number[] | undefined, page: (bi: number) => boolean, limit: number, empty: (bi: number) => boolean = () => false) {
+/**
+ * 한글의 쪽 나누기 → 쪽마다 문단 번호. 새 쪽 표시 · 안 들어가면 다음 쪽 · 나누지 않는 표는 통째로 · 「셀 단위로 나눔」 표는 합친 칸이 걸친 줄 사이에서 나누지 않음
+ * (빈 쪽에도 안 들어가면 줄 단위로) · 글자처럼 취급하는 표 아래 간격
+ */
+function pagesOf(n: number, h: (bi: number) => number, rows: (bi: number) => number[] | undefined, page: (bi: number) => boolean, limit: number, empty: (bi: number) => boolean = () => false, tbl: (bi: number) => Model["tbl"][number] | undefined = () => undefined) {
   const pages: string[][] = [[]];
   let used = 0;
   const cur = () => pages[pages.length - 1];
+  const next = () => {
+    pages.push([]);
+    used = 0;
+  };
   for (let bi = 0; bi < n; bi++) {
-    if (page(bi) && cur().length) {
-      pages.push([]);
-      used = 0;
-    }
+    if (page(bi) && cur().length) next();
     const rr = rows(bi);
     if (rr) {
+      const t = tbl(bi);
+      // 줄 말고 표가 더 차지하는 높이(바깥 여백): 편집기처럼 나뉜 조각마다 셈
+      const extra = Math.max(0, h(bi) - rr.reduce((a, x) => a + x, 0));
+      const total = h(bi);
+      if (used + total <= limit || (t?.mode === 0 && total <= limit)) {
+        if (used + total > limit) next();
+        cur().push(`${bi}`);
+        used += total + (t?.gap ?? 0);
+        continue;
+      }
+      const canBreak = (k: number) => k >= rr.length || t?.mode !== 1 || !t.noBreak.has(k);
       let r = 0;
       while (r < rr.length) {
         let k = r;
-        let sum = 0;
-        while (k < rr.length && used + sum + rr[k] <= limit) sum += rr[k++];
-        if (k === r) {
+        let sum = extra;
+        let to = r;
+        let toSum = extra;
+        while (k < rr.length && used + sum + rr[k] <= limit) {
+          sum += rr[k++];
+          if (canBreak(k)) [to, toSum] = [k, sum];
+        }
+        if (to === r) {
           if (used > 0) {
-            pages.push([]);
-            used = 0;
+            next();
             continue;
           }
-          sum += rr[k++];
+          if (k > r) [to, toSum] = [k, sum];
+          else [to, toSum] = [k + 1, sum + rr[k]];
         }
-        cur().push(k - r === rr.length ? `${bi}` : `${bi}[${r}-${k - 1}]`);
-        used += sum;
-        r = k;
-        if (r < rr.length) {
-          pages.push([]);
-          used = 0;
-        }
+        cur().push(to - r === rr.length ? `${bi}` : `${bi}[${r}-${to - 1}]`);
+        used += toSum;
+        r = to;
+        if (r < rr.length) next();
       }
+      used += t?.gap ?? 0;
       continue;
     }
     if (empty(bi) && (used + h(bi) > limit || (used === 0 && !page(bi)))) continue;
-    if (used + h(bi) > limit && used > 0) {
-      pages.push([]);
-      used = 0;
-    }
+    if (used + h(bi) > limit && used > 0) next();
     cur().push(`${bi}`);
     used += h(bi);
   }
@@ -314,7 +349,7 @@ async function main() {
   if (!hwp.ok) throw new Error(`한글 파일을 받지 못했어요: ${hwp.status} ${await hwp.text()}`);
   const model = modelOf(new Uint8Array(await hwp.arrayBuffer()));
   const n = Object.keys(model.h).length;
-  const wantPages = pagesOf(n, (b) => model.h[b], (b) => model.rows[b], (b) => model.page.has(b), model.bodyH + 0.5, (b) => model.empty.has(b));
+  const wantPages = pagesOf(n, (b) => model.h[b], (b) => model.rows[b], (b) => model.page.has(b), model.bodyH + 0.5, (b) => model.empty.has(b), (b) => model.tbl[b]);
   console.log(`한글 파일(계산): ${wantPages.length}쪽 · 본문 높이 ${model.bodyH.toFixed(1)}px`);
   wantPages.forEach((p, i) => console.log(`  ${i + 1}쪽: ${p.join(" ")}`));
 

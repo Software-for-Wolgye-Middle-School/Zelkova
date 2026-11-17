@@ -772,7 +772,7 @@ type FormCellT = FormStyle & {
 };
 type FormBlockT = { pi?: number; page?: boolean } & (
   | (FormStyle & { type: "p"; key: string; text: string; locked: boolean })
-  | { type: "table"; key: string; w: number; rows: number; cols: number; split?: boolean; cells: FormCellT[] }
+  | { type: "table"; key: string; w: number; rows: number; cols: number; split?: boolean; byCell?: boolean; gap?: number; outer?: [number, number]; cells: FormCellT[] }
   | { type: "object"; w?: number; h?: number; /** 문단 위에서 그림까지 떨어진 거리(px) */ vo?: number; align?: FormStyle["align"]; image?: boolean }
 );
 type FormT = { sections: { label: string; nameKey?: string; blocks: FormBlockT[] }[] };
@@ -1627,34 +1627,46 @@ function paginate(blocks: V2Block[], height: number, m: Measure | null): PagePie
       const rh = Array.from({ length: b.rows }, (_, r) => measured[r] || guess(r));
       const extra = m?.extra[bi] ?? 0;
       const total = rh.reduce((n, x) => n + (x || 0), 0) + extra;
+      // 글자처럼 취급하는 표 아래 간격 (한글처럼 표가 들어가는지 볼 때는 빼고, 놓은 뒤에 더함)
+      const gap = b.gap ?? 0;
       if (used + total <= limit) {
         page().push({ bi });
-        used += total;
+        used += total + gap;
         return;
       }
       if (!b.split && total <= limit) {
         if (page().length) newPage();
         page().push({ bi });
-        used += total;
+        used += total + gap;
         return;
       }
+      // 「셀 단위로 나눔」 표는 합친 칸이 걸친 줄 사이에서는 나누지 않음 (한글처럼 그 줄들을 함께 다음 쪽으로)
+      const canBreak = (k: number) => k >= rh.length || !b.byCell || !b.cells.some((c) => c.r < k && k < c.r + c.rs);
       let r = 0;
       while (r < rh.length) {
         let k = r;
         let sum = extra;
-        while (k < rh.length && used + sum + (rh[k] || 0) <= limit) sum += rh[k++] || 0;
-        if (k === r) {
+        let to = r;
+        let toSum = extra;
+        while (k < rh.length && used + sum + (rh[k] || 0) <= limit) {
+          sum += rh[k++] || 0;
+          if (canBreak(k)) [to, toSum] = [k, sum];
+        }
+        if (to === r) {
           if (used > 0) {
             newPage();
             continue;
           }
-          sum += rh[k++] || 0; // 한 줄이 쪽보다 큼: 그 줄만 한 쪽에
+          // 빈 쪽에도 안 들어가는 묶음(합친 칸이 쪽보다 큼)은 줄 단위로, 한 줄이 쪽보다 크면 그 줄만 한 쪽에
+          if (k > r) [to, toSum] = [k, sum];
+          else [to, toSum] = [k + 1, sum + (rh[k] || 0)];
         }
-        page().push({ bi, from: r, to: k });
-        used += sum;
-        r = k;
+        page().push({ bi, from: r, to });
+        used += toSum;
+        r = to;
         if (r < rh.length) newPage();
       }
+      used += gap;
       return;
     }
     const h = m?.h[bi] ?? 0;
@@ -2094,7 +2106,14 @@ function DocV2({ sid, onSid, follow }: { sid: string | null; onSid: (sid: string
         : [{ i, x: colLeft[i + 1], y0: 0, y1: -1 }],
     );
     return (
-      <div key={`t-${bi}-${r0}`} data-bi={bi} data-table="1" className="relative mx-auto" style={{ width: total * scale }}>
+      // 표 바깥 여백(위 · 아래)은 안쪽 여백으로 그려 표 높이에 넣고 (한글도 쪽에 들어가는지 볼 때 셈), 표 아래 간격은 바깥 여백으로 (쪽 나누기에서 따로 더함)
+      <div
+        key={`t-${bi}-${r0}`}
+        data-bi={bi}
+        data-table="1"
+        className="relative mx-auto"
+        style={{ width: total * scale, paddingTop: b.outer?.[0] ?? 0, paddingBottom: b.outer?.[1] ?? 0, marginBottom: r1 === b.rows ? (b.gap ?? 0) : 0 }}
+      >
         <table className="table-fixed border-collapse" style={{ width: total * scale }}>
           <colgroup>
             {cols.map((w, ci) => (

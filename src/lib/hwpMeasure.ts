@@ -209,6 +209,15 @@ export function lineStarts(text: string, firstWidth: number, width: number, em: 
   return starts;
 }
 
+/**
+ * 줄 나눔에 쓰는 글자 크기: 글에 쓰인 글자 모양 중 가장 큰 것 (문단 끝 표시에만 붙은 글자 모양은 빼고).
+ * 학교 양식은 글이 9pt 인데 문단 끝만 10pt 인 문단이 많아, 10pt 로 너비를 재면 한글보다 일찍 줄을 나눔
+ */
+export function textSize(shapes: [number, number][], textLength: number, m: Metrics) {
+  const used = shapes.filter(([at], i) => at < textLength || (i === 0 && !textLength));
+  return Math.max(...(used.length ? used : shapes).map(([, id]) => m.char[id]?.size ?? 1000), 500);
+}
+
 const countLines = (text: string, firstWidth: number, width: number, em: number) => lineStarts(text, firstWidth, width, em).length;
 
 /**
@@ -226,7 +235,7 @@ export function paraHeight(recs: Rec[], p: number, width: number, m: Metrics, ls
   const shapes = paraCharShapes(recs, p);
   const size = Math.max(...shapes.map(([, id]) => m.char[id]?.size ?? 1000), 1000 * 0.5);
   const cs = m.char[shapes[0]?.[1] ?? 0];
-  const em = size * ((cs?.ratio ?? 100) / 100) * (1 + (cs?.spacing ?? 0) / 100);
+  const em = textSize(shapes, text.length, m) * ((cs?.ratio ?? 100) / 100) * (1 + (cs?.spacing ?? 0) / 100);
   // 문단 여백이 칸보다 크면 한글은 여백을 무시하고 칸 너비로 줄을 나눔 (성취평가 칸 '1 · 2 · 3 · 4' 가 한 줄로 저장돼 있음)
   let inner = width - ps.left - ps.right;
   if (inner < em) inner = width;
@@ -270,7 +279,8 @@ export function tableHeight(recs: Rec[], start: number, end: number, m: Metrics,
     if (need > have) rows[last] += need - have;
   }
   const ctrl = recs.slice(start, t).reverse().find((r) => r.tag === TAG.CTRL_HEADER);
-  const outer = ctrl && ctrl.data.length >= 32 ? ctrl.data.readInt16LE(28) + ctrl.data.readInt16LE(30) : 0;
+  // 표 바깥 여백 (개체 공통 머리: 28 왼쪽 · 30 오른쪽 · 32 위 · 34 아래)
+  const outer = ctrl && ctrl.data.length >= 36 ? ctrl.data.readInt16LE(32) + ctrl.data.readInt16LE(34) : 0;
   return { height: rows.reduce((n, x) => n + x, 0) + outer, rows };
 }
 
@@ -286,13 +296,28 @@ function floatingObjectHeight(recs: Rec[], s: number, e: number) {
   return 0;
 }
 
-/** 맨 위 문단들의 높이 합 (표가 든 문단은 표 높이 + 문단 위아래 간격) */
+/**
+ * 글자처럼 취급하는 표가 든 문단 아래 간격: 한글은 그 표를 한 줄로 놓고 문단의 줄 간격 몫(줄 높이 − 글자 높이)을 아래에 둠.
+ * (학교 한글 파일: 인적 사항 표 아래 12.8px, 교육활동계획 표 아래 10.7px …) 글자처럼 취급하지 않는 표는 0
+ */
+export function tableParaGap(recs: Rec[], s: number, e: number, m: Metrics) {
+  const t = recs.findIndex((r, i) => i >= s && i < e && r.tag === TAG.TABLE);
+  if (t < 0) return 0;
+  const ctrl = recs.slice(s, t).reverse().find((r) => r.tag === TAG.CTRL_HEADER);
+  if (!ctrl || ctrl.data.length < 8 || !(ctrl.data.readUInt32LE(4) & 1)) return 0;
+  const ps = m.para[recs[s].data.readUInt16LE(8)] ?? { left: 0, right: 0, indent: 0, top: 0, bottom: 0, lsType: 0, ls: 160 };
+  const size = Math.max(...paraCharShapes(recs, s).map(([, id]) => m.char[id]?.size ?? 1000), 500);
+  const lineH = ps.lsType === 1 ? ps.ls : ps.lsType === 2 ? size + ps.ls : ps.lsType === 3 ? Math.max(size, ps.ls) : (size * ps.ls) / 100;
+  return trailingGap(ps.lsType, size, lineH);
+}
+
+/** 맨 위 문단들의 높이 합 (표가 든 문단은 표 높이 + 문단 위아래 간격 + 글자처럼 취급하는 표 아래 간격) */
 export function blockHeight(recs: Rec[], m: Metrics, width: number, ls?: (p: number) => number | undefined) {
   return topParagraphs(recs).reduce((n, [s, e]) => {
     if (recs.slice(s, e).some((r) => r.tag === TAG.TABLE)) {
       const ps = m.para[recs[s].data.readUInt16LE(8)];
       const th = tableHeight(recs, s, e, m, ls);
-      return n + th.height + (ps ? ps.top + ps.bottom : 0);
+      return n + th.height + (ps ? ps.top + ps.bottom : 0) + tableParaGap(recs, s, e, m);
     }
     return n + Math.max(paraHeight(recs, s, width, m), floatingObjectHeight(recs, s, e));
   }, 0);
