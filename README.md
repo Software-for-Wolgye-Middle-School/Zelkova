@@ -1,72 +1,111 @@
-# 느티나무 교실 도우미
+[![English](https://img.shields.io/badge/lang-English-blue.svg)](README.md)
+[![한국어](https://img.shields.io/badge/lang-한국어-red.svg)](README.KR.md)
 
-특수학급 시간표(전체 · 학생별), 나와의 약속판, 칭찬통장, 이름표를 만드는 Next.js 앱입니다.
+<p align="center">
+  <img src="public/icon-512.png" alt="Zelkova Classroom Helper" width="120" />
+</p>
 
-## 특수학급 시간표
+<h1 align="center">Zelkova Classroom Helper (느티나무 교실 도우미)</h1>
 
-`timetable.py`를 Next.js 웹 앱으로 옮긴 것입니다. 모든 처리는 브라우저 안에서 이루어지며 파일은 서버로 전송되지 않습니다.
+<p align="center">
+  A web app for special-education classrooms at a middle school.<br />
+  It does the repetitive paperwork, so teachers and staff have more time for students.
+</p>
 
-## 실행
+<br />
+
+# The Problem
+
+Special-education teachers and staff spend hours every week on paperwork that follows the same pattern:
+
+* Rebuilding **each student's timetable** by hand from many homeroom timetables
+* Retyping **IEPs (Individualized Education Programs)** into the school's 한글 (HWP) form, then fixing broken layouts
+* Drawing **classroom materials** (promise boards, praise bankbooks, name tags, worksheets) one at a time
+* Keeping **daily activity logs** on paper, and passing on handover notes by word of mouth
+
+**Zelkova Classroom Helper puts all of this in one place.** Fill in the information once, and the app produces finished, printable documents.
+
+<br />
+
+# Features
+
+### 📋 General tools (open to everyone)
+
+| Tool | Problem it solves | What you get |
+| --- | --- | --- |
+| 🗓️ **Special-class timetable** | Combining each student's subjects with every homeroom timetable by hand | A full special-class timetable plus one timetable per student (Word), each fitted to one page |
+| ✅ **My promise board** | Drawing a monthly behaviour-promise chart for each student | A dated monthly board with the student's name (PNG / PDF) |
+| 💰 **Praise bankbook** | Making reward booklets by hand | A bankbook-style booklet (cover, info page, record pages), printed 4 pages per A4 sheet |
+| 🏷️ **Name tags** | Designing and lining up name tags | Colour-framed cards with a character, class and name, 14 per A4 sheet |
+| 🍱 **School meal menu** | Searching the school website for this month's menu | A direct link to this month's meal notice |
+| ✍️ **Positive-writing practice** | Preparing handwriting worksheets | Grid-notebook worksheets (trace / copy / blank) at word, sentence or story level (PDF) |
+| 👥 **Student info** 🔒 | Re-entering the same student list in every tool | One shared student list that the other tools use |
+
+### 🗂️ Admin tools (login required)
+
+| Tool | Problem it solves | What you get |
+| --- | --- | --- |
+| 📝 **IEP writer** | Typing IEPs into the school's HWP form and fixing the layout by hand | A web editor that looks exactly like the school form. Several teachers can edit at the same time, and the download is a `.hwp` file identical to the screen |
+| 📒 **Assistant activity log** | Paper-based weekly logs and schedules | A weekly checklist log with a calendar, saved on the server and shared across computers |
+| 💬 **Handover guide chatbot** | Handover knowledge lost when staff change | A chatbot that answers questions using the saved handover guide. Student names are replaced with labels like "Student A" before anything is sent to the AI |
+
+<br />
+
+# How to Use
+
+1. Open the app and choose a tool card on the main screen
+2. Fill in the information (or pick students from the shared student list)
+3. Check the preview, then **download / print** the result
+
+> The **Admin** tab and the student-info tool require a login.
+
+<br />
+
+# How It Works
+
+### 🗓️ Timetables: run in your browser
+The homeroom timetable Excel file is read **inside the browser**. The app works out where each student is in every period and fills the school's Word template. Files are never uploaded to the server.
+
+### 🎨 Classroom materials: drawn as SVG
+Promise boards, bankbooks, name tags and worksheets are drawn by code as SVG. Names and dates are always exact, and the preview is the same picture that gets printed or saved.
+
+### 📝 IEP: one document, two views
+```
+Blank school form (.hwp) ──▶ Assemble per student / subject ──┬──▶ Web editor (what you see)
+                                                              └──▶ Download (.hwp)
+```
+* The server copies parts of the school's blank HWP form for each student and subject, then fills in the text.
+* **The same assembled document** is used both to draw the editor and to write the downloaded file. Text, tables, formatting, row heights and page breaks therefore match.
+* Edits are saved field by field. When two teachers change the same field at once, both changes are merged.
+
+### 🔐 Privacy
+* Login IDs and passwords are kept only in server environment variables, stored as hashes.
+* Student names are never sent to external AI services, and the IEP tool has no AI features.
+
+<br />
+
+# Getting Started
+
+Requires **Node.js 26 or later** (see `.nvmrc`).
 
 ```bash
 npm install
-npm run dev      # http://localhost:3000
+npm run dev        # http://localhost:3000
 ```
 
-배포용: `npm run build && npm start`
+Production: `npm run build && npm start`
 
-## 사용 순서 (파일 이름은 상관없음)
-
-1. 특수학생 정보 — 화면에서 직접 입력 (학년 · 반 · 이름 · 수강 과목). 입력한 내용은 브라우저에 자동 저장됩니다.
-2. 학급 시간표 (.xlsx) — A열 "1 - 1" 제목, 그 아래 1교시~7교시
-
-특수학급 시간표 양식은 `public/templates/special-class-template.docx` 를 기본으로 사용합니다.
-양식을 바꾸려면 이 파일을 같은 이름의 새 .docx 파일로 교체하세요.
-
-`시간표 생성하기` → 미리보기 확인 → 다운로드
-
-## 만들어지는 파일
-
-- 전체 특수학급 시간표 — 각 칸에 `[과목]` 과 학생 이름
-- 학생별 시간표 — 같은 양식에 그 학생이 특수학급에서 수업하는 칸만 과목명으로 채움
-  (예: `이순신 특수학급 시간표 (2026년 1학기).docx`)
-- `모두 다운로드` — 전체 시간표와 학생별 시간표를 쪽마다 담은 워드 파일 하나
-- 내용이 많으면 글씨 크기와 칸 높이를 줄여 시간표마다 항상 한 페이지에 맞춥니다
-
-## 구조
-
-- `src/lib/timetable.ts` — 엑셀 읽기, 시간표 계산, 워드 템플릿 채우기 (`timetable.py`와 같은 결과)
-- `src/components/` — 업로드 단계, 생성 중 화면, 결과 미리보기
-
-## 나와의 약속판
-
-메인 화면의 `나와의 약속판 만들기` → 이름과 연 · 월 선택 → 미리보기 확인 → `그림 파일로 저장 (PNG)` 또는 `인쇄 · PDF로 저장`.
-
-- 앱이 약속판을 SVG로 직접 그립니다 (`src/lib/promiseBoardSvg.ts`). 무료이고, 날짜와 이름이 항상 정확합니다.
-- 글꼴은 Google Fonts 의 Jua 를 쓰며, 저장할 때 약속판에 쓰인 글자만 담은 글꼴을 그림 안에 넣습니다.
-
-## 칭찬통장 · 이름표
-
-메인 화면의 `칭찬통장 생성하기` / `이름표 생성하기`.
-
-- 칭찬통장: 표지 · 속지(이름 · 지점 · 계좌번호 · 구분 · 발행일, 도장, 서명 칸) · 거래 내역(날짜 | 내용 | 적립P | 차감P | 계)을 템플릿 모양대로 그립니다 (`src/lib/bankbookSvg.ts`). A6 가로 크기, A4 가로 한 장에 4쪽씩 인쇄하며, 첫 장은 표지 · 속지 · 거래 내역 2쪽, 둘째 장부터는 거래 내역 4쪽이고 A4 장수(1~10장)를 고를 수 있습니다.
-- 이름표: 테두리(오색 · 한 가지 색 · 직접 고른 색) 카드에 캐릭터 · 반 이름 · 학생 이름을 넣습니다. 캐릭터는 남녀 6색 기본 캐릭터 또는 AI 캐릭터(바탕을 투명하게 지워 카드 안에만 들어감)이고, 학생마다 바꿀 수 있습니다. A4 세로 한 장에 14개(90 × 40mm)씩 인쇄합니다 (`src/lib/nameTagSvg.ts`).
-- 칭찬통장 표지 그림과 이름표 캐릭터는 그림 설명(프롬프트)을 적으면 [Pollinations](https://pollinations.ai) 무료 공개 API로 그립니다 (`src/lib/aiImage.ts`). 가입 · API 키가 필요 없지만 같은 인터넷 주소에서 약 45초에 한 장만 그릴 수 있어, 제한에 걸리면 앱이 기다렸다가 다시 시도합니다.
-- 한글 설명은 같은 서비스의 무료 텍스트 API로 영어로 옮겨 보냅니다. 학생 이름은 보내지 않고, 글자는 모두 그림 위에 코드로 그립니다.
-
-## 학생 정보 관리 로그인
-
-학생 정보 관리 화면과 학생 정보 API(`/api/students`)는 로그인해야 쓸 수 있습니다. 로그인은 12시간 동안 유지됩니다.
-
-아이디 · 비밀번호는 코드나 저장소에 두지 않고 **서버 환경 변수**에만 둡니다 (비밀번호는 scrypt 해시로).
-
+### Login setup
 ```bash
-node scripts/hash-password.mjs <아이디> <비밀번호>
+node scripts/hash-password.mjs <id> <password>
 ```
+Put the printed values (`ADMIN_ID`, `ADMIN_PASSWORD_SALT`, `ADMIN_PASSWORD_HASH`, `AUTH_SECRET`) in `.env.local` for local use, or in your host's environment variables (e.g. Vercel) when you deploy.
 
-나온 네 줄(`ADMIN_ID`, `ADMIN_PASSWORD_SALT`, `ADMIN_PASSWORD_HASH`, `AUTH_SECRET`)을
+### Data storage
+If `KV_REST_API_URL` / `KV_REST_API_TOKEN` (Upstash Redis) are set, data is saved there. Otherwise it is saved as JSON files in the `data/` folder.
 
-- 이 컴퓨터에서 실행할 때: `.env.local` 에 넣기 (git 에 올라가지 않음)
-- 배포할 때: 배포 서비스(예: Vercel)의 Environment Variables 에 넣기
+<br />
 
-설정하지 않으면 로그인할 수 없다는 안내가 나옵니다.
+# Tech Stack
+
+Next.js 16 · React 19 · TypeScript · Tailwind CSS 4 · Upstash Redis · SheetJS · JSZip · HWP 5.0 file handling written for this project

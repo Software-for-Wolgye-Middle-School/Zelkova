@@ -25,7 +25,7 @@ code comments, and commit messages are in Korean — keep it that way.
 - `src/app/api/*` — route handlers. Most require login via `isAuthed(request)` from `src/lib/auth.ts`.
 - `scripts/` — CLI tools (see below). `public/templates/` — school form files (`iep-form.hwp`,
   `special-class-template.docx`).
-- `README.md` is partly out of date (e.g. it mentions `src/lib/aiImage.ts`, which no longer exists).
+- `README.md` (English) and `README.KR.md` (Korean) are user-facing overviews; keep both in sync when tools change.
 
 ## Storage & auth
 
