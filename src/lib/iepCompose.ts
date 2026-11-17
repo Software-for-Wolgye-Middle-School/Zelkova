@@ -362,6 +362,41 @@ class Block implements Piece {
   splitByRow() {
     for (const t of this.recs) if (t.tag === TAG.TABLE && (t.data.readUInt32LE(0) & 3) === 2) t.data.writeUInt32LE(((t.data.readUInt32LE(0) & ~3) | 1) >>> 0, 0);
   }
+  /**
+   * 여러 줄을 합친 칸의 글이 그 줄들의 높이 합보다 길면, 모자란 만큼을 그 줄들에 고르게 나눠 칸 높이로 적어 둠.
+   * 넘친 높이를 한글은 어느 줄에 붙이는지 화면(표)과 다를 수 있어, 넘치지 않게 미리 높이를 정해 두면 둘 다 같은 줄 높이로 그림
+   */
+  fitSpans(m: Metrics) {
+    const t = this.recs.findIndex((r) => r.tag === TAG.TABLE);
+    if (t < 0) return;
+    const cells = tableCells(this.recs, 0, this.recs.length);
+    const h = (c: (typeof cells)[number]) => this.recs[c.list].data.readUInt32LE(20);
+    const n = this.recs[t].data.readUInt16LE(4);
+    // rowH: 적어 둘 줄 높이 · drawn: 그려질 줄 높이 (줄 안 칸 글이 길면 그만큼 늘어남)
+    const rowH = Array<number>(n).fill(0);
+    const drawn = Array<number>(n).fill(0);
+    for (const c of cells) {
+      if (c.rowSpan !== 1) continue;
+      rowH[c.row] = Math.max(rowH[c.row], h(c));
+      drawn[c.row] = Math.max(drawn[c.row], h(c), Math.ceil(cellContentHeight(this.recs, c.list, c.paras, m)));
+    }
+    let changed = false;
+    for (const c of cells.filter((x) => x.rowSpan > 1).sort((a, b) => a.rowSpan - b.rowSpan)) {
+      const span = Array.from({ length: c.rowSpan }, (_, i) => c.row + i).filter((r) => r < n);
+      const lack = Math.ceil(cellContentHeight(this.recs, c.list, c.paras, m)) - span.reduce((s, r) => s + drawn[r], 0);
+      if (lack <= 0) continue;
+      const add = Math.ceil(lack / span.length);
+      for (const r of span) {
+        rowH[r] = Math.max(rowH[r], drawn[r]) + add;
+        drawn[r] += add;
+      }
+      changed = true;
+    }
+    if (!changed) return;
+    for (const c of cells) this.recs[c.list].data.writeUInt32LE(Array.from({ length: c.rowSpan }, (_, i) => rowH[c.row + i] ?? 0).reduce((n, x) => n + x, 0), 20);
+    const ctrl = this.recs.slice(0, t).reverse().find((r) => r.tag === TAG.CTRL_HEADER);
+    if (ctrl && ctrl.data.length >= 24) ctrl.data.writeUInt32LE(rowH.reduce((n, x) => n + x, 0), 20);
+  }
   /** 이 묶음의 첫 문단 앞에서 쪽을 나눔 */
   pageBreak() {
     const p = this.recs.find((r) => r.tag === TAG.PARA_HEADER);
@@ -525,6 +560,7 @@ function assemble(f: IepFields, file: Uint8Array): { doc: HwpDoc; pieces: Piece[
     // 한글 파일도 화면처럼 이 묶음에서 새 쪽 (문서 맨 앞은 그대로)
     if (page && pieces.length) b.pageBreak();
     b.splitByRow();
+    b.fitSpans(book.m);
     pieces.push(b);
   };
 

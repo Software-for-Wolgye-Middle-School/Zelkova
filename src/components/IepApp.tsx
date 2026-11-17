@@ -811,6 +811,14 @@ const innerPad = (c: FormCellT): [number, number, number, number] => {
   const p = c.pad ?? [1.9, 1.9, 1.9, 1.9];
   return [Math.max(0, p[0] - half(c.border?.[0])), Math.max(0, p[1] - half(c.border?.[1])), Math.max(0, p[2] - half(c.border?.[2])), Math.max(0, p[3] - half(c.border?.[3]))];
 };
+/**
+ * 한글은 줄 간격 중 글자 높이를 넘는 몫을 글 아래에 두고, 칸 안 마지막 줄 아래에는 두지 않음 (칸 높이 = 마지막 줄 위치 + 글자 높이 + 안쪽 여백).
+ * 화면(CSS)은 그 몫을 줄 위아래로 반씩 나누므로, 칸 글 묶음의 위를 첫 문단의 반 몫 · 아래를 마지막 문단의 반 몫만큼 당김
+ * → 줄 자리와 칸 높이가 한글 파일과 같아짐
+ */
+const halfLead = (s: FormStyle) => (s.ls && s.ls > 100 ? (parseFloat(fontPx(s.size)) * (s.ls / 100 - 1)) / 2 : 0);
+// 위는 첫 문단의 반 몫(첫 줄 글을 줄 칸 맨 위로), 아래는 합쳐서 마지막 문단의 몫 하나가 빠지게 (두 문단의 줄 간격이 달라도 칸 높이가 한글과 같게)
+const trimLead = (first: FormStyle, last: FormStyle): CSSProperties => ({ marginTop: -halfLead(first), marginBottom: halfLead(first) - 2 * halfLead(last) });
 /** 칸 위아래 안쪽 여백 */
 const padY = (pad?: [number, number, number, number]): CSSProperties => ({ paddingTop: pad?.[2] ?? 1.9, paddingBottom: pad?.[3] ?? 1.9 });
 /** 칸 테두리 (한글 파일의 칸마다의 선 종류 · 굵기 그대로) */
@@ -1490,7 +1498,7 @@ function CellV2({ cell, canRemoveGoal, onRemoveGoal }: { cell: V2Cell; canRemove
   if (!b) {
     const lines = cell.lines?.length ? cell.lines : [cell.text];
     return (
-      <div className="break-words text-slate-800" style={padY(pad)}>
+      <div className="break-words text-slate-800" style={{ ...padY(pad), ...trimLead(paraStyle(0), paraStyle(lines.length - 1)) }}>
         {lines.map((l, i) => (
           <div key={i} data-st={stAttr(paraStyle(i))} className="whitespace-pre-wrap" style={{ ...cellStyle(paraStyle(i)), ...paraBox(paraStyle(i), pad) }}>
             {paraStyle(i).bullet && l ? `${paraStyle(i).bullet} ` : ""}
@@ -1508,7 +1516,8 @@ function CellV2({ cell, canRemoveGoal, onRemoveGoal }: { cell: V2Cell; canRemove
         onClick={() => set(b.choice.field, on ? "" : b.choice.value)}
         aria-pressed={on}
         aria-label={`성취평가 ${b.choice.value}점`}
-        className="grid h-full w-full place-items-center font-bold text-indigo-700 transition hover:bg-indigo-50"
+        // 칸 위에 겹쳐 놓아 ○ 글자의 줄 높이가 줄 높이를 늘리지 않게 (한글의 성취평가 칸은 글자 높이 + 안쪽 여백)
+        className="absolute inset-0 grid place-items-center font-bold text-indigo-700 transition hover:bg-indigo-50"
         style={cellStyle(paraStyle(0))}
       >
         {on ? "○" : ""}
@@ -1516,8 +1525,9 @@ function CellV2({ cell, canRemoveGoal, onRemoveGoal }: { cell: V2Cell; canRemove
     );
   }
   if ("parts" in b) {
+    const partStyle = (i: number) => withFormat(paraStyle(i), values[fmtKey(b.parts[i].field)]);
     return (
-      <div style={padY(pad)}>
+      <div style={{ ...padY(pad), ...trimLead(partStyle(0), partStyle(b.parts.length - 1)) }}>
         {b.parts.map((p, i) => {
           const ps = paraStyle(i);
           const st = cellStyle(withFormat(ps, values[fmtKey(p.field)]));
@@ -1533,9 +1543,10 @@ function CellV2({ cell, canRemoveGoal, onRemoveGoal }: { cell: V2Cell; canRemove
       </div>
     );
   }
-  const st = { ...cellStyle(withFormat(paraStyle(b.para ?? 0), values[fmtKey(b.field)])), ...paraBox(paraStyle(b.para ?? 0), pad), ...padY(pad) };
+  const own = withFormat(paraStyle(b.para ?? 0), values[fmtKey(b.field)]);
+  const st = { ...cellStyle(own), ...paraBox(paraStyle(b.para ?? 0), pad), ...padY(pad) };
   return (
-    <div className="group/cell relative">
+    <div className="group/cell relative" style={trimLead(b.para ? paraStyle(0) : own, own)}>
       {b.para !== undefined &&
         (cell.lines ?? []).slice(0, b.para).map((l, i) => (
           <div key={i} data-st={stAttr(paraStyle(i))} className="whitespace-pre-wrap text-slate-800" style={{ ...cellStyle(paraStyle(i)), ...paraBox(paraStyle(i), pad), paddingTop: pad?.[2] ?? 1.9 }}>

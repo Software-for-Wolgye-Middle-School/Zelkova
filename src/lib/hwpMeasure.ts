@@ -211,8 +211,14 @@ export function lineStarts(text: string, firstWidth: number, width: number, em: 
 
 const countLines = (text: string, firstWidth: number, width: number, em: number) => lineStarts(text, firstWidth, width, em).length;
 
-/** 문단 높이 (줄 수 × 줄 높이 + 문단 위아래 간격). width: 문단이 놓인 너비 */
-export function paraHeight(recs: Rec[], p: number, width: number, m: Metrics, ls?: number) {
+/**
+ * 줄 간격 중 글자 높이를 넘는 몫 (한글은 글자를 줄 칸 맨 위에 놓고 이 몫을 글 아래에 둠).
+ * 칸 안 마지막 줄 아래에는 이 몫을 두지 않음: 한글이 저장한 칸 높이가 (마지막 줄 위치 + 글자 높이 + 칸 안 여백) 임
+ */
+const trailingGap = (lsType: number, size: number, lineH: number) => (lsType === 0 || lsType === 2 ? Math.max(0, lineH - size) : 0);
+
+/** 문단 높이 (줄 수 × 줄 높이 + 문단 위아래 간격). width: 문단이 놓인 너비. last: 칸 안 마지막 문단이면 마지막 줄 아래 간격을 뺌 */
+export function paraHeight(recs: Rec[], p: number, width: number, m: Metrics, ls?: number, last = false) {
   const ps = m.para[recs[p].data.readUInt16LE(8)] ?? { left: 0, right: 0, indent: 0, top: 0, bottom: 0, lsType: 0, ls: 160 };
   const end = subtreeEnd(recs, p);
   const t = recs.slice(p + 1, end).find((r) => r.tag === TAG.PARA_TEXT && r.level === recs[p].level + 1);
@@ -228,7 +234,7 @@ export function paraHeight(recs: Rec[], p: number, width: number, m: Metrics, ls
   const lines = text ? countLines(text, inner - ps.indent, inner, em) : 1;
   const spacing = ls ?? ps.ls;
   const lineH = ps.lsType === 1 ? spacing : ps.lsType === 2 ? size + spacing : ps.lsType === 3 ? Math.max(size, spacing) : (size * spacing) / 100;
-  return lines * lineH + ps.top + ps.bottom;
+  return lines * lineH - (last ? trailingGap(ps.lsType, size, lineH) : 0) + ps.top + ps.bottom;
 }
 
 /** 칸 안 글이 한 줄일 때의 높이 (문단마다 한 줄 + 칸 안 여백): 줄 높이를 글 한 줄에 맞출 때 씀 */
@@ -238,7 +244,7 @@ export function cellOneLineHeight(recs: Rec[], list: number, paras: number[], m:
     const ps = m.para[recs[p].data.readUInt16LE(8)] ?? { left: 0, right: 0, indent: 0, top: 0, bottom: 0, lsType: 0, ls: 160 };
     const size = Math.max(...paraCharShapes(recs, p).map(([, id]) => m.char[id]?.size ?? 1000), 500);
     const lineH = ps.lsType === 1 ? ps.ls : ps.lsType === 2 ? size + ps.ls : ps.lsType === 3 ? Math.max(size, ps.ls) : (size * ps.ls) / 100;
-    return lineH + ps.top + ps.bottom;
+    return lineH - (p === paras[paras.length - 1] ? trailingGap(ps.lsType, size, lineH) : 0) + ps.top + ps.bottom;
   };
   return paras.reduce((n, p) => n + one(p), 0) + lh.readUInt16LE(28) + lh.readUInt16LE(30);
 }
@@ -247,7 +253,7 @@ export function cellOneLineHeight(recs: Rec[], list: number, paras: number[], m:
 export function cellContentHeight(recs: Rec[], list: number, paras: number[], m: Metrics, ls?: (p: number) => number | undefined) {
   const lh = recs[list].data;
   const width = lh.readUInt32LE(16) - lh.readUInt16LE(24) - lh.readUInt16LE(26);
-  return paras.reduce((n, p) => n + paraHeight(recs, p, width, m, ls?.(p)), 0) + lh.readUInt16LE(28) + lh.readUInt16LE(30);
+  return paras.reduce((n, p, i) => n + paraHeight(recs, p, width, m, ls?.(p), i === paras.length - 1), 0) + lh.readUInt16LE(28) + lh.readUInt16LE(30);
 }
 
 /** 표 높이 어림: 줄마다 (양식의 칸 높이, 칸 안 글 높이) 중 큰 것. 여러 줄을 합친 칸은 모자란 만큼 마지막 줄을 늘림 */
