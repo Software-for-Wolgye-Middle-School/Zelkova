@@ -32,9 +32,10 @@ function paraShapeOf(d: Buffer): ParaShape {
   // 5.0.2.5 이후 파일은 줄 간격을 뒤쪽(50)에 다시 적음 (종류는 attr3 의 아래 5비트)
   const late = d.length >= 54;
   return {
-    left: d.readInt32LE(4),
-    right: d.readInt32LE(8),
-    indent: d.readInt32LE(12),
+    // 왼쪽 · 오른쪽 여백과 들여쓰기는 파일에 실제 값의 2배로 저장됨 (한글이 저장한 줄 너비로 확인)
+    left: d.readInt32LE(4) / 2,
+    right: d.readInt32LE(8) / 2,
+    indent: d.readInt32LE(12) / 2,
     top: d.readInt32LE(16),
     bottom: d.readInt32LE(20),
     lsType: late ? d.readUInt32LE(46) & 0x1f : d.readUInt32LE(0) & 3,

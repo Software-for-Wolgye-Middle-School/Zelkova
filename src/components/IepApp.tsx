@@ -1508,11 +1508,13 @@ function LabeledPart({ label, field, ps, st, pad, right }: { label: string; fiel
     const nw = ref.current?.getBoundingClientRect().width ?? 0;
     setW((old) => (Math.abs(old - nw) < 0.05 ? old : nw));
   });
-  const left = (pad[0] ?? 0) + (ps.ml ?? 0);
+  // 한글: 첫 줄은 왼쪽 여백(들여쓰기면 그만큼 더)에서, 둘째 줄부터는 왼쪽 여백(내어쓰기면 그만큼 더)에서 시작
   const ind = ps.ind ?? 0;
+  const firstX = (pad[0] ?? 0) + (ps.ml ?? 0) + Math.max(0, ind);
+  const restX = (pad[0] ?? 0) + (ps.ml ?? 0) + Math.max(0, -ind);
   return (
-    <div className="relative" style={{ paddingLeft: left, paddingRight: right }}>
-      <span ref={ref} data-st={stAttr(ps)} className="absolute top-0 whitespace-pre text-slate-800" style={{ ...st, left: left + Math.min(0, ind) + Math.max(0, ind), textAlign: "left", fontFamily: cellStyle(ps).fontFamily }}>
+    <div className="relative" style={{ paddingLeft: restX, paddingRight: right }}>
+      <span ref={ref} data-st={stAttr(ps)} className="absolute top-0 whitespace-pre text-slate-800" style={{ ...st, left: firstX, textAlign: "left", fontFamily: cellStyle(ps).fontFamily }}>
         {`${label} `}
       </span>
       <F k={field} className="w-full" style={{ ...st, textAlign: "left", paddingLeft: 0, paddingRight: 0, paddingTop: 0, paddingBottom: 0, textIndent: ind + w }} />

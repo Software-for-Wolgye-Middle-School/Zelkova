@@ -116,9 +116,10 @@ function readShapes(cfb: ReturnType<typeof CFB.read>, compressed: boolean): Shap
       out.para.push({
         align: ALIGN[(a1 >> 2) & 7] ?? "justify",
         ls: lsType === 0 && ls > 0 ? ls : undefined,
-        ml: r.data.length >= 16 ? r.data.readInt32LE(4) / 75 : 0,
-        mr: r.data.length >= 16 ? r.data.readInt32LE(8) / 75 : 0,
-        ind: r.data.length >= 16 ? r.data.readInt32LE(12) / 75 : 0,
+        // 문단 왼쪽 · 오른쪽 여백과 들여쓰기는 파일에 실제 값의 2배로 저장됨 (한글이 저장한 줄 너비로 확인)
+        ml: r.data.length >= 16 ? r.data.readInt32LE(4) / 2 / 75 : 0,
+        mr: r.data.length >= 16 ? r.data.readInt32LE(8) / 2 / 75 : 0,
+        ind: r.data.length >= 16 ? r.data.readInt32LE(12) / 2 / 75 : 0,
         brk: (a1 >> 7) & 1 ? "char" : "word", // 한글 줄 나눔 단위 (속성 7번째 비트)
         bullet: head === 3 && r.data.length >= 32 ? bullets[r.data.readUInt16LE(30) - 1] : undefined,
       });
